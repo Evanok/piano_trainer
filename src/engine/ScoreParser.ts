@@ -4,7 +4,7 @@ import type { ExpectedEvent } from '../types/score'
 // OSMD's Note.halfTone uses its own internal octave convention (offset by
 // Pitch.OctaveXmlDifference = 3 from the MusicXML octave). +12 converts it to
 // the standard MIDI note number (e.g. middle C / C4 -> 60).
-function noteToMidi(note: { halfTone: number }): number {
+export function noteToMidi(note: { halfTone: number }): number {
   return note.halfTone + 12
 }
 
@@ -18,7 +18,8 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay): ExpectedEven
     const notes = cursor.NotesUnderCursor().filter((note) => !note.isRest())
     if (notes.length > 0) {
       const pitches = notes.map(noteToMidi)
-      events.push({ index, pitches })
+      const measureNumber = cursor.Iterator.CurrentMeasureIndex + 1
+      events.push({ index, pitches, measureNumber })
       index += 1
     }
     cursor.next()
