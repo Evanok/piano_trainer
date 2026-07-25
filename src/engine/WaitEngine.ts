@@ -37,6 +37,10 @@ export class WaitEngine {
     }
   }
 
+  get currentExpectedPitches(): number[] {
+    return this.events[this.currentIndex]?.pitches ?? []
+  }
+
   onChange(listener: WaitEngineListener): () => void {
     this.listeners.push(listener)
     return () => {
