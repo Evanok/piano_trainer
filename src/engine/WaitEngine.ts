@@ -1,6 +1,6 @@
 import type { ExpectedEvent, EventStatus } from '../types/score'
 
-const DEFAULT_CHORD_TOLERANCE_MS = 300
+export const DEFAULT_CHORD_TOLERANCE_MS = 2000
 
 export interface WaitEngineState {
   currentIndex: number
@@ -108,6 +108,26 @@ export class WaitEngine {
     this.heldPitches.clear()
     this.firstHeldTimestamp = null
     this.emit('waiting')
+  }
+
+  /**
+   * Actively clears held progress once the chord tolerance window has
+   * elapsed with no new input (rather than waiting for noteOn's lazy check
+   * on the next note), so the UI can visually decay back to neutral even
+   * when the user simply pauses. Returns whether anything was cleared.
+   */
+  expireStaleHold(now: number): boolean {
+    if (
+      this.heldPitches.size > 0 &&
+      this.firstHeldTimestamp !== null &&
+      now - this.firstHeldTimestamp > this.chordToleranceMs
+    ) {
+      this.heldPitches.clear()
+      this.firstHeldTimestamp = null
+      this.emit('waiting')
+      return true
+    }
+    return false
   }
 
   /** Index of the first event at or after the given 1-based measure number, or null if none exists. */

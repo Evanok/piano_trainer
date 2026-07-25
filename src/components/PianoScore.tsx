@@ -1,16 +1,16 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import type { Note } from 'opensheetmusicdisplay'
-import { noteToMidi } from '../engine/ScoreParser'
+import type { Cursor, Note } from 'opensheetmusicdisplay'
+import { isTieContinuation, noteToMidi } from '../engine/ScoreParser'
 
 const CORRECT_COLOR = '#22c55e'
-const ERROR_COLOR = '#ef4444'
-const DEFAULT_COLOR = '#000000'
+const URGENT_COLOR = '#ef4444'
+const NEUTRAL_COLOR = '#eab308'
 
 export interface PianoScoreHandle {
   next: () => void
   reset: () => void
-  syncNotes: (heldPitches: number[]) => void
+  syncNotes: (heldPitches: number[], urgent: boolean) => void
   getCurrentMeasure: () => number
   setZoom: (value: number) => void
   goToEventIndex: (targetIndex: number) => void
@@ -20,6 +20,13 @@ interface PianoScoreProps {
   source: File
   onReady?: (osmd: OpenSheetMusicDisplay) => void
   onError?: (message: string) => void
+}
+
+// A cursor position only counts as a real WaitEngine event if it has at least
+// one note that isn't a rest or a tied-note continuation (see ScoreParser's
+// extractExpectedEvents, which this must stay in sync with).
+function requiredNotesUnderCursor(cursor: Cursor): Note[] {
+  return cursor.NotesUnderCursor().filter((note) => !note.isRest() && !isTieContinuation(note))
 }
 
 // A chord's notes all share one VexFlow StaveNote SVG group, so
@@ -97,6 +104,10 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         }
         osmd.render()
         osmd.cursor.show()
+        // We highlight the current note(s) directly via colorNotes() instead --
+        // the cursor's own default rendering (a thin bar) was confusing next to
+        // that, so keep it in the layout (needed for scrollIntoView) but invisible.
+        osmd.cursor.cursorElement.style.opacity = '0'
         onReady?.(osmd)
       })
       .catch(() => {
@@ -120,37 +131,44 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (!osmd) {
           return
         }
+        // next() is only ever called once the current event is fully correct --
+        // paint it green (and leave it that way permanently, as a played trail)
+        // before moving on.
         colorNotes(
           osmd,
-          osmd.cursor.NotesUnderCursor().map((note) => [note, DEFAULT_COLOR]),
+          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, CORRECT_COLOR]),
         )
         osmd.cursor.next()
-        // Nothing is held yet for the new position -- mark all its notes as
-        // still needed (red) right away, rather than waiting for a mistake.
+        // Skip rest-only and tie-continuation-only positions -- extractExpectedEvents
+        // does the same, so the cursor must land on the same positions it counted as
+        // real events, or the cursor and the WaitEngine's event index fall out of sync.
+        while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd.cursor).length === 0) {
+          osmd.cursor.next()
+        }
+        // The new position hasn't been attempted yet -- neutral, not alarming.
         colorNotes(
           osmd,
-          osmd.cursor
-            .NotesUnderCursor()
-            .filter((n) => !n.isRest())
-            .map((note) => [note, ERROR_COLOR]),
+          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
         )
         osmd.cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       },
       reset: () => osmdRef.current?.cursor.reset(),
-      syncNotes: (heldPitches: number[]) => {
+      syncNotes: (heldPitches: number[], urgent: boolean) => {
         const osmd = osmdRef.current
         if (!osmd) {
           return
         }
         // Always recompute every note's color from the engine's actual held
         // state, rather than patching colors incrementally: correctly-held
-        // notes are green, everything else still needed is red, unconditionally.
+        // notes are green; everything else is red while `urgent` (right after
+        // any attempt) and decays to neutral yellow once the chord tolerance
+        // window elapses with no further input (see Practice.tsx's decay timer).
         colorNotes(
           osmd,
-          osmd.cursor
-            .NotesUnderCursor()
-            .filter((n) => !n.isRest())
-            .map((note) => [note, heldPitches.includes(noteToMidi(note)) ? CORRECT_COLOR : ERROR_COLOR]),
+          requiredNotesUnderCursor(osmd.cursor).map((note) => [
+            note,
+            heldPitches.includes(noteToMidi(note)) ? CORRECT_COLOR : urgent ? URGENT_COLOR : NEUTRAL_COLOR,
+          ]),
         )
       },
       getCurrentMeasure: () => (osmdRef.current?.cursor.Iterator.CurrentMeasureIndex ?? 0) + 1,
@@ -159,14 +177,23 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (!osmd) {
           return
         }
-        colorNotes(
-          osmd,
-          osmd.cursor.NotesUnderCursor().map((note) => [note, DEFAULT_COLOR]),
-        )
+        // A jump (in either direction) can leave positions colored by earlier
+        // attempts (errors, partial chord progress) that would otherwise stay
+        // stuck forever -- reset every position in the whole piece to neutral,
+        // not just the ones between the old and new cursor position.
+        osmd.cursor.reset()
+        while (!osmd.cursor.Iterator.EndReached) {
+          colorNotes(
+            osmd,
+            osmd.cursor.NotesUnderCursor().map((note) => [note, NEUTRAL_COLOR]),
+          )
+          osmd.cursor.next()
+        }
+
         osmd.cursor.reset()
         let count = 0
         while (!osmd.cursor.Iterator.EndReached) {
-          const notes = osmd.cursor.NotesUnderCursor().filter((n) => !n.isRest())
+          const notes = requiredNotesUnderCursor(osmd.cursor)
           if (notes.length > 0) {
             if (count === targetIndex) {
               break
@@ -177,10 +204,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         }
         colorNotes(
           osmd,
-          osmd.cursor
-            .NotesUnderCursor()
-            .filter((n) => !n.isRest())
-            .map((note) => [note, ERROR_COLOR]),
+          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
         )
         osmd.cursor.show()
         osmd.cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })

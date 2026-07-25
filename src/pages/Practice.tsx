@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { PianoScore, type PianoScoreHandle } from '../components/PianoScore'
 import { extractExpectedEvents } from '../engine/ScoreParser'
-import { WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
+import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
 import type { MidiNoteEvent } from '../types/midi'
 import type { SessionStats } from '../types/session'
@@ -34,6 +34,38 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const errorCountRef = useRef(0)
   const totalEventsRef = useRef(0)
   const startedAtRef = useRef(Date.now())
+  const decayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearDecayTimer = () => {
+    if (decayTimeoutRef.current !== null) {
+      clearTimeout(decayTimeoutRef.current)
+      decayTimeoutRef.current = null
+    }
+  }
+
+  // After a partial-correct press or a wrong note, the still-needed notes
+  // show red as an "urgent" cue. If nothing else is played within the chord
+  // tolerance window, that held progress actually expires (not just visually)
+  // and everything settles back to neutral yellow.
+  const scheduleDecay = () => {
+    clearDecayTimer()
+    decayTimeoutRef.current = setTimeout(() => {
+      const engine = waitEngineRef.current
+      if (engine) {
+        // expireStaleHold clears any still-held-but-stale progress (a no-op
+        // if a wrong note already cleared it) -- either way, the "urgent" red
+        // cue itself always calms down to neutral yellow once the timer fires.
+        engine.expireStaleHold(performance.now())
+        scoreRef.current?.syncNotes(engine.currentHeldPitches, false)
+        setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
+      }
+      decayTimeoutRef.current = null
+    }, DEFAULT_CHORD_TOLERANCE_MS)
+  }
+
+  useEffect(() => {
+    return () => clearDecayTimer()
+  }, [])
 
   useEffect(() => {
     return onNoteEvent((event) => {
@@ -55,13 +87,15 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         eventsWithErrorsRef.current.add(indexBeforeNote)
         errorCountRef.current += 1
         setErrorCount(errorCountRef.current)
-        scoreRef.current?.syncNotes(engine.currentHeldPitches)
+        scoreRef.current?.syncNotes(engine.currentHeldPitches, true)
+        scheduleDecay()
         const expectedNames = engine.currentExpectedPitches.map(midiToNoteName).join(', ')
         setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
       } else {
         setWrongNoteFeedback(null)
         const newIndex = engine.state.currentIndex
         if (newIndex > previousIndexRef.current) {
+          clearDecayTimer()
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
@@ -75,7 +109,8 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
             })
           }
         } else {
-          scoreRef.current?.syncNotes(engine.currentHeldPitches)
+          scoreRef.current?.syncNotes(engine.currentHeldPitches, true)
+          scheduleDecay()
         }
       }
       setEngineState(engine.state)
@@ -85,6 +120,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   }, [onNoteEvent, onComplete])
 
   const handleReady = (osmd: OpenSheetMusicDisplay) => {
+    clearDecayTimer()
     const events = extractExpectedEvents(osmd)
     totalEventsRef.current = events.length
     setTotalEvents(events.length)
@@ -98,7 +134,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
     setDebugLog([])
-    scoreRef.current?.syncNotes([])
+    scoreRef.current?.syncNotes([], false)
   }
 
   const handleZoomChange = (value: number) => {
@@ -111,6 +147,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     if (!engine) {
       return
     }
+    clearDecayTimer()
     engine.jumpToEventIndex(targetIndex)
     scoreRef.current?.goToEventIndex(targetIndex)
     previousIndexRef.current = engine.state.currentIndex
