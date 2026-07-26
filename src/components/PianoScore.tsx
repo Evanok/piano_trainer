@@ -31,6 +31,11 @@ export interface PianoScoreHandle {
   getCurrentMeasure: () => number
   setZoom: (value: number) => void
   goToEventIndex: (targetIndex: number) => void
+  // Restricts rendering to [startMeasure, endMeasure] (1-based, inclusive,
+  // matching ExpectedEvent.measureNumber) -- training mode's "each section is
+  // its own isolated score" (no leftover notes from the previous section
+  // still visible off to the side). Pass nulls to clear back to the whole piece.
+  setSectionBounds: (startMeasure: number | null, endMeasure: number | null) => void
 }
 
 export type LayoutMode = 'page' | 'scroll'
@@ -361,6 +366,30 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         osmd.Zoom = value
         osmd.render()
         osmd.cursor.show()
+        reapplyColors(osmd)
+      },
+      setSectionBounds: (startMeasure: number | null, endMeasure: number | null) => {
+        const osmd = osmdRef.current
+        if (!osmd) {
+          return
+        }
+        // Direct EngravingRules fields (0-based indices), not
+        // setOptions({drawFromMeasureNumber, ...}) -- that does its own
+        // measure-NUMBER-to-index conversion (accounting for pickup
+        // measures) which doesn't necessarily match ExpectedEvent.measureNumber's
+        // own sequential-index scheme, and passing undefined to clear a
+        // previously-set bound is a no-op in setOptions (it only ever
+        // narrows, never resets), so clearing needs these defaults directly
+        // anyway (MinMeasureToDrawIndex 0, MaxMeasureToDrawIndex Number.MAX_VALUE).
+        osmd.EngravingRules.MinMeasureToDrawIndex = startMeasure !== null ? startMeasure - 1 : 0
+        osmd.EngravingRules.MaxMeasureToDrawIndex = endMeasure !== null ? endMeasure - 1 : Number.MAX_VALUE
+        osmd.updateGraphic()
+        osmd.render()
+        if (layoutModeRef.current === 'scroll' && containerRef.current) {
+          fitScrollZoom(osmd, containerRef.current)
+        }
+        osmd.cursor.show()
+        osmd.cursor.cursorElement.style.opacity = '0'
         reapplyColors(osmd)
       },
     }),

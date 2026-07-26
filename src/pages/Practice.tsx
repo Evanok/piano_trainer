@@ -1,14 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
-import { extractExpectedEvents } from '../engine/ScoreParser'
+import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
+import { computeSections, type Section } from '../engine/sections'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
+import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type { SessionStats } from '../types/session'
+
+const DEFAULT_MEASURES_PER_SECTION = 8
+// A section only auto-advances once it's been played through with zero
+// errors this many times IN A ROW -- one clean pass isn't enough to prove
+// it's learned, but requiring more would make repetitive drilling tedious.
+const PERFECT_RUNS_TO_ADVANCE = 2
 
 interface PracticeProps {
   scoreFile: File
@@ -39,6 +47,23 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
   const [wrongPitches, setWrongPitches] = useState<number[]>([])
 
+  // Training mode: split the piece into sections, drill one at a time.
+  const [trainingMode, setTrainingMode] = useState(false)
+  const [events, setEvents] = useState<ExpectedEvent[]>([])
+  const [naturalBreaks, setNaturalBreaks] = useState<Set<number>>(new Set())
+  const [measuresPerSection, setMeasuresPerSection] = useState(DEFAULT_MEASURES_PER_SECTION)
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
+  const [sectionPerfectStreak, setSectionPerfectStreak] = useState(0)
+  const [sectionMessage, setSectionMessage] = useState<string | null>(null)
+
+  // currentSectionIndex === sections.length is the implicit "Whole piece"
+  // choice -- practice every event with no section boundary, same as
+  // training mode being off.
+  const sections = useMemo(
+    () => computeSections(events, measuresPerSection, naturalBreaks),
+    [events, measuresPerSection, naturalBreaks],
+  )
+
   const scoreRef = useRef<PianoScoreHandle | null>(null)
   const waitEngineRef = useRef<WaitEngine | null>(null)
   const previousIndexRef = useRef(0)
@@ -56,12 +81,37 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const correctNoteCountRef = useRef(0)
   const startedAtRef = useRef(Date.now())
   const decayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // errors within the CURRENT attempt of the current section (not the whole
+  // session) -- resets every time a section (re)starts, see goToEventIndex.
+  const sectionErrorCountRef = useRef(0)
+  // The onNoteEvent effect below only runs once (stable deps), so it reads
+  // training-mode state through these refs rather than stale closure values.
+  const trainingModeRef = useRef(trainingMode)
+  trainingModeRef.current = trainingMode
+  const sectionsRef = useRef<Section[]>(sections)
+  sectionsRef.current = sections
+  const currentSectionIndexRef = useRef(currentSectionIndex)
+  currentSectionIndexRef.current = currentSectionIndex
+  const sectionPerfectStreakRef = useRef(sectionPerfectStreak)
+  sectionPerfectStreakRef.current = sectionPerfectStreak
 
   const clearDecayTimer = () => {
     if (decayTimeoutRef.current !== null) {
       clearTimeout(decayTimeoutRef.current)
       decayTimeoutRef.current = null
     }
+  }
+
+  const showSectionMessage = (message: string) => {
+    if (sectionMessageTimeoutRef.current !== null) {
+      clearTimeout(sectionMessageTimeoutRef.current)
+    }
+    setSectionMessage(message)
+    sectionMessageTimeoutRef.current = setTimeout(() => {
+      setSectionMessage(null)
+      sectionMessageTimeoutRef.current = null
+    }, 3000)
   }
 
   // A wrong keypress within the chord tolerance window is reported but
@@ -85,8 +135,81 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   }
 
   useEffect(() => {
-    return () => clearDecayTimer()
+    return () => {
+      clearDecayTimer()
+      if (sectionMessageTimeoutRef.current !== null) {
+        clearTimeout(sectionMessageTimeoutRef.current)
+      }
+    }
   }, [])
+
+  const goToEventIndex = (targetIndex: number) => {
+    const engine = waitEngineRef.current
+    if (!engine) {
+      return
+    }
+    clearDecayTimer()
+    engine.jumpToEventIndex(targetIndex)
+    scoreRef.current?.goToEventIndex(targetIndex)
+    previousIndexRef.current = engine.state.currentIndex
+    // Only the in-progress streak resets on a jump -- the session's best
+    // combo (maxComboRef) is a record, not live progress, so it survives.
+    comboRef.current = 0
+    setCurrentCombo(0)
+    // A fresh attempt of whatever section is landed on starts with 0 errors
+    // so far, whether this jump is a repeat, an advance, or a manual pick.
+    sectionErrorCountRef.current = 0
+    setEngineState(engine.state)
+    setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
+    setWrongNoteFeedback(null)
+    setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
+    setDebugHeld('')
+    setExpectedPitches(engine.currentExpectedPitches)
+    setHeldPitches([])
+    setWrongPitches([])
+  }
+
+  // Restricts the score to exactly one section's measures -- each section
+  // reads like its own isolated mini-score (Simply-Piano-style), with no
+  // leftover notes from the section just left still visible off to the side.
+  // null means the whole piece (used for the explicit "Whole piece" choice
+  // and when exiting training mode).
+  const applySectionBounds = (bounds: Section | null) => {
+    scoreRef.current?.setSectionBounds(bounds ? bounds.startMeasure : null, bounds ? bounds.endMeasure : null)
+  }
+
+  // Called when the section currently being drilled has just been completed
+  // (see the note-event handler below). Advances only once it's been played
+  // perfectly PERFECT_RUNS_TO_ADVANCE times in a row -- otherwise repeats the
+  // same section, keeping the streak so the next attempt still counts toward it.
+  const handleSectionCompleted = () => {
+    const wasPerfect = sectionErrorCountRef.current === 0
+    const streak = wasPerfect ? sectionPerfectStreakRef.current + 1 : 0
+    setSectionPerfectStreak(streak)
+
+    const completedSectionNumber = currentSectionIndexRef.current + 1
+    if (streak >= PERFECT_RUNS_TO_ADVANCE) {
+      const nextIndex = completedSectionNumber // 0-based next index === 1-based completed number
+      const nextBounds = nextIndex < sectionsRef.current.length ? sectionsRef.current[nextIndex] : null
+      setCurrentSectionIndex(nextIndex)
+      setSectionPerfectStreak(0)
+      applySectionBounds(nextBounds)
+      goToEventIndex(nextBounds ? nextBounds.startEventIndex : 0)
+      showSectionMessage(
+        nextBounds
+          ? `Section ${completedSectionNumber} mastered! Moving to section ${nextIndex + 1}.`
+          : 'All sections mastered! Now practice the whole piece.',
+      )
+    } else {
+      const activeSection = sectionsRef.current[currentSectionIndexRef.current]
+      goToEventIndex(activeSection.startEventIndex)
+      showSectionMessage(
+        wasPerfect
+          ? `Section ${completedSectionNumber} clean! One more perfect run to advance.`
+          : `Section ${completedSectionNumber} had errors -- let's try again.`,
+      )
+    }
+  }
 
   useEffect(() => {
     return onNoteEvent((event) => {
@@ -104,12 +227,20 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         [...log, `received ${midiToNoteName(event.pitch)} (${event.pitch}) -> ${status}`].slice(-10),
       )
 
+      const activeSection =
+        trainingModeRef.current && currentSectionIndexRef.current < sectionsRef.current.length
+          ? sectionsRef.current[currentSectionIndexRef.current]
+          : null
+
       if (status === 'error') {
         eventsWithErrorsRef.current.add(indexBeforeNote)
         errorCountRef.current += 1
         setErrorCount(errorCountRef.current)
         comboRef.current = 0
         setCurrentCombo(0)
+        if (activeSection) {
+          sectionErrorCountRef.current += 1
+        }
         scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
@@ -134,7 +265,14 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
-          if (engine.state.completed) {
+
+          if (activeSection && newIndex >= activeSection.endEventIndex) {
+            // A bounded section always wins over whole-piece completion --
+            // the LAST section's end coincides with the piece's end, but
+            // finishing it should offer a distinct final "whole piece" pass
+            // rather than immediately ending the session.
+            handleSectionCompleted()
+          } else if (engine.state.completed) {
             const total = totalEventsRef.current
             onComplete({
               durationMs: Date.now() - startedAtRef.current,
@@ -155,23 +293,41 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       setExpectedPitches(engine.currentExpectedPitches)
       setHeldPitches(engine.currentHeldPitches)
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNoteEvent, onComplete])
 
   const handleReady = (osmd: OpenSheetMusicDisplay) => {
     clearDecayTimer()
-    const events = extractExpectedEvents(osmd)
-    totalEventsRef.current = events.length
-    setTotalEvents(events.length)
-    waitEngineRef.current = new WaitEngine(events)
+    const newEvents = extractExpectedEvents(osmd)
+    totalEventsRef.current = newEvents.length
+    setTotalEvents(newEvents.length)
+    setEvents(newEvents)
+    const freshNaturalBreaks = extractNaturalBreakMeasures(osmd)
+    setNaturalBreaks(freshNaturalBreaks)
+    // A remount (e.g. entering training mode, which forces scroll layout)
+    // loses any previously-set section crop -- the `sections` memo above
+    // hasn't recomputed yet at this point in the render cycle, so section 0's
+    // bounds are derived fresh here instead of read from that stale value.
+    if (trainingMode) {
+      const freshSections = computeSections(newEvents, measuresPerSection, freshNaturalBreaks)
+      scoreRef.current?.setSectionBounds(freshSections[0]?.startMeasure ?? null, freshSections[0]?.endMeasure ?? null)
+    } else {
+      scoreRef.current?.setSectionBounds(null, null)
+    }
+    waitEngineRef.current = new WaitEngine(newEvents)
     previousIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
     comboRef.current = 0
     maxComboRef.current = 0
     correctNoteCountRef.current = 0
+    sectionErrorCountRef.current = 0
     setCurrentCombo(0)
     setBestCombo(0)
     setCorrectNoteCount(0)
+    setCurrentSectionIndex(0)
+    setSectionPerfectStreak(0)
+    setSectionMessage(null)
     startedAtRef.current = Date.now()
     recordPracticeDay()
     setWrongNoteFeedback(null)
@@ -182,7 +338,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     setExpectedPitches(waitEngineRef.current.currentExpectedPitches)
     setHeldPitches([])
     setWrongPitches([])
-    const allPitches = events.flatMap((event) => event.pitches)
+    const allPitches = newEvents.flatMap((event) => event.pitches)
     if (allPitches.length > 0) {
       setPitchRange({ low: Math.min(...allPitches), high: Math.max(...allPitches) })
     }
@@ -192,29 +348,6 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const handleZoomChange = (value: number) => {
     setZoomValue(value)
     scoreRef.current?.setZoom(value)
-  }
-
-  const goToEventIndex = (targetIndex: number) => {
-    const engine = waitEngineRef.current
-    if (!engine) {
-      return
-    }
-    clearDecayTimer()
-    engine.jumpToEventIndex(targetIndex)
-    scoreRef.current?.goToEventIndex(targetIndex)
-    previousIndexRef.current = engine.state.currentIndex
-    // Only the in-progress streak resets on a jump -- the session's best
-    // combo (maxComboRef) is a record, not live progress, so it survives.
-    comboRef.current = 0
-    setCurrentCombo(0)
-    setEngineState(engine.state)
-    setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
-    setWrongNoteFeedback(null)
-    setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
-    setDebugHeld('')
-    setExpectedPitches(engine.currentExpectedPitches)
-    setHeldPitches([])
-    setWrongPitches([])
   }
 
   const handleBackToStart = () => goToEventIndex(0)
@@ -228,6 +361,43 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     const eventIndex = engine.findEventIndexForMeasure(measureNumber)
     if (eventIndex !== null) {
       goToEventIndex(eventIndex)
+    }
+  }
+
+  // Manual section navigation (dropdown or Prev/Next) always jumps
+  // immediately, bypassing the perfect-run requirement -- that gate only
+  // applies to automatic advancement.
+  const handleSelectSection = (newSectionIndex: number) => {
+    setCurrentSectionIndex(newSectionIndex)
+    setSectionPerfectStreak(0)
+    setSectionMessage(null)
+    const bounds = newSectionIndex < sections.length ? sections[newSectionIndex] : null
+    applySectionBounds(bounds)
+    goToEventIndex(bounds ? bounds.startEventIndex : 0)
+  }
+
+  const handlePrevSection = () => handleSelectSection(Math.max(0, currentSectionIndex - 1))
+  const handleNextSection = () => handleSelectSection(Math.min(sections.length, currentSectionIndex + 1))
+
+  const handleToggleTrainingMode = () => {
+    if (trainingMode) {
+      setTrainingMode(false)
+      applySectionBounds(null)
+      return
+    }
+    setTrainingMode(true)
+    setCurrentSectionIndex(0)
+    setSectionPerfectStreak(0)
+    setLayoutMode('scroll')
+    applySectionBounds(sections[0] ?? null)
+    goToEventIndex(0)
+  }
+
+  const handleMeasuresPerSectionChange = (value: number) => {
+    if (Number.isFinite(value) && value >= 1) {
+      setMeasuresPerSection(value)
+      setCurrentSectionIndex(0)
+      setSectionPerfectStreak(0)
     }
   }
 
@@ -315,14 +485,78 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         >
           {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
         </button>
+        {!trainingMode && (
+          <button
+            type="button"
+            onClick={() => setLayoutMode((mode) => (mode === 'page' ? 'scroll' : 'page'))}
+            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+          >
+            {layoutMode === 'page' ? 'Switch to scroll mode' : 'Switch to page mode'}
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => setLayoutMode((mode) => (mode === 'page' ? 'scroll' : 'page'))}
-          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+          onClick={handleToggleTrainingMode}
+          className={
+            trainingMode
+              ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
+              : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
+          }
         >
-          {layoutMode === 'page' ? 'Switch to scroll mode' : 'Switch to page mode'}
+          {trainingMode ? 'Exit training mode' : 'Start training mode'}
         </button>
       </div>
+
+      {trainingMode && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
+          <label className="flex items-center gap-2">
+            Section
+            <select
+              value={currentSectionIndex}
+              onChange={(e) => handleSelectSection(Number(e.target.value))}
+              className="rounded-md border border-indigo-300 bg-white px-2 py-1"
+            >
+              {sections.map((section) => (
+                <option key={section.index} value={section.index}>
+                  Section {section.index + 1} ({section.label})
+                </option>
+              ))}
+              <option value={sections.length}>Whole piece</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={handlePrevSection}
+            className="rounded-md border border-indigo-300 bg-white px-2.5 py-1 hover:bg-indigo-100"
+          >
+            Prev section
+          </button>
+          <button
+            type="button"
+            onClick={handleNextSection}
+            className="rounded-md border border-indigo-300 bg-white px-2.5 py-1 hover:bg-indigo-100"
+          >
+            Next section
+          </button>
+          <label className="flex items-center gap-2">
+            Measures per section
+            <input
+              type="number"
+              min={1}
+              value={measuresPerSection}
+              onChange={(e) => handleMeasuresPerSectionChange(Number(e.target.value))}
+              className="w-16 rounded-md border border-indigo-300 bg-white px-2 py-1"
+            />
+          </label>
+          {currentSectionIndex < sections.length && (
+            <span>
+              Perfect runs: {sectionPerfectStreak}/{PERFECT_RUNS_TO_ADVANCE} to advance
+            </span>
+          )}
+        </div>
+      )}
+
+      {sectionMessage && <p className="rounded-md bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{sectionMessage}</p>}
 
       {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
 
@@ -334,7 +568,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       <PianoScore
         ref={scoreRef}
         source={scoreFile}
-        layoutMode={layoutMode}
+        layoutMode={trainingMode ? 'scroll' : layoutMode}
         onReady={handleReady}
         onError={setLoadError}
       />
