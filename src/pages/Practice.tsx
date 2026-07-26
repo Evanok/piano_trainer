@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { PianoScore, type PianoScoreHandle } from '../components/PianoScore'
+import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents } from '../engine/ScoreParser'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
@@ -28,6 +28,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('page')
   const [expectedPitches, setExpectedPitches] = useState<number[]>([])
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
@@ -270,6 +271,13 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         >
           {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
         </button>
+        <button
+          type="button"
+          onClick={() => setLayoutMode((mode) => (mode === 'page' ? 'scroll' : 'page'))}
+          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+        >
+          {layoutMode === 'page' ? 'Switch to scroll mode' : 'Switch to page mode'}
+        </button>
       </div>
 
       {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
@@ -279,7 +287,13 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
       </div>
 
-      <PianoScore ref={scoreRef} source={scoreFile} onReady={handleReady} onError={setLoadError} />
+      <PianoScore
+        ref={scoreRef}
+        source={scoreFile}
+        layoutMode={layoutMode}
+        onReady={handleReady}
+        onError={setLoadError}
+      />
 
       {showKeyboard && (
         <VirtualKeyboard

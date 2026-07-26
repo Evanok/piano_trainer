@@ -7,6 +7,23 @@ const CORRECT_COLOR = '#22c55e'
 const NEUTRAL_COLOR = '#eab308'
 const DEFAULT_COLOR = '#000000'
 
+// Scroll mode: how many measures should fit across the container's width --
+// the zoom level is derived from this, not the other way around, so the
+// player always sees a consistent amount of "road ahead" regardless of the
+// piece's note density. Cursor look-ahead: the cursor is kept at this
+// fraction of the container width from the left edge (not centered and
+// never let drift to the right edge) so upcoming measures are always
+// visible to anticipate, per the user's explicit ask.
+const SCROLL_MODE_TARGET_VISIBLE_MEASURES = 4.5
+const SCROLL_MODE_LOOKAHEAD_FRACTION = 0.3
+// OSMD caps a single horizontal staffline's total width at EngravingRules.
+// SheetMaximumWidth (default 32767, a leftover Canvas-backend limit -- SVG has
+// none) and silently squishes measures toward zero width past it instead of
+// erroring. A real score zoomed in to hit ~4-5 visible measures easily needs
+// more total width than that once spread across 200+ measures, so this must
+// be raised before load() (same load-order constraint as RenderSingleHorizontalStaffline).
+const SCROLL_MODE_SHEET_MAXIMUM_WIDTH = 300000
+
 export interface PianoScoreHandle {
   next: () => void
   reset: () => void
@@ -16,8 +33,11 @@ export interface PianoScoreHandle {
   goToEventIndex: (targetIndex: number) => void
 }
 
+export type LayoutMode = 'page' | 'scroll'
+
 interface PianoScoreProps {
   source: File
+  layoutMode?: LayoutMode
   onReady?: (osmd: OpenSheetMusicDisplay) => void
   onError?: (message: string) => void
 }
@@ -61,12 +81,86 @@ function tryColorNoteFast(osmd: OpenSheetMusicDisplay, note: Note, color: string
   return true
 }
 
+// Picks a zoom level for scroll mode instead of leaving the default zoom's
+// much narrower measures cramming dozens on screen above a wall of unused
+// space below (the single staffline is short at zoom 1). Must run after an
+// initial render() at the current zoom, to measure the actual on-screen
+// sizes; re-renders once at the computed zoom.
+//
+// Two constraints, and the smaller (less zoomed-in) of the two wins -- never
+// the bigger, or a score whose natural aspect ratio doesn't fit both at once
+// would zoom in enough to hit the measure-count target but clip the bottom
+// staff out of the container (overflow-y is hidden in scroll mode, so any
+// part below the container's height is simply gone, not scrollable):
+//  - width: no more than SCROLL_MODE_TARGET_VISIBLE_MEASURES measures should
+//    fit across the container's width. Sampled from the first few measures
+//    specifically, not a whole-piece average -- the opening is usually less
+//    dense than a piece's busiest sections, so an average zoom-fit
+//    consistently undershoots and shows more than intended right when the
+//    player starts. Measured via one shared left-edge x-position per real
+//    measure (a piano score's treble/bass staves each contribute their own
+//    SVG group per measure, but share the same x).
+//  - height: the single staffline should fill the container's height rather
+//    than leaving blank space below it, and never exceed it.
+const SCROLL_MODE_SAMPLE_MEASURES = 8
+
+function fitScrollZoom(osmd: OpenSheetMusicDisplay, container: HTMLElement): void {
+  const svg = container.querySelector('svg')
+  const groups = Array.from(container.querySelectorAll('g.vf-measure'))
+  const leftXs = Array.from(new Set(groups.map((g) => Math.round(g.getBoundingClientRect().left)))).sort(
+    (a, b) => a - b,
+  )
+  const sampleCount = Math.min(SCROLL_MODE_SAMPLE_MEASURES, leftXs.length - 1)
+  const heightAtCurrentZoom = svg ? parseFloat(svg.getAttribute('height') ?? '0') : 0
+  if (sampleCount < 1 || !heightAtCurrentZoom) {
+    return
+  }
+  const sampledWidthAtCurrentZoom = leftXs[sampleCount] - leftXs[0]
+  const avgMeasureWidthAtZoom1 = sampledWidthAtCurrentZoom / sampleCount / osmd.Zoom
+  const heightAtZoom1 = heightAtCurrentZoom / osmd.Zoom
+  const widthBasedZoom = container.clientWidth / SCROLL_MODE_TARGET_VISIBLE_MEASURES / avgMeasureWidthAtZoom1
+  const heightBasedZoom = container.clientHeight / heightAtZoom1
+  osmd.Zoom = Math.min(Math.max(Math.min(widthBasedZoom, heightBasedZoom), 0.5), 5)
+  osmd.render()
+}
+
+// Page mode keeps the browser's own scrollIntoView (vertical, "nearest" is
+// enough there). Scroll mode drives the container's horizontal scroll
+// directly instead of relying on OSMD's own cursor-follow behavior, both to
+// avoid the two fighting each other (visibly janky) and to enforce the
+// look-ahead position rather than centering or only scrolling once the
+// cursor reaches the edge.
+function scrollCursorIntoView(osmd: OpenSheetMusicDisplay, container: HTMLElement, mode: LayoutMode): void {
+  const cursorElement = osmd.cursor.cursorElement
+  if (mode !== 'scroll') {
+    cursorElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    return
+  }
+  // NOT getBoundingClientRect() -- the cursor element has a CSS transition on
+  // its position (OSMD animates it moving), so reading its rect right after
+  // moving it can capture a mid-animation value instead of the target,
+  // sending the container to the wrong place (seen jumping the cursor off
+  // the visible area entirely on long jumps). style.left is the same
+  // content-space X the transition animates towards, set synchronously.
+  const cursorX = parseFloat(cursorElement.style.left)
+  if (!Number.isFinite(cursorX)) {
+    return
+  }
+  const targetScrollLeft = Math.max(0, cursorX - container.clientWidth * SCROLL_MODE_LOOKAHEAD_FRACTION)
+  container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' })
+}
+
 export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function PianoScore(
-  { source, onReady, onError },
+  { source, layoutMode = 'page', onReady, onError },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
+  // useImperativeHandle below is only ever built once ([] deps, to keep the
+  // handle identity stable) -- its closures can't see later renders' props
+  // directly, so layoutMode is read through this ref instead.
+  const layoutModeRef = useRef<LayoutMode>(layoutMode)
+  layoutModeRef.current = layoutMode
   // Tracks every note's last-assigned color so it can be reapplied after any
   // full osmd.render() (zoom, or the rare fast-path-fallback) -- a fresh
   // render() regenerates the SVG from scratch (plain black noteheads), and
@@ -104,12 +198,30 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     if (!containerRef.current) {
       return
     }
+    // A remount (e.g. toggling layoutMode) leaves the previous instance's SVG
+    // behind otherwise -- OSMD doesn't clear a container it didn't create itself.
+    containerRef.current.replaceChildren()
     const osmd = new OpenSheetMusicDisplay(containerRef.current, {
       autoResize: true,
       backend: 'svg',
       drawTitle: false,
       drawPartNames: false,
+      // "Arranged by ..." / "Composed by ..." credits aren't covered by
+      // drawTitle -- left on, they push the whole staffline down, which is
+      // especially visible in scroll mode where the staff no longer has a
+      // full page of margin to absorb it.
+      drawComposer: false,
+      drawLyricist: false,
+      drawCredits: false,
+      // Must be set before load() -- OSMD ignores it if set via setOptions()
+      // afterwards. Reusing Wait Mode's own advance/coloring logic unchanged,
+      // this only swaps the paginated layout for one continuous staff line
+      // (horizontal auto-scroll is handled ourselves, see scrollCursorIntoView).
+      renderSingleHorizontalStaffline: layoutMode === 'scroll',
     })
+    if (layoutMode === 'scroll') {
+      osmd.EngravingRules.SheetMaximumWidth = SCROLL_MODE_SHEET_MAXIMUM_WIDTH
+    }
     osmdRef.current = osmd
     noteColorsRef.current = new Map()
     let cancelled = false
@@ -121,11 +233,18 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           return
         }
         osmd.render()
+        if (layoutMode === 'scroll' && containerRef.current) {
+          fitScrollZoom(osmd, containerRef.current)
+        }
         osmd.cursor.show()
         // We highlight the current note(s) directly via colorNotes() instead --
         // the cursor's own default rendering (a thin bar) was confusing next to
         // that, so keep it in the layout (needed for scrollIntoView) but invisible.
         osmd.cursor.cursorElement.style.opacity = '0'
+        // Scrolling is driven entirely by scrollCursorIntoView below -- OSMD's
+        // own cursor-follow (auto-centering in scroll mode) would otherwise
+        // fire on every cursor.next() too and fight our look-ahead position.
+        osmd.cursor.CursorOptions = { ...osmd.cursor.CursorOptions, follow: false }
         onReady?.(osmd)
       })
       .catch(() => {
@@ -139,7 +258,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source])
+  }, [source, layoutMode])
 
   useImperativeHandle(
     ref,
@@ -168,7 +287,9 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           osmd,
           requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
         )
-        osmd.cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        if (containerRef.current) {
+          scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
+        }
       },
       reset: () => osmdRef.current?.cursor.reset(),
       syncNotes: (heldPitches: number[]) => {
@@ -228,7 +349,9 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
         )
         osmd.cursor.show()
-        osmd.cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        if (containerRef.current) {
+          scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
+        }
       },
       setZoom: (value: number) => {
         const osmd = osmdRef.current
@@ -247,7 +370,16 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+      className={
+        layoutMode === 'scroll'
+          ? // items-center: fitScrollZoom only zooms up to what the container's
+            // WIDTH allows for the measure-count target, capped separately by
+            // height -- on a container taller than the zoomed staffline needs,
+            // that leaves vertical slack that would otherwise all sit below the
+            // staff (block layout default is top-aligned), not centered on it.
+            'min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-gray-200 bg-white p-4 shadow-sm flex items-center'
+          : 'min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm'
+      }
     />
   )
 })
