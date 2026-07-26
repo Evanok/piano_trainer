@@ -6,6 +6,7 @@ import { isTieContinuation, noteToMidi } from '../engine/ScoreParser'
 const CORRECT_COLOR = '#22c55e'
 const URGENT_COLOR = '#ef4444'
 const NEUTRAL_COLOR = '#eab308'
+const DEFAULT_COLOR = '#000000'
 
 export interface PianoScoreHandle {
   next: () => void
@@ -61,28 +62,44 @@ function tryColorNoteFast(osmd: OpenSheetMusicDisplay, note: Note, color: string
   return true
 }
 
-// Colors every given note, using the fast path where possible and batching a
-// single osmd.render() at the end only if some notes needed the fallback.
-function colorNotes(osmd: OpenSheetMusicDisplay, assignments: Array<[Note, string]>): void {
-  let needsRender = false
-  for (const [note, color] of assignments) {
-    if (!tryColorNoteFast(osmd, note, color)) {
-      note.NoteheadColor = color
-      needsRender = true
-    }
-  }
-  if (needsRender) {
-    osmd.render()
-    osmd.cursor.show()
-  }
-}
-
 export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function PianoScore(
   { source, onReady, onError },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
+  // Tracks every note's last-assigned color so it can be reapplied after any
+  // full osmd.render() (zoom, or the rare fast-path-fallback) -- a fresh
+  // render() regenerates the SVG from scratch (plain black noteheads), and
+  // OSMD's own Note.NoteheadColor-during-render mechanism turned out to crash
+  // on this app's real-world scores (a library bug, not ours), so colors are
+  // only ever reproduced by re-running the direct-SVG fast path afterwards.
+  const noteColorsRef = useRef<Map<Note, string>>(new Map())
+
+  // Colors every given note via the fast path, remembering each choice so it
+  // survives a future full render(). Falls back to Note.NoteheadColor + a
+  // single batched render() only for the rare note the fast path can't reach.
+  const colorNotes = (osmd: OpenSheetMusicDisplay, assignments: Array<[Note, string]>) => {
+    let needsRender = false
+    for (const [note, color] of assignments) {
+      noteColorsRef.current.set(note, color)
+      if (!tryColorNoteFast(osmd, note, color)) {
+        note.NoteheadColor = color
+        needsRender = true
+      }
+    }
+    if (needsRender) {
+      osmd.render()
+      osmd.cursor.show()
+      reapplyColors(osmd)
+    }
+  }
+
+  const reapplyColors = (osmd: OpenSheetMusicDisplay) => {
+    for (const [note, color] of noteColorsRef.current) {
+      tryColorNoteFast(osmd, note, color)
+    }
+  }
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -92,8 +109,10 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       autoResize: true,
       backend: 'svg',
       drawTitle: false,
+      drawPartNames: false,
     })
     osmdRef.current = osmd
+    noteColorsRef.current = new Map()
     let cancelled = false
 
     osmd
@@ -178,14 +197,17 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           return
         }
         // A jump (in either direction) can leave positions colored by earlier
-        // attempts (errors, partial chord progress) that would otherwise stay
-        // stuck forever -- reset every position in the whole piece to neutral,
-        // not just the ones between the old and new cursor position.
+        // attempts (errors, partial chord progress, completed-and-green) that
+        // would otherwise stay stuck forever -- clear every position in the
+        // whole piece back to plain, uncolored notes, not just the ones
+        // between the old and new cursor position. Only the target position
+        // (below) gets the "current" yellow -- everything else should look
+        // untouched, not all yellow.
         osmd.cursor.reset()
         while (!osmd.cursor.Iterator.EndReached) {
           colorNotes(
             osmd,
-            osmd.cursor.NotesUnderCursor().map((note) => [note, NEUTRAL_COLOR]),
+            osmd.cursor.NotesUnderCursor().map((note) => [note, DEFAULT_COLOR]),
           )
           osmd.cursor.next()
         }
@@ -217,6 +239,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         osmd.Zoom = value
         osmd.render()
         osmd.cursor.show()
+        reapplyColors(osmd)
       },
     }),
     [],
@@ -225,7 +248,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   return (
     <div
       ref={containerRef}
-      className="h-[60vh] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900"
+      className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
     />
   )
 })

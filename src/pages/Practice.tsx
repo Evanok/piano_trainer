@@ -175,11 +175,11 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   if (loadError) {
     return (
       <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-6 px-6 text-center">
-        <p className="text-red-600 dark:text-red-400">{loadError}</p>
+        <p className="text-red-600">{loadError}</p>
         <button
           type="button"
           onClick={onBack}
-          className="rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
+          className="rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700"
         >
           Back to home
         </button>
@@ -190,15 +190,15 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const displayedIndex = Math.min((engineState?.currentIndex ?? 0) + 1, totalEvents)
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-6 py-8">
+    <div className="mx-auto flex h-screen w-full max-w-[1600px] flex-col gap-4 px-6 py-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{scoreFile.name}</h1>
-        <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline dark:text-gray-400">
+        <h1 className="text-xl font-semibold text-gray-900">{scoreFile.name}</h1>
+        <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
           Back to home
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600 dark:text-gray-300">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600">
         <span>
           Measure {currentMeasure} -- Event {displayedIndex} / {totalEvents}
         </span>
@@ -206,7 +206,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         <button
           type="button"
           onClick={handleBackToStart}
-          className="rounded-md border border-gray-300 px-2.5 py-1 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
+          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
         >
           Back to start
         </button>
@@ -222,12 +222,12 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
                 handleJumpToMeasure()
               }
             }}
-            className="w-16 rounded-md border border-gray-300 px-2 py-1 dark:border-gray-600 dark:bg-gray-800"
+            className="w-16 rounded-md border border-gray-300 bg-white px-2 py-1"
           />
           <button
             type="button"
             onClick={handleJumpToMeasure}
-            className="rounded-md border border-gray-300 px-2.5 py-1 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
+            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
           >
             Go
           </button>
@@ -245,13 +245,9 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         </label>
       </div>
 
-      {wrongNoteFeedback && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {wrongNoteFeedback}
-        </p>
-      )}
+      {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
 
-      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900">
         <p>DEBUG -- expected: [{debugExpected}] -- held: [{debugHeld}]</p>
         <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
       </div>
