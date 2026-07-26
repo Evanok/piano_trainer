@@ -57,14 +57,29 @@ describe('WaitEngine', () => {
     expect(engine.state.currentIndex).toBe(0)
   })
 
-  it('scenario 3: a wrong note resets all progress on the current chord, regardless of timing', () => {
+  it('scenario 3a: a wrong note within the tolerance window is reported but does not erase already-held correct notes', () => {
     const events: ExpectedEvent[] = [event(0, [C4, D4, F4, A4])]
     const engine = new WaitEngine(events, 300)
 
     engine.noteOn(C4, 0)
     expect(engine.currentHeldPitches).toEqual([C4])
 
+    // A wrong note landing 50ms later is the same simultaneous attempt (one
+    // finger slipped while pressing a chord with several correct fingers) --
+    // C4 must stay held.
     expect(engine.noteOn(E4, 50)).toBe('error')
+    expect(engine.currentHeldPitches).toEqual([C4])
+  })
+
+  it('scenario 3b: a wrong note after the tolerance window has elapsed resets all progress', () => {
+    const events: ExpectedEvent[] = [event(0, [C4, D4, F4, A4])]
+    const engine = new WaitEngine(events, 300)
+
+    engine.noteOn(C4, 0)
+    expect(engine.currentHeldPitches).toEqual([C4])
+
+    // A wrong note landing 5s later is a distinct, later attempt -- full reset.
+    expect(engine.noteOn(E4, 5000)).toBe('error')
     expect(engine.currentHeldPitches).toEqual([])
   })
 

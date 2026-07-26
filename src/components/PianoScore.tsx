@@ -4,14 +4,13 @@ import type { Cursor, Note } from 'opensheetmusicdisplay'
 import { isTieContinuation, noteToMidi } from '../engine/ScoreParser'
 
 const CORRECT_COLOR = '#22c55e'
-const URGENT_COLOR = '#ef4444'
 const NEUTRAL_COLOR = '#eab308'
 const DEFAULT_COLOR = '#000000'
 
 export interface PianoScoreHandle {
   next: () => void
   reset: () => void
-  syncNotes: (heldPitches: number[], urgent: boolean) => void
+  syncNotes: (heldPitches: number[]) => void
   getCurrentMeasure: () => number
   setZoom: (value: number) => void
   goToEventIndex: (targetIndex: number) => void
@@ -172,21 +171,21 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         osmd.cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       },
       reset: () => osmdRef.current?.cursor.reset(),
-      syncNotes: (heldPitches: number[], urgent: boolean) => {
+      syncNotes: (heldPitches: number[]) => {
         const osmd = osmdRef.current
         if (!osmd) {
           return
         }
         // Always recompute every note's color from the engine's actual held
         // state, rather than patching colors incrementally: correctly-held
-        // notes are green; everything else is red while `urgent` (right after
-        // any attempt) and decays to neutral yellow once the chord tolerance
-        // window elapses with no further input (see Practice.tsx's decay timer).
+        // notes are green, everything else stays neutral yellow until held.
+        // A wrong keypress is shown precisely on the virtual keyboard instead
+        // of vaguely reddening every other expected note here.
         colorNotes(
           osmd,
           requiredNotesUnderCursor(osmd.cursor).map((note) => [
             note,
-            heldPitches.includes(noteToMidi(note)) ? CORRECT_COLOR : urgent ? URGENT_COLOR : NEUTRAL_COLOR,
+            heldPitches.includes(noteToMidi(note)) ? CORRECT_COLOR : NEUTRAL_COLOR,
           ]),
         )
       },

@@ -15,8 +15,12 @@ export type WaitEngineListener = (state: WaitEngineState) => void
  * all its pitches are held together, in any order. "Together" means within
  * chordToleranceMs of the first note of the attempt -- a correct note that
  * arrives too late doesn't stack with earlier ones, it starts a fresh
- * attempt on its own (the earlier notes expire). A wrong note always resets
- * the whole attempt immediately, regardless of timing.
+ * attempt on its own (the earlier notes expire). A wrong note resets the
+ * attempt's held progress only if it arrives outside that same tolerance
+ * window (a distinct, later attempt) -- a wrong note that lands within the
+ * window (e.g. one finger slipping while pressing a chord with several
+ * correct fingers at once) is reported as an error but doesn't erase the
+ * correct notes already held in that same burst.
  */
 export class WaitEngine {
   private events: ExpectedEvent[]
@@ -69,8 +73,12 @@ export class WaitEngine {
     const expected = this.events[this.currentIndex]
 
     if (!expected.pitches.includes(pitch)) {
-      this.heldPitches.clear()
-      this.firstHeldTimestamp = null
+      const withinSameAttempt =
+        this.firstHeldTimestamp !== null && timestamp - this.firstHeldTimestamp <= this.chordToleranceMs
+      if (!withinSameAttempt) {
+        this.heldPitches.clear()
+        this.firstHeldTimestamp = null
+      }
       this.emit('error')
       return 'error'
     }

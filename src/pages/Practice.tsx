@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { PianoScore, type PianoScoreHandle } from '../components/PianoScore'
+import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents } from '../engine/ScoreParser'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
@@ -26,6 +27,11 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const [debugExpected, setDebugExpected] = useState('')
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
+  const [showKeyboard, setShowKeyboard] = useState(false)
+  const [expectedPitches, setExpectedPitches] = useState<number[]>([])
+  const [heldPitches, setHeldPitches] = useState<number[]>([])
+  const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
+  const [wrongPitches, setWrongPitches] = useState<number[]>([])
 
   const scoreRef = useRef<PianoScoreHandle | null>(null)
   const waitEngineRef = useRef<WaitEngine | null>(null)
@@ -43,21 +49,21 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     }
   }
 
-  // After a partial-correct press or a wrong note, the still-needed notes
-  // show red as an "urgent" cue. If nothing else is played within the chord
-  // tolerance window, that held progress actually expires (not just visually)
-  // and everything settles back to neutral yellow.
+  // A wrong keypress within the chord tolerance window is reported but
+  // doesn't erase already-held correct notes (see WaitEngine.noteOn) -- the
+  // wrong key itself is shown on the virtual keyboard until this same window
+  // elapses with no further input, at which point held progress actually
+  // expires too (not just visually) and everything settles back to neutral.
   const scheduleDecay = () => {
     clearDecayTimer()
     decayTimeoutRef.current = setTimeout(() => {
       const engine = waitEngineRef.current
       if (engine) {
-        // expireStaleHold clears any still-held-but-stale progress (a no-op
-        // if a wrong note already cleared it) -- either way, the "urgent" red
-        // cue itself always calms down to neutral yellow once the timer fires.
         engine.expireStaleHold(performance.now())
-        scoreRef.current?.syncNotes(engine.currentHeldPitches, false)
+        scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
+        setHeldPitches(engine.currentHeldPitches)
+        setWrongPitches([])
       }
       decayTimeoutRef.current = null
     }, DEFAULT_CHORD_TOLERANCE_MS)
@@ -87,7 +93,8 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         eventsWithErrorsRef.current.add(indexBeforeNote)
         errorCountRef.current += 1
         setErrorCount(errorCountRef.current)
-        scoreRef.current?.syncNotes(engine.currentHeldPitches, true)
+        scoreRef.current?.syncNotes(engine.currentHeldPitches)
+        setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
         const expectedNames = engine.currentExpectedPitches.map(midiToNoteName).join(', ')
         setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
@@ -96,6 +103,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         const newIndex = engine.state.currentIndex
         if (newIndex > previousIndexRef.current) {
           clearDecayTimer()
+          setWrongPitches([])
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
@@ -109,13 +117,15 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
             })
           }
         } else {
-          scoreRef.current?.syncNotes(engine.currentHeldPitches, true)
+          scoreRef.current?.syncNotes(engine.currentHeldPitches)
           scheduleDecay()
         }
       }
       setEngineState(engine.state)
       setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
       setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
+      setExpectedPitches(engine.currentExpectedPitches)
+      setHeldPitches(engine.currentHeldPitches)
     })
   }, [onNoteEvent, onComplete])
 
@@ -134,7 +144,14 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
     setDebugLog([])
-    scoreRef.current?.syncNotes([], false)
+    setExpectedPitches(waitEngineRef.current.currentExpectedPitches)
+    setHeldPitches([])
+    setWrongPitches([])
+    const allPitches = events.flatMap((event) => event.pitches)
+    if (allPitches.length > 0) {
+      setPitchRange({ low: Math.min(...allPitches), high: Math.max(...allPitches) })
+    }
+    scoreRef.current?.syncNotes([])
   }
 
   const handleZoomChange = (value: number) => {
@@ -156,6 +173,9 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     setWrongNoteFeedback(null)
     setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
+    setExpectedPitches(engine.currentExpectedPitches)
+    setHeldPitches([])
+    setWrongPitches([])
   }
 
   const handleBackToStart = () => goToEventIndex(0)
@@ -243,6 +263,13 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
             onChange={(e) => handleZoomChange(Number(e.target.value))}
           />
         </label>
+        <button
+          type="button"
+          onClick={() => setShowKeyboard((value) => !value)}
+          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+        >
+          {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
+        </button>
       </div>
 
       {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
@@ -253,6 +280,16 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       </div>
 
       <PianoScore ref={scoreRef} source={scoreFile} onReady={handleReady} onError={setLoadError} />
+
+      {showKeyboard && (
+        <VirtualKeyboard
+          lowestPitch={pitchRange.low}
+          highestPitch={pitchRange.high}
+          expectedPitches={expectedPitches}
+          heldPitches={heldPitches}
+          wrongPitches={wrongPitches}
+        />
+      )}
     </div>
   )
 }
