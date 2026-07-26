@@ -3,4 +3,5 @@ export interface SessionStats {
   errorCount: number
   totalEvents: number
   successPercent: number
+  maxCombo: number
 }

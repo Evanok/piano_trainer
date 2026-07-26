@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
+import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents } from '../engine/ScoreParser'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
+import { recordPracticeDay } from '../engine/streakStore'
 import type { MidiNoteEvent } from '../types/midi'
 import type { SessionStats } from '../types/session'
 
@@ -18,6 +20,9 @@ interface PracticeProps {
 export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: PracticeProps) {
   const [engineState, setEngineState] = useState<WaitEngineState | null>(null)
   const [errorCount, setErrorCount] = useState(0)
+  const [currentCombo, setCurrentCombo] = useState(0)
+  const [bestCombo, setBestCombo] = useState(0)
+  const [correctNoteCount, setCorrectNoteCount] = useState(0)
   const [totalEvents, setTotalEvents] = useState(0)
   const [currentMeasure, setCurrentMeasure] = useState(1)
   const [zoom, setZoomValue] = useState(1)
@@ -40,6 +45,15 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const eventsWithErrorsRef = useRef<Set<number>>(new Set())
   const errorCountRef = useRef(0)
   const totalEventsRef = useRef(0)
+  // comboRef: consecutive events completed with zero errors before
+  // completion, reset the instant a wrong note lands (not only when the
+  // event finally advances) so the on-screen counter drops immediately
+  // rather than lagging behind the mistake. maxComboRef is the session's
+  // best combo, reported in SessionStats -- never reset by a jump, only by
+  // starting a new session.
+  const comboRef = useRef(0)
+  const maxComboRef = useRef(0)
+  const correctNoteCountRef = useRef(0)
   const startedAtRef = useRef(Date.now())
   const decayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -94,6 +108,8 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         eventsWithErrorsRef.current.add(indexBeforeNote)
         errorCountRef.current += 1
         setErrorCount(errorCountRef.current)
+        comboRef.current = 0
+        setCurrentCombo(0)
         scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
@@ -101,10 +117,20 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
       } else {
         setWrongNoteFeedback(null)
+        // Every correct keypress counts, whether it's a single note, one hit
+        // of a multi-note chord, or the note that finally completes an event.
+        correctNoteCountRef.current += 1
+        setCorrectNoteCount(correctNoteCountRef.current)
         const newIndex = engine.state.currentIndex
         if (newIndex > previousIndexRef.current) {
           clearDecayTimer()
           setWrongPitches([])
+          if (!eventsWithErrorsRef.current.has(indexBeforeNote)) {
+            comboRef.current += 1
+            maxComboRef.current = Math.max(maxComboRef.current, comboRef.current)
+            setCurrentCombo(comboRef.current)
+            setBestCombo(maxComboRef.current)
+          }
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
@@ -115,6 +141,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
               errorCount: errorCountRef.current,
               totalEvents: total,
               successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
+              maxCombo: maxComboRef.current,
             })
           }
         } else {
@@ -139,7 +166,14 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     previousIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
+    comboRef.current = 0
+    maxComboRef.current = 0
+    correctNoteCountRef.current = 0
+    setCurrentCombo(0)
+    setBestCombo(0)
+    setCorrectNoteCount(0)
     startedAtRef.current = Date.now()
+    recordPracticeDay()
     setWrongNoteFeedback(null)
     setEngineState(waitEngineRef.current.state)
     setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
@@ -169,6 +203,10 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     engine.jumpToEventIndex(targetIndex)
     scoreRef.current?.goToEventIndex(targetIndex)
     previousIndexRef.current = engine.state.currentIndex
+    // Only the in-progress streak resets on a jump -- the session's best
+    // combo (maxComboRef) is a record, not live progress, so it survives.
+    comboRef.current = 0
+    setCurrentCombo(0)
     setEngineState(engine.state)
     setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
     setWrongNoteFeedback(null)
@@ -219,11 +257,17 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         </button>
       </div>
 
+      <ScoreHud
+        currentCombo={currentCombo}
+        bestCombo={bestCombo}
+        correctNoteCount={correctNoteCount}
+        errorCount={errorCount}
+      />
+
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600">
         <span>
           Measure {currentMeasure} -- Event {displayedIndex} / {totalEvents}
         </span>
-        <span>Errors: {errorCount}</span>
         <button
           type="button"
           onClick={handleBackToStart}
