@@ -129,6 +129,21 @@ function fitScrollZoom(osmd: OpenSheetMusicDisplay, container: HTMLElement): voi
   osmd.render()
 }
 
+// Vertically centers the staffline using the WHOLE (uncropped) piece's own
+// natural height, not each render's own bounding box -- CSS `items-center`
+// alone re-centers per render, and a training-mode section's height varies
+// with its own ledger-line extremes (how high/low its notes reach), so
+// different sections visibly sat at different heights/sizes switching
+// between them. A single shared anchor keeps every section's staff sitting
+// at the same vertical position, like a fixed window onto the full page.
+function applyStableVerticalOffset(container: HTMLElement, stableHeight: number | null): void {
+  const svg = container.querySelector('svg')
+  if (!svg || stableHeight === null) {
+    return
+  }
+  svg.style.marginTop = `${Math.max(0, (container.clientHeight - stableHeight) / 2)}px`
+}
+
 // Page mode keeps the browser's own scrollIntoView (vertical, "nearest" is
 // enough there). Scroll mode drives the container's horizontal scroll
 // directly instead of relying on OSMD's own cursor-follow behavior, both to
@@ -173,6 +188,17 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   // on this app's real-world scores (a library bug, not ours), so colors are
   // only ever reproduced by re-running the direct-SVG fast path afterwards.
   const noteColorsRef = useRef<Map<Note, string>>(new Map())
+  // Scroll-mode zoom, computed ONCE from the whole (uncropped) piece right
+  // after load and then reused as-is for every training-mode section crop --
+  // recomputing per section (sampling only that section's own measures) let
+  // denser/sparser sections settle on different zoom levels, so the two
+  // staves visibly changed size/position switching between sections. A
+  // single shared zoom keeps every section looking like a plain crop of the
+  // same page, not a separately laid-out one.
+  const stableScrollZoomRef = useRef<number | null>(null)
+  // The whole (uncropped) piece's own natural rendered height at that same
+  // zoom -- see applyStableVerticalOffset.
+  const stableScrollHeightRef = useRef<number | null>(null)
 
   // Colors every given note via the fast path, remembering each choice so it
   // survives a future full render(). Falls back to Note.NoteheadColor + a
@@ -229,6 +255,8 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     }
     osmdRef.current = osmd
     noteColorsRef.current = new Map()
+    stableScrollZoomRef.current = null
+    stableScrollHeightRef.current = null
     let cancelled = false
 
     osmd
@@ -240,6 +268,10 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         osmd.render()
         if (layoutMode === 'scroll' && containerRef.current) {
           fitScrollZoom(osmd, containerRef.current)
+          stableScrollZoomRef.current = osmd.Zoom
+          const svg = containerRef.current.querySelector('svg')
+          stableScrollHeightRef.current = svg ? parseFloat(svg.getAttribute('height') ?? '0') : null
+          applyStableVerticalOffset(containerRef.current, stableScrollHeightRef.current)
         }
         osmd.cursor.show()
         // We highlight the current note(s) directly via colorNotes() instead --
@@ -383,14 +415,26 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // anyway (MinMeasureToDrawIndex 0, MaxMeasureToDrawIndex Number.MAX_VALUE).
         osmd.EngravingRules.MinMeasureToDrawIndex = startMeasure !== null ? startMeasure - 1 : 0
         osmd.EngravingRules.MaxMeasureToDrawIndex = endMeasure !== null ? endMeasure - 1 : Number.MAX_VALUE
+        // Reuse the whole-piece zoom computed once at load, rather than
+        // re-fitting to just this (cropped) section -- see stableScrollZoomRef.
+        if (layoutModeRef.current === 'scroll' && stableScrollZoomRef.current !== null) {
+          osmd.Zoom = stableScrollZoomRef.current
+        }
         osmd.updateGraphic()
         osmd.render()
         if (layoutModeRef.current === 'scroll' && containerRef.current) {
-          fitScrollZoom(osmd, containerRef.current)
+          applyStableVerticalOffset(containerRef.current, stableScrollHeightRef.current)
         }
         osmd.cursor.show()
         osmd.cursor.cursorElement.style.opacity = '0'
         reapplyColors(osmd)
+        // The crop's re-zoom changes the SVG's coordinate space -- the
+        // container's scrollLeft from before this call is now meaningless
+        // (same pixel offset, different content underneath), so the cursor
+        // has to be re-positioned into view under the new scale.
+        if (containerRef.current) {
+          scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
+        }
       },
     }),
     [],
@@ -401,12 +445,13 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       ref={containerRef}
       className={
         layoutMode === 'scroll'
-          ? // items-center: fitScrollZoom only zooms up to what the container's
-            // WIDTH allows for the measure-count target, capped separately by
-            // height -- on a container taller than the zoomed staffline needs,
-            // that leaves vertical slack that would otherwise all sit below the
-            // staff (block layout default is top-aligned), not centered on it.
-            'min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-gray-200 bg-white p-4 shadow-sm flex items-center'
+          ? // No items-center here -- vertical centering is applied manually
+            // (applyStableVerticalOffset, via the SVG's own marginTop) using
+            // the whole piece's height as a stable anchor, not each render's
+            // own bounding box; letting flexbox re-center per render is what
+            // caused different training-mode sections to visibly sit at
+            // different heights depending on their own ledger-line extremes.
+            'min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-gray-200 bg-white p-4 shadow-sm'
           : 'min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm'
       }
     />

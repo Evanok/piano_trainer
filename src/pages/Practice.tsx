@@ -193,8 +193,18 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       const nextBounds = nextIndex < sectionsRef.current.length ? sectionsRef.current[nextIndex] : null
       setCurrentSectionIndex(nextIndex)
       setSectionPerfectStreak(0)
-      applySectionBounds(nextBounds)
+      // Cursor navigation MUST happen with NO crop active -- OSMD's own
+      // tie/rest counting only lines up with WaitEngine's indices on the
+      // fully uncropped model (the one extractExpectedEvents originally
+      // walked). Walking with any crop active can corrupt that counting
+      // whenever the walk doesn't pass through the crop's own drawn range
+      // (confirmed: jumping forward past an adjacent section worked by
+      // accident since the walk grazed the old crop, but jumping backward
+      // past a non-adjacent one landed measures away with no highlight at
+      // all). Always clear, walk, then crop to the new section.
+      applySectionBounds(null)
       goToEventIndex(nextBounds ? nextBounds.startEventIndex : 0)
+      applySectionBounds(nextBounds)
       showSectionMessage(
         nextBounds
           ? `Section ${completedSectionNumber} mastered! Moving to section ${nextIndex + 1}.`
@@ -202,7 +212,9 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       )
     } else {
       const activeSection = sectionsRef.current[currentSectionIndexRef.current]
+      applySectionBounds(null)
       goToEventIndex(activeSection.startEventIndex)
+      applySectionBounds(activeSection)
       showSectionMessage(
         wasPerfect
           ? `Section ${completedSectionNumber} clean! One more perfect run to advance.`
@@ -372,8 +384,11 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     setSectionPerfectStreak(0)
     setSectionMessage(null)
     const bounds = newSectionIndex < sections.length ? sections[newSectionIndex] : null
-    applySectionBounds(bounds)
+    // See handleSectionCompleted for why the cursor jump must happen with no
+    // crop active at all, not just before the NEW crop is applied.
+    applySectionBounds(null)
     goToEventIndex(bounds ? bounds.startEventIndex : 0)
+    applySectionBounds(bounds)
   }
 
   const handlePrevSection = () => handleSelectSection(Math.max(0, currentSectionIndex - 1))
@@ -382,15 +397,23 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const handleToggleTrainingMode = () => {
     if (trainingMode) {
       setTrainingMode(false)
+      // Clear the crop, THEN walk -- see handleSectionCompleted for why the
+      // cursor walk must always happen with no crop active (OSMD's own
+      // tie/rest counting only lines up with WaitEngine's indices on the
+      // fully uncropped model). cursor.show() alone doesn't reliably relocate
+      // onto the freshly-uncropped, much larger graphical model either, so a
+      // fresh walk is required even though the logical index isn't changing.
       applySectionBounds(null)
+      goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
       return
     }
     setTrainingMode(true)
     setCurrentSectionIndex(0)
     setSectionPerfectStreak(0)
     setLayoutMode('scroll')
-    applySectionBounds(sections[0] ?? null)
+    applySectionBounds(null)
     goToEventIndex(0)
+    applySectionBounds(sections[0] ?? null)
   }
 
   const handleMeasuresPerSectionChange = (value: number) => {
