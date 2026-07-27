@@ -199,6 +199,15 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   // The whole (uncropped) piece's own natural rendered height at that same
   // zoom -- see applyStableVerticalOffset.
   const stableScrollHeightRef = useRef<number | null>(null)
+  // osmdRef.current becomes non-null synchronously on construction, well
+  // before osmd.load() actually resolves -- calling into OSMD methods that
+  // assume a loaded sheet (render(), updateGraphic(), the cursor) in that
+  // window crashes deep inside OSMD's internals (seen for real: a
+  // mobile-only effect that fires immediately on mount called
+  // setSectionBounds before the file had loaded, reading a property of the
+  // not-yet-existent GraphicalMusicSheet). Every imperative method below
+  // guards on this in addition to `!osmd`.
+  const hasLoadedRef = useRef(false)
 
   // Colors every given note via the fast path, remembering each choice so it
   // survives a future full render(). Falls back to Note.NoteheadColor + a
@@ -257,6 +266,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     noteColorsRef.current = new Map()
     stableScrollZoomRef.current = null
     stableScrollHeightRef.current = null
+    hasLoadedRef.current = false
     let cancelled = false
 
     osmd
@@ -265,6 +275,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (cancelled) {
           return
         }
+        hasLoadedRef.current = true
         osmd.render()
         if (layoutMode === 'scroll' && containerRef.current) {
           fitScrollZoom(osmd, containerRef.current)
@@ -293,6 +304,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
 
     return () => {
       cancelled = true
+      hasLoadedRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, layoutMode])
@@ -302,7 +314,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     () => ({
       next: () => {
         const osmd = osmdRef.current
-        if (!osmd) {
+        if (!osmd || !hasLoadedRef.current) {
           return
         }
         // next() is only ever called once the current event is fully correct --
@@ -331,7 +343,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       reset: () => osmdRef.current?.cursor.reset(),
       syncNotes: (heldPitches: number[]) => {
         const osmd = osmdRef.current
-        if (!osmd) {
+        if (!osmd || !hasLoadedRef.current) {
           return
         }
         // Always recompute every note's color from the engine's actual held
@@ -350,7 +362,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       getCurrentMeasure: () => (osmdRef.current?.cursor.Iterator.CurrentMeasureIndex ?? 0) + 1,
       goToEventIndex: (targetIndex: number) => {
         const osmd = osmdRef.current
-        if (!osmd) {
+        if (!osmd || !hasLoadedRef.current) {
           return
         }
         // A jump (in either direction) can leave positions colored by earlier
@@ -392,7 +404,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       },
       setZoom: (value: number) => {
         const osmd = osmdRef.current
-        if (!osmd) {
+        if (!osmd || !hasLoadedRef.current) {
           return
         }
         osmd.Zoom = value
@@ -402,7 +414,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
       },
       setSectionBounds: (startMeasure: number | null, endMeasure: number | null) => {
         const osmd = osmdRef.current
-        if (!osmd) {
+        if (!osmd || !hasLoadedRef.current) {
           return
         }
         // Direct EngravingRules fields (0-based indices), not
