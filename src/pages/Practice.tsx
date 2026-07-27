@@ -8,6 +8,7 @@ import { computeSections, type Section } from '../engine/sections'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
+import { useIsMobile } from '../hooks/useIsMobile'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type { SessionStats } from '../types/session'
@@ -26,6 +27,10 @@ interface PracticeProps {
 }
 
 export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: PracticeProps) {
+  // Mobile only ever gets scroll mode (and training mode, built on top of
+  // it) -- the paginated page layout and the dense desktop control row don't
+  // work well on a phone screen. See useIsMobile for the breakpoint.
+  const isMobile = useIsMobile()
   const [engineState, setEngineState] = useState<WaitEngineState | null>(null)
   const [errorCount, setErrorCount] = useState(0)
   const [currentCombo, setCurrentCombo] = useState(0)
@@ -41,7 +46,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('page')
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => (isMobile ? 'scroll' : 'page'))
   const [expectedPitches, setExpectedPitches] = useState<number[]>([])
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
@@ -142,6 +147,14 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       }
     }
   }, [])
+
+  // Covers becoming mobile mid-session (resize, orientation change) -- the
+  // initial state above only handles starting out mobile.
+  useEffect(() => {
+    if (isMobile) {
+      setLayoutMode('scroll')
+    }
+  }, [isMobile])
 
   const goToEventIndex = (targetIndex: number) => {
     const engine = waitEngineRef.current
@@ -508,7 +521,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         >
           {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
         </button>
-        {!trainingMode && (
+        {!trainingMode && !isMobile && (
           <button
             type="button"
             onClick={() => setLayoutMode((mode) => (mode === 'page' ? 'scroll' : 'page'))}
