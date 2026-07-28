@@ -521,6 +521,20 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
           onReady={handleReady}
           onError={setLoadError}
         />
+
+        {/* Always on (no toggle button fits in the compact header) -- on a
+            small screen, re-reading the expected chord off the sheet after a
+            mistake is slow; the keyboard gives an immediate "press these
+            keys" reference exactly where a mis-hit note is also shown red. */}
+        <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
+          <VirtualKeyboard
+            lowestPitch={pitchRange.low}
+            highestPitch={pitchRange.high}
+            expectedPitches={expectedPitches}
+            heldPitches={heldPitches}
+            wrongPitches={wrongPitches}
+          />
+        </div>
       </div>
     )
   }
