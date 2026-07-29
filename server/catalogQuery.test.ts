@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest'
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, queryCatalog } from './catalogQuery.ts'
+import type { CatalogEntry } from '../src/types/catalog.ts'
+
+function entry(id: string, title: string, uploadedAt: string, filename = `${title}.mxl`): CatalogEntry {
+  return { id, title, filename, sizeBytes: 1024, uploadedAt }
+}
+
+function manyEntries(count: number): CatalogEntry[] {
+  return Array.from({ length: count }, (_, index) =>
+    // Ascending timestamps, so "score-0" is the oldest and the last one is the
+    // most recent.
+    entry(`id-${index}`, `score-${index}`, `2026-01-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`),
+  )
+}
+
+describe('queryCatalog', () => {
+  it('returns the most recently uploaded entries first', () => {
+    const result = queryCatalog([
+      entry('a', 'Old', '2026-01-01T10:00:00.000Z'),
+      entry('b', 'New', '2026-03-01T10:00:00.000Z'),
+      entry('c', 'Middle', '2026-02-01T10:00:00.000Z'),
+    ])
+    expect(result.items.map((item) => item.title)).toEqual(['New', 'Middle', 'Old'])
+  })
+
+  it('orders same-timestamp entries deterministically so paging stays stable', () => {
+    const sameTime = '2026-01-01T10:00:00.000Z'
+    const forward = queryCatalog([entry('b', 'B', sameTime), entry('a', 'A', sameTime)])
+    const reversed = queryCatalog([entry('a', 'A', sameTime), entry('b', 'B', sameTime)])
+    expect(forward.items.map((item) => item.id)).toEqual(reversed.items.map((item) => item.id))
+  })
+
+  it('shows at most 10 entries per page by default', () => {
+    const result = queryCatalog(manyEntries(23))
+    expect(DEFAULT_PAGE_SIZE).toBe(10)
+    expect(result.items).toHaveLength(10)
+    expect(result.total).toBe(23)
+    expect(result.pageCount).toBe(3)
+    expect(result.page).toBe(1)
+  })
+
+  it('pages through the results without repeating or skipping an entry', () => {
+    const entries = manyEntries(23)
+    const seen = [1, 2, 3].flatMap((page) => queryCatalog(entries, { page }).items.map((item) => item.id))
+    expect(seen).toHaveLength(23)
+    expect(new Set(seen).size).toBe(23)
+  })
+
+  it('clamps an out-of-range page onto the last one', () => {
+    const result = queryCatalog(manyEntries(23), { page: 99 })
+    expect(result.page).toBe(3)
+    expect(result.items).toHaveLength(3)
+  })
+
+  it('caps the page size a hand-crafted request can ask for', () => {
+    const result = queryCatalog(manyEntries(MAX_PAGE_SIZE + 20), { pageSize: 100000 })
+    expect(result.items).toHaveLength(MAX_PAGE_SIZE)
+  })
+
+  it('reports one page for an empty catalog', () => {
+    const result = queryCatalog([])
+    expect(result).toMatchObject({ total: 0, page: 1, pageCount: 1 })
+    expect(result.items).toEqual([])
+  })
+
+  it('searches title and file name case-insensitively', () => {
+    const entries = [
+      entry('a', 'Clair de Lune', '2026-01-01T10:00:00.000Z'),
+      entry('b', 'Prelude', '2026-01-02T10:00:00.000Z', 'chopin-prelude.musicxml'),
+    ]
+    expect(queryCatalog(entries, { search: 'CLAIR' }).items.map((item) => item.id)).toEqual(['a'])
+    expect(queryCatalog(entries, { search: 'chopin' }).items.map((item) => item.id)).toEqual(['b'])
+  })
+
+  it('requires every search term to match', () => {
+    const entries = [
+      entry('a', 'Clair de Lune', '2026-01-01T10:00:00.000Z'),
+      entry('b', 'Clair Matin', '2026-01-02T10:00:00.000Z'),
+    ]
+    expect(queryCatalog(entries, { search: 'clair lune' }).items.map((item) => item.id)).toEqual(['a'])
+    expect(queryCatalog(entries, { search: '  clair   ' }).total).toBe(2)
+  })
+
+  it('paginates the filtered set, not the whole catalog', () => {
+    const entries = [...manyEntries(15), entry('x', 'Unique Title', '2026-06-01T10:00:00.000Z')]
+    const result = queryCatalog(entries, { search: 'unique' })
+    expect(result.total).toBe(1)
+    expect(result.pageCount).toBe(1)
+  })
+})
