@@ -263,7 +263,10 @@ export function Home({ devices, selectedDeviceId, onSelectDevice, isSupported, m
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-gray-900">{entry.title}</span>
-                    <span className="block truncate text-xs text-gray-500">
+                    {entry.composer && (
+                      <span className="block truncate text-xs text-gray-600">{entry.composer}</span>
+                    )}
+                    <span className="block truncate text-xs text-gray-400">
                       {formatUploadedAt(entry.uploadedAt)} - {formatSize(entry.sizeBytes)}
                     </span>
                   </span>

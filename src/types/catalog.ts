@@ -3,8 +3,10 @@
 
 export interface CatalogEntry {
   id: string
-  /** Display name, derived from the uploaded file name (extension stripped). */
+  /** The score's own <work-title>, or a readable form of the file name. */
   title: string
+  /** The score's <creator type="composer">, null when it has none. */
+  composer: string | null
   /** Original file name, kept for its extension and as a search fallback. */
   filename: string
   sizeBytes: number

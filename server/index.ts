@@ -10,7 +10,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import path from 'node:path'
 import { createCatalogApi } from './catalogApi.ts'
-import { resolveDataDir } from './catalogStore.ts'
+import { migrateCatalog, resolveDataDir } from './catalogStore.ts'
 
 const PORT = Number(process.env.PORT ?? 4173)
 const DIST_DIR = path.resolve(process.cwd(), 'dist')
@@ -66,11 +66,17 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   sendFile(res, indexFile, false)
 }
 
-const catalogApi = createCatalogApi()
+const dataDir = resolveDataDir()
+// A broken catalog must not keep the app from booting: the front-end is still
+// served, only the API will report the error.
+await migrateCatalog(dataDir).catch((error: unknown) => {
+  console.error('[catalog] metadata migration failed:', error)
+})
+const catalogApi = createCatalogApi(dataDir)
 
 createServer((req, res) => {
   catalogApi(req, res, () => serveStatic(req, res))
 }).listen(PORT, () => {
   console.log(`Piano Trainer listening on http://localhost:${PORT}`)
-  console.log(`Catalog data directory: ${resolveDataDir()}`)
+  console.log(`Catalog data directory: ${dataDir}`)
 })

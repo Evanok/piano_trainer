@@ -85,7 +85,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, dataDir: 
   if (data.byteLength === 0) {
     throw new HttpError(400, 'Empty file.')
   }
-  sendJson(res, 201, addScore(dataDir, filename, data))
+  sendJson(res, 201, await addScore(dataDir, filename, data))
 }
 
 function handleDownload(res: ServerResponse, dataDir: string, id: string): void {

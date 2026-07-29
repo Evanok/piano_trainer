@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, queryCatalog } from './catalogQuery.ts'
 import type { CatalogEntry } from '../src/types/catalog.ts'
 
-function entry(id: string, title: string, uploadedAt: string, filename = `${title}.mxl`): CatalogEntry {
-  return { id, title, filename, sizeBytes: 1024, uploadedAt }
+function entry(
+  id: string,
+  title: string,
+  uploadedAt: string,
+  filename = `${title}.mxl`,
+  composer: string | null = null,
+): CatalogEntry {
+  return { id, title, composer, filename, sizeBytes: 1024, uploadedAt }
 }
 
 function manyEntries(count: number): CatalogEntry[] {
@@ -62,6 +68,15 @@ describe('queryCatalog', () => {
     const result = queryCatalog([])
     expect(result).toMatchObject({ total: 0, page: 1, pageCount: 1 })
     expect(result.items).toEqual([])
+  })
+
+  it('searches the composer too', () => {
+    const entries = [
+      entry('a', 'Album for the Young', '2026-01-01T10:00:00.000Z', 'album.mxl', 'Pyotr Ilyich Tchaikovsky'),
+      entry('b', 'Prelude', '2026-01-02T10:00:00.000Z', 'prelude.mxl', 'Frederic Chopin'),
+    ]
+    expect(queryCatalog(entries, { search: 'tchaikovsky' }).items.map((item) => item.id)).toEqual(['a'])
+    expect(queryCatalog(entries, { search: 'chopin prelude' }).items.map((item) => item.id)).toEqual(['b'])
   })
 
   it('searches title and file name case-insensitively', () => {

@@ -12,7 +12,7 @@ export interface CatalogQuery {
 }
 
 function matchesSearch(entry: CatalogEntry, terms: string[]): boolean {
-  const haystack = `${entry.title} ${entry.filename}`.toLowerCase()
+  const haystack = `${entry.title} ${entry.composer ?? ''} ${entry.filename}`.toLowerCase()
   return terms.every((term) => haystack.includes(term))
 }
 
@@ -25,8 +25,8 @@ function clampPageSize(pageSize: number | undefined): number {
 
 /**
  * Pure search + pagination over the whole catalog: every term must match
- * (AND), case-insensitively, against the title or the file name; results come
- * back most recently uploaded first.
+ * (AND), case-insensitively, against the title, the composer or the file name;
+ * results come back most recently uploaded first.
  */
 export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}): CatalogPage {
   const terms = (query.search ?? '')

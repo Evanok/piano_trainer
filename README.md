@@ -19,6 +19,8 @@ Open the printed local URL in Chrome or Edge, pick a `.musicxml`/`.xml`/`.mxl` f
 
 Every score you upload is saved server-side, so you never have to re-pick the same file twice: the home page lists the catalog (10 most recently uploaded per page, with a search box), and picking an entry loads it straight into practice.
 
+Scores are listed under their real title and composer, read from the MusicXML itself (`.mxl` files are unzipped to get at it) rather than under their file name. A score whose metadata is empty falls back to a readable form of the file name, and the search box matches title, composer and file name.
+
 Uploads land in `data/` next to the repo (gitignored):
 
 ```
