@@ -22,7 +22,7 @@ A piano practice web app ("Wait Mode", Simply-Piano-style): load a MusicXML/`.mx
 
 ### Data flow
 
-`Home` (file picker + MIDI device picker + score catalog, using `useMidi`) -> `App` holds the loaded `File` and switches screens (`home` / `practice` / `end`, plain `useState`, no router) -> `Practice` wires everything together -> `End` shows session stats. `useMidi` is instantiated once in `App` (not per-screen) so the Web MIDI permission prompt only fires once per session and device state survives screen switches.
+`Home` (generated training builder + file picker + MIDI device picker + score catalog, using `useMidi`) -> `App` holds the loaded `File` and switches screens (`home` / `practice` / `end`, plain `useState`, no router) -> `Practice` wires everything together -> `End` shows session stats. `useMidi` is instantiated once in `App` (not per-screen) so the Web MIDI permission prompt only fires once per session and device state survives screen switches.
 
 ### Score catalog (`server/`, `src/api/catalog.ts`)
 

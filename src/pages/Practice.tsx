@@ -526,7 +526,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
               : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
           }
         >
-          {trainingMode ? 'Exit training mode' : 'Start training mode'}
+          {trainingMode ? 'Exit section drill' : 'Start section drill'}
         </button>
       </div>
 

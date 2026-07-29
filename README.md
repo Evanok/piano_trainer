@@ -31,6 +31,10 @@ data/
 
 Set `PIANO_TRAINER_DATA_DIR` to store them elsewhere (recommended on a real deployment, so a redeploy of the code never touches the scores).
 
+## Generated training
+
+The home page can also generate a short training exercise without uploading a score. Pick the hand setup, octave range, accidental mode, difficulty and length; the app builds a MusicXML file in memory and opens it through the same Practice pipeline as a normal score. The generator favours small melodic motion, phrase endings on stable scale tones, key signatures, and simple left-hand accompaniment instead of pure random notes.
+
 ## Deployment
 
 ```bash

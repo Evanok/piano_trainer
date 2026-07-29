@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
 import { downloadScoreFile, fetchCatalogPage, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streakStore'
+import { createTrainingExerciseFile } from '../engine/trainingGenerator'
 import type { CatalogEntry, CatalogPage } from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
+import type { TrainingAccidentalMode, TrainingDifficulty, TrainingHandMode } from '../types/training'
 
 const ALLOWED_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
 const CATALOG_PAGE_SIZE = 10
+const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
 // Long enough that typing a word doesn't fire a request per keystroke, short
 // enough that the list still feels like it filters as you type.
 const SEARCH_DEBOUNCE_MS = 250
@@ -76,6 +79,14 @@ export function Home({ devices, selectedDeviceId, onSelectDevice, isSupported, m
   const [isCatalogLoading, setIsCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
+  const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>('right')
+  const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>('easy')
+  const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>('none')
+  const [trainingMeasureCount, setTrainingMeasureCount] = useState(8)
+  const [rightOctaveLow, setRightOctaveLow] = useState(4)
+  const [rightOctaveHigh, setRightOctaveHigh] = useState(5)
+  const [leftOctaveLow, setLeftOctaveLow] = useState(2)
+  const [leftOctaveHigh, setLeftOctaveHigh] = useState(3)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -148,6 +159,24 @@ export function Home({ devices, selectedDeviceId, onSelectDevice, isSupported, m
     }
   }
 
+  const handleStartTrainingExercise = () => {
+    setFileError(null)
+    setUnsavedFile(null)
+    onFileLoaded(
+      createTrainingExerciseFile({
+        handMode: trainingHandMode,
+        accidentalMode: trainingAccidentalMode,
+        difficulty: trainingDifficulty,
+        measureCount: trainingMeasureCount,
+        rightOctaveLow,
+        rightOctaveHigh,
+        leftOctaveLow,
+        leftOctaveHigh,
+        seed: String(Date.now()),
+      }),
+    )
+  }
+
   const isBusy = isSaving || openingId !== null
 
   return (
@@ -168,6 +197,144 @@ export function Home({ devices, selectedDeviceId, onSelectDevice, isSupported, m
           </div>
         )}
       </header>
+
+      <section className="flex w-full flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className="text-lg font-medium text-gray-900">Generated training</h2>
+          <span className="text-xs text-gray-500">Musical note drills</span>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Hands
+            <select
+              value={trainingHandMode}
+              onChange={(event) => setTrainingHandMode(event.target.value as TrainingHandMode)}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="right">Right hand</option>
+              <option value="left">Left hand</option>
+              <option value="both">Both hands</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Difficulty
+            <select
+              value={trainingDifficulty}
+              onChange={(event) => setTrainingDifficulty(event.target.value as TrainingDifficulty)}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Accidentals
+            <select
+              value={trainingAccidentalMode}
+              onChange={(event) => setTrainingAccidentalMode(event.target.value as TrainingAccidentalMode)}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="none">Natural notes only</option>
+              <option value="key">Key signatures</option>
+              <option value="chromatic">Chromatic passing notes</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Length
+            <select
+              value={trainingMeasureCount}
+              onChange={(event) => setTrainingMeasureCount(Number(event.target.value))}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value={4}>4 measures</option>
+              <option value={8}>8 measures</option>
+              <option value={16}>16 measures</option>
+              <option value={32}>32 measures</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-4">
+          {trainingHandMode !== 'left' && (
+            <>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                RH low
+                <select
+                  value={rightOctaveLow}
+                  onChange={(event) => setRightOctaveLow(Math.min(Number(event.target.value), rightOctaveHigh))}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                >
+                  {OCTAVES.map((octave) => (
+                    <option key={octave} value={octave}>
+                      C{octave}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                RH high
+                <select
+                  value={rightOctaveHigh}
+                  onChange={(event) => setRightOctaveHigh(Math.max(Number(event.target.value), rightOctaveLow))}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                >
+                  {OCTAVES.map((octave) => (
+                    <option key={octave} value={octave}>
+                      B{octave}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+          {trainingHandMode !== 'right' && (
+            <>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                LH low
+                <select
+                  value={leftOctaveLow}
+                  onChange={(event) => setLeftOctaveLow(Math.min(Number(event.target.value), leftOctaveHigh))}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                >
+                  {OCTAVES.map((octave) => (
+                    <option key={octave} value={octave}>
+                      C{octave}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                LH high
+                <select
+                  value={leftOctaveHigh}
+                  onChange={(event) => setLeftOctaveHigh(Math.max(Number(event.target.value), leftOctaveLow))}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                >
+                  {OCTAVES.map((octave) => (
+                    <option key={octave} value={octave}>
+                      B{octave}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+        </div>
+
+        <button
+          type="button"
+          disabled={isBusy}
+          onClick={handleStartTrainingExercise}
+          className="self-start rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-progress disabled:opacity-60"
+        >
+          Start generated training
+        </button>
+      </section>
 
       <section className="flex w-full flex-col items-center gap-3">
         <label

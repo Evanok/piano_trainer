@@ -1,0 +1,498 @@
+import type {
+  TrainingAccidentalMode,
+  TrainingDifficulty,
+  TrainingHandMode,
+  TrainingSettings,
+} from '../types/training'
+
+interface KeyConfig {
+  name: string
+  fifths: number
+  scale: Array<{ pc: number; step: string; alter?: number; degree: number }>
+}
+
+interface Pitch {
+  midi: number
+  step: string
+  alter?: number
+  octave: number
+  degree: number
+}
+
+const BEATS_PER_MEASURE = 4
+
+const KEYS: KeyConfig[] = [
+  {
+    name: 'C major',
+    fifths: 0,
+    scale: [
+      { pc: 0, step: 'C', degree: 0 },
+      { pc: 2, step: 'D', degree: 1 },
+      { pc: 4, step: 'E', degree: 2 },
+      { pc: 5, step: 'F', degree: 3 },
+      { pc: 7, step: 'G', degree: 4 },
+      { pc: 9, step: 'A', degree: 5 },
+      { pc: 11, step: 'B', degree: 6 },
+    ],
+  },
+  {
+    name: 'G major',
+    fifths: 1,
+    scale: [
+      { pc: 7, step: 'G', degree: 0 },
+      { pc: 9, step: 'A', degree: 1 },
+      { pc: 11, step: 'B', degree: 2 },
+      { pc: 0, step: 'C', degree: 3 },
+      { pc: 2, step: 'D', degree: 4 },
+      { pc: 4, step: 'E', degree: 5 },
+      { pc: 6, step: 'F', alter: 1, degree: 6 },
+    ],
+  },
+  {
+    name: 'D major',
+    fifths: 2,
+    scale: [
+      { pc: 2, step: 'D', degree: 0 },
+      { pc: 4, step: 'E', degree: 1 },
+      { pc: 6, step: 'F', alter: 1, degree: 2 },
+      { pc: 7, step: 'G', degree: 3 },
+      { pc: 9, step: 'A', degree: 4 },
+      { pc: 11, step: 'B', degree: 5 },
+      { pc: 1, step: 'C', alter: 1, degree: 6 },
+    ],
+  },
+  {
+    name: 'F major',
+    fifths: -1,
+    scale: [
+      { pc: 5, step: 'F', degree: 0 },
+      { pc: 7, step: 'G', degree: 1 },
+      { pc: 9, step: 'A', degree: 2 },
+      { pc: 10, step: 'B', alter: -1, degree: 3 },
+      { pc: 0, step: 'C', degree: 4 },
+      { pc: 2, step: 'D', degree: 5 },
+      { pc: 4, step: 'E', degree: 6 },
+    ],
+  },
+  {
+    name: 'B-flat major',
+    fifths: -2,
+    scale: [
+      { pc: 10, step: 'B', alter: -1, degree: 0 },
+      { pc: 0, step: 'C', degree: 1 },
+      { pc: 2, step: 'D', degree: 2 },
+      { pc: 3, step: 'E', alter: -1, degree: 3 },
+      { pc: 5, step: 'F', degree: 4 },
+      { pc: 7, step: 'G', degree: 5 },
+      { pc: 9, step: 'A', degree: 6 },
+    ],
+  },
+  {
+    name: 'A major',
+    fifths: 3,
+    scale: [
+      { pc: 9, step: 'A', degree: 0 },
+      { pc: 11, step: 'B', degree: 1 },
+      { pc: 1, step: 'C', alter: 1, degree: 2 },
+      { pc: 2, step: 'D', degree: 3 },
+      { pc: 4, step: 'E', degree: 4 },
+      { pc: 6, step: 'F', alter: 1, degree: 5 },
+      { pc: 8, step: 'G', alter: 1, degree: 6 },
+    ],
+  },
+  {
+    name: 'E-flat major',
+    fifths: -3,
+    scale: [
+      { pc: 3, step: 'E', alter: -1, degree: 0 },
+      { pc: 5, step: 'F', degree: 1 },
+      { pc: 7, step: 'G', degree: 2 },
+      { pc: 8, step: 'A', alter: -1, degree: 3 },
+      { pc: 10, step: 'B', alter: -1, degree: 4 },
+      { pc: 0, step: 'C', degree: 5 },
+      { pc: 2, step: 'D', degree: 6 },
+    ],
+  },
+]
+
+const CHROMATIC_SHARP = [
+  { step: 'C' },
+  { step: 'C', alter: 1 },
+  { step: 'D' },
+  { step: 'D', alter: 1 },
+  { step: 'E' },
+  { step: 'F' },
+  { step: 'F', alter: 1 },
+  { step: 'G' },
+  { step: 'G', alter: 1 },
+  { step: 'A' },
+  { step: 'A', alter: 1 },
+  { step: 'B' },
+]
+
+const CHROMATIC_FLAT = [
+  { step: 'C' },
+  { step: 'D', alter: -1 },
+  { step: 'D' },
+  { step: 'E', alter: -1 },
+  { step: 'E' },
+  { step: 'F' },
+  { step: 'G', alter: -1 },
+  { step: 'G' },
+  { step: 'A', alter: -1 },
+  { step: 'A' },
+  { step: 'B', alter: -1 },
+  { step: 'B' },
+]
+
+const DEFAULT_SETTINGS: TrainingSettings = {
+  handMode: 'right',
+  accidentalMode: 'none',
+  difficulty: 'easy',
+  measureCount: 8,
+  rightOctaveLow: 4,
+  rightOctaveHigh: 5,
+  leftOctaveLow: 2,
+  leftOctaveHigh: 3,
+  seed: 'training',
+}
+
+function hashSeed(seed: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function createRng(seed: string): () => number {
+  let state = hashSeed(seed)
+  return () => {
+    state += 0x6d2b79f5
+    let value = state
+    value = Math.imul(value ^ (value >>> 15), value | 1)
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function pick<T>(items: T[], rng: () => number): T {
+  return items[Math.min(items.length - 1, Math.floor(rng() * items.length))]
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(high, Math.max(low, value))
+}
+
+function sanitizeSettings(settings: Partial<TrainingSettings>): TrainingSettings {
+  const merged = { ...DEFAULT_SETTINGS, ...settings }
+  return {
+    ...merged,
+    measureCount: clamp(Math.round(merged.measureCount), 4, 32),
+    rightOctaveLow: clamp(Math.round(Math.min(merged.rightOctaveLow, merged.rightOctaveHigh)), 1, 7),
+    rightOctaveHigh: clamp(Math.round(Math.max(merged.rightOctaveLow, merged.rightOctaveHigh)), 1, 7),
+    leftOctaveLow: clamp(Math.round(Math.min(merged.leftOctaveLow, merged.leftOctaveHigh)), 1, 6),
+    leftOctaveHigh: clamp(Math.round(Math.max(merged.leftOctaveLow, merged.leftOctaveHigh)), 1, 6),
+  }
+}
+
+function chooseKey(accidentalMode: TrainingAccidentalMode, difficulty: TrainingDifficulty, rng: () => number): KeyConfig {
+  if (accidentalMode === 'none') {
+    return KEYS[0]
+  }
+  if (difficulty === 'easy') {
+    return pick(KEYS.slice(0, 4), rng)
+  }
+  if (difficulty === 'medium') {
+    return pick(KEYS.slice(0, 5), rng)
+  }
+  return pick(KEYS, rng)
+}
+
+function octaveRangeToMidi(lowOctave: number, highOctave: number): { low: number; high: number } {
+  return { low: 12 * (lowOctave + 1), high: 12 * (highOctave + 2) - 1 }
+}
+
+function xmlOctave(midi: number): number {
+  return Math.floor(midi / 12) - 1
+}
+
+function buildScalePitches(key: KeyConfig, lowMidi: number, highMidi: number): Pitch[] {
+  const byPc = new Map(key.scale.map((pitch) => [pitch.pc, pitch]))
+  const pitches: Pitch[] = []
+  for (let midi = lowMidi; midi <= highMidi; midi += 1) {
+    const scalePitch = byPc.get(((midi % 12) + 12) % 12)
+    if (scalePitch) {
+      pitches.push({ ...scalePitch, midi, octave: xmlOctave(midi) })
+    }
+  }
+  return pitches
+}
+
+function buildChromaticPitches(key: KeyConfig, lowMidi: number, highMidi: number): Pitch[] {
+  const spellings = key.fifths < 0 ? CHROMATIC_FLAT : CHROMATIC_SHARP
+  return Array.from({ length: highMidi - lowMidi + 1 }, (_, i) => {
+    const midi = lowMidi + i
+    const spelling = spellings[((midi % 12) + 12) % 12]
+    return { midi, octave: xmlOctave(midi), degree: -1, ...spelling }
+  })
+}
+
+function nearestPitchIndex(pitches: Pitch[], targetMidi: number): number {
+  let bestIndex = 0
+  let bestDistance = Infinity
+  pitches.forEach((pitch, index) => {
+    const distance = Math.abs(pitch.midi - targetMidi)
+    if (distance < bestDistance) {
+      bestIndex = index
+      bestDistance = distance
+    }
+  })
+  return bestIndex
+}
+
+function nearestStablePitch(pitches: Pitch[], currentMidi: number): Pitch {
+  const stable = pitches.filter((pitch) => pitch.degree === 0 || pitch.degree === 2 || pitch.degree === 4)
+  return (stable.length > 0 ? stable : pitches).reduce((best, pitch) =>
+    Math.abs(pitch.midi - currentMidi) < Math.abs(best.midi - currentMidi) ? pitch : best,
+  )
+}
+
+function melodicStepPool(difficulty: TrainingDifficulty): number[] {
+  if (difficulty === 'easy') {
+    return [-1, -1, 0, 1, 1, 2]
+  }
+  if (difficulty === 'medium') {
+    return [-3, -2, -1, -1, 0, 1, 1, 2, 3]
+  }
+  return [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]
+}
+
+function generateMelodyLine(pitches: Pitch[], beatCount: number, difficulty: TrainingDifficulty, rng: () => number): Pitch[] {
+  if (pitches.length === 0) {
+    throw new Error('The selected octave range does not contain any playable notes.')
+  }
+
+  const middleMidi = (pitches[0].midi + pitches[pitches.length - 1].midi) / 2
+  let index = nearestPitchIndex(pitches, middleMidi)
+  const steps = melodicStepPool(difficulty)
+  const motif = Array.from({ length: BEATS_PER_MEASURE }, () => pick(steps, rng))
+
+  return Array.from({ length: beatCount }, (_, beat) => {
+    if (beat > 0) {
+      const isPhraseEnding = beat % (BEATS_PER_MEASURE * 4) === BEATS_PER_MEASURE * 4 - 1
+      const isMeasureEnding = beat % BEATS_PER_MEASURE === BEATS_PER_MEASURE - 1
+      if (isPhraseEnding) {
+        const cadence = nearestStablePitch(pitches, pitches[index].midi)
+        index = pitches.findIndex((pitch) => pitch.midi === cadence.midi)
+      } else {
+        const variation = difficulty === 'easy' ? 0 : Math.floor(rng() * 3) - 1
+        const nextIndex = index + motif[beat % motif.length] + (isMeasureEnding ? 0 : variation)
+        index = clamp(nextIndex, 0, pitches.length - 1)
+      }
+    }
+    return pitches[index]
+  })
+}
+
+function pitchByDegreeNear(pitches: Pitch[], degree: number, targetMidi: number): Pitch {
+  const matches = pitches.filter((pitch) => pitch.degree === degree)
+  return (matches.length > 0 ? matches : pitches).reduce((best, pitch) =>
+    Math.abs(pitch.midi - targetMidi) < Math.abs(best.midi - targetMidi) ? pitch : best,
+  )
+}
+
+function generateLeftAccompaniment(pitches: Pitch[], measureCount: number): Pitch[] {
+  if (pitches.length === 0) {
+    throw new Error('The selected octave range does not contain any playable notes.')
+  }
+
+  const progression = [
+    [0, 4, 2, 4],
+    [3, 0, 4, 0],
+    [5, 2, 4, 2],
+    [4, 1, 4, 1],
+  ]
+  const centerMidi = (pitches[0].midi + pitches[pitches.length - 1].midi) / 2
+  const notes: Pitch[] = []
+  for (let measure = 0; measure < measureCount; measure += 1) {
+    for (const degree of progression[measure % progression.length]) {
+      notes.push(pitchByDegreeNear(pitches, degree, centerMidi))
+    }
+  }
+  return notes
+}
+
+function asMusicXmlPitch(pitch: Pitch): string {
+  const alter = pitch.alter ? `\n          <alter>${pitch.alter}</alter>` : ''
+  return `<pitch>
+          <step>${pitch.step}</step>${alter}
+          <octave>${pitch.octave}</octave>
+        </pitch>`
+}
+
+function noteXml(pitch: Pitch, staff: 1 | 2, voice: 1 | 2): string {
+  return `      <note>
+        ${asMusicXmlPitch(pitch)}
+        <duration>1</duration>
+        <voice>${voice}</voice>
+        <type>quarter</type>
+        <staff>${staff}</staff>
+      </note>`
+}
+
+function attributesXml(key: KeyConfig, handMode: TrainingHandMode): string {
+  if (handMode === 'both') {
+    return `      <attributes>
+        <divisions>1</divisions>
+        <key>
+          <fifths>${key.fifths}</fifths>
+        </key>
+        <time>
+          <beats>4</beats>
+          <beat-type>4</beat-type>
+        </time>
+        <staves>2</staves>
+        <clef number="1">
+          <sign>G</sign>
+          <line>2</line>
+        </clef>
+        <clef number="2">
+          <sign>F</sign>
+          <line>4</line>
+        </clef>
+      </attributes>`
+  }
+
+  const isLeft = handMode === 'left'
+  return `      <attributes>
+        <divisions>1</divisions>
+        <key>
+          <fifths>${key.fifths}</fifths>
+        </key>
+        <time>
+          <beats>4</beats>
+          <beat-type>4</beat-type>
+        </time>
+        <clef>
+          <sign>${isLeft ? 'F' : 'G'}</sign>
+          <line>${isLeft ? 4 : 2}</line>
+        </clef>
+      </attributes>`
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function titleFor(settings: TrainingSettings, key: KeyConfig): string {
+  const hand =
+    settings.handMode === 'both' ? 'Two-hand' : settings.handMode === 'left' ? 'Left-hand' : 'Right-hand'
+  return `${hand} training - ${key.name}`
+}
+
+function buildMeasureXml(
+  measureNumber: number,
+  key: KeyConfig,
+  handMode: TrainingHandMode,
+  rightNotes: Pitch[],
+  leftNotes: Pitch[],
+): string {
+  const start = (measureNumber - 1) * BEATS_PER_MEASURE
+  const attributes = measureNumber === 1 ? `\n${attributesXml(key, handMode)}\n` : '\n'
+  if (handMode === 'both') {
+    return `    <measure number="${measureNumber}">${attributes}${rightNotes
+      .slice(start, start + BEATS_PER_MEASURE)
+      .map((pitch) => noteXml(pitch, 1, 1))
+      .join('\n')}
+      <backup>
+        <duration>4</duration>
+      </backup>
+${leftNotes
+  .slice(start, start + BEATS_PER_MEASURE)
+  .map((pitch) => noteXml(pitch, 2, 2))
+  .join('\n')}
+    </measure>`
+  }
+
+  const notes = handMode === 'left' ? leftNotes : rightNotes
+  return `    <measure number="${measureNumber}">${attributes}${notes
+    .slice(start, start + BEATS_PER_MEASURE)
+    .map((pitch) => noteXml(pitch, 1, 1))
+    .join('\n')}
+    </measure>`
+}
+
+export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettings> = {}): string {
+  const settings = sanitizeSettings(partialSettings)
+  const rng = createRng(settings.seed)
+  const key = chooseKey(settings.accidentalMode, settings.difficulty, rng)
+  const beatCount = settings.measureCount * BEATS_PER_MEASURE
+
+  const rightRange = octaveRangeToMidi(settings.rightOctaveLow, settings.rightOctaveHigh)
+  const leftRange = octaveRangeToMidi(settings.leftOctaveLow, settings.leftOctaveHigh)
+  const rightScale = buildScalePitches(key, rightRange.low, rightRange.high)
+  const leftScale = buildScalePitches(key, leftRange.low, leftRange.high)
+  const rightNotes =
+    settings.handMode !== 'left'
+      ? generateMelodyLine(
+          settings.accidentalMode === 'chromatic'
+            ? buildChromaticPitches(key, rightRange.low, rightRange.high)
+            : rightScale,
+          beatCount,
+          settings.difficulty,
+          rng,
+        )
+      : []
+  const leftNotes =
+    settings.handMode === 'both'
+      ? generateLeftAccompaniment(leftScale, settings.measureCount)
+      : settings.handMode === 'left'
+        ? generateMelodyLine(
+            settings.accidentalMode === 'chromatic'
+              ? buildChromaticPitches(key, leftRange.low, leftRange.high)
+              : leftScale,
+            beatCount,
+            settings.difficulty,
+            rng,
+          )
+        : []
+
+  const measures = Array.from({ length: settings.measureCount }, (_, i) =>
+    buildMeasureXml(i + 1, key, settings.handMode, rightNotes, leftNotes),
+  ).join('\n')
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <work>
+    <work-title>${xmlEscape(titleFor(settings, key))}</work-title>
+  </work>
+  <identification>
+    <creator type="composer">Piano Trainer</creator>
+  </identification>
+  <part-list>
+    <score-part id="P1">
+      <part-name>Piano</part-name>
+    </score-part>
+  </part-list>
+  <part id="P1">
+${measures}
+  </part>
+</score-partwise>
+`
+}
+
+export function createTrainingExerciseFile(settings: Partial<TrainingSettings>): File {
+  const xml = generateTrainingMusicXml(settings)
+  const dateStamp = new Date().toISOString().slice(0, 10)
+  return new File([xml], `training-exercise-${dateStamp}.musicxml`, {
+    type: 'application/vnd.recordare.musicxml+xml',
+  })
+}
