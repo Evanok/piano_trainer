@@ -8,6 +8,9 @@
 
     /* Bundler mode */
     "module": "nodenext",
+    // jszip is CommonJS with an `export =` declaration; the server imports it
+    // as a default import from ESM.
+    "esModuleInterop": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
@@ -19,5 +22,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "server"]
 }
