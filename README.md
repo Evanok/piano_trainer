@@ -13,11 +13,15 @@ npm install
 npm run dev
 ```
 
-Open the printed local URL in Chrome or Edge, pick a `.musicxml`/`.xml`/`.mxl` file, connect your MIDI keyboard, and start playing.
+Open the printed local URL in Chrome or Edge, connect your MIDI keyboard, then choose either Exercise or Practice a score from the home screen.
+
+## Navigation and mobile use
+
+The home screen intentionally stays small: Exercise opens the generated-exercise setup page, and Practice a score opens upload plus catalog. Practice itself is shared by both flows. On phone-sized screens the practice view is designed for landscape use and forces horizontal scroll mode; regular scores keep the virtual keyboard visible as a compact aid, while generated exercises hide it so it does not give away the answer.
 
 ## Score catalog
 
-Every score you upload is saved server-side, so you never have to re-pick the same file twice: the home page lists the catalog (10 most recently uploaded per page, with a search box), and picking an entry loads it straight into practice.
+Every score you upload from Practice a score is saved server-side, so you never have to re-pick the same file twice: that page lists the catalog (10 most recently uploaded per page, with a search box), and picking an entry loads it straight into practice.
 
 Scores are listed under their real title and composer, read from the MusicXML itself (`.mxl` files are unzipped to get at it) rather than under their file name. A score whose metadata is empty falls back to a readable form of the file name, and the search box matches title, composer and file name.
 
@@ -33,7 +37,7 @@ Set `PIANO_TRAINER_DATA_DIR` to store them elsewhere (recommended on a real depl
 
 ## Generated training
 
-The home page can also generate a short training exercise without uploading a score. Pick the hand setup, octave range, accidental mode, difficulty and length; the app builds a MusicXML file in memory and opens it through the same Practice pipeline as a normal score. The generator favours small melodic motion, phrase endings on stable scale tones, key signatures, and simple left-hand accompaniment instead of pure random notes.
+The Exercise page generates a short training exercise without uploading a score. Pick the hand setup, octave range, accidental mode, difficulty and length; the app builds a MusicXML file in memory and opens it through the same Practice pipeline as a normal score. The generator favours small melodic motion, phrase endings on stable scale tones, key signatures, and simple left-hand accompaniment instead of pure random notes. Generated exercises are not saved to the catalog.
 
 ## Deployment
 
