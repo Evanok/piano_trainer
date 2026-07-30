@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SkipToStartIcon } from '../components/icons'
+import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, SkipToStartIcon } from '../components/icons'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
@@ -77,9 +77,19 @@ interface PracticeProps {
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
+  onExerciseSettings?: () => void
 }
 
-export function Practice({ scoreFile, sourceKind, keyboardAssistMode, backingTrack, onNoteEvent, onComplete, onBack }: PracticeProps) {
+export function Practice({
+  scoreFile,
+  sourceKind,
+  keyboardAssistMode,
+  backingTrack,
+  onNoteEvent,
+  onComplete,
+  onBack,
+  onExerciseSettings,
+}: PracticeProps) {
   // Mobile only ever gets scroll mode (and training mode, built on top of
   // it) -- the paginated page layout and the dense desktop control row don't
   // work well on a phone screen. See useIsMobile for the breakpoint.
@@ -615,6 +625,16 @@ export function Practice({ scoreFile, sourceKind, keyboardAssistMode, backingTra
           >
             <HomeIcon className="h-5 w-5" />
           </button>
+          {sourceKind === 'generated-training' && onExerciseSettings && (
+            <button
+              type="button"
+              onClick={onExerciseSettings}
+              aria-label="Exercise settings"
+              className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+            >
+              <SettingsIcon className="h-5 w-5" />
+            </button>
+          )}
           <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900">{scoreFile.name}</h1>
           {backing.isEnabled && (
             <button
@@ -687,11 +707,18 @@ export function Practice({ scoreFile, sourceKind, keyboardAssistMode, backingTra
 
   return (
     <div className="mx-auto flex h-screen w-full max-w-[1600px] flex-col gap-4 px-6 py-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">{scoreFile.name}</h1>
-        <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
-          Back to home
-        </button>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="min-w-0 flex-1 truncate text-xl font-semibold text-gray-900">{scoreFile.name}</h1>
+        <div className="flex shrink-0 items-center gap-3">
+          {sourceKind === 'generated-training' && onExerciseSettings && (
+            <button type="button" onClick={onExerciseSettings} className="text-sm text-gray-500 hover:underline">
+              Settings
+            </button>
+          )}
+          <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
+            Home
+          </button>
+        </div>
       </div>
 
       <ScoreHud
