@@ -1,6 +1,7 @@
 import type {
   TrainingAccidentalMode,
   TrainingDifficulty,
+  TrainingExerciseContentMode,
   TrainingHandMode,
   TrainingSettings,
 } from '../types/training'
@@ -18,6 +19,8 @@ interface Pitch {
   octave: number
   degree: number
 }
+
+type NoteEvent = Pitch[]
 
 interface PhrasePlan {
   melodyDegrees: number[]
@@ -160,6 +163,7 @@ const DEFAULT_SETTINGS: TrainingSettings = {
   handMode: 'right',
   accidentalMode: 'none',
   difficulty: 'easy',
+  contentMode: 'notes',
   measureCount: 8,
   rightOctaveLow: 4,
   rightOctaveHigh: 5,
@@ -398,20 +402,98 @@ function pitchByDegreeNear(pitches: Pitch[], degree: number, targetMidi: number)
 }
 
 function chordToneDegrees(rootDegree: number): number[] {
+  return [rootDegree, (rootDegree + 2) % 7, (rootDegree + 4) % 7]
+}
+
+function accompanimentDegrees(rootDegree: number): number[] {
   return [rootDegree, (rootDegree + 4) % 7, (rootDegree + 2) % 7, (rootDegree + 4) % 7]
 }
 
-function generateLeftAccompaniment(pitches: Pitch[], measureCount: number, phrasePlan: PhrasePlan): Pitch[] {
+function melodyEvents(
+  pitches: Pitch[],
+  beatCount: number,
+  difficulty: TrainingDifficulty,
+  phrasePlan: PhrasePlan,
+  allowChromaticPassing: boolean,
+  rng: () => number,
+): NoteEvent[] {
+  return generateMelodyLine(pitches, beatCount, difficulty, phrasePlan, allowChromaticPassing, rng).map((pitch) => [
+    pitch,
+  ])
+}
+
+function triadNear(pitches: Pitch[], rootDegree: number, centerMidi: number): NoteEvent {
+  const tones = chordToneDegrees(rootDegree).map((degree) => pitchByDegreeNear(pitches, degree, centerMidi))
+  return Array.from(new Map(tones.map((pitch) => [pitch.midi, pitch])).values()).sort((a, b) => a.midi - b.midi)
+}
+
+function triadEvents(pitches: Pitch[], measureCount: number, phrasePlan: PhrasePlan): NoteEvent[] {
   if (pitches.length === 0) {
     throw new Error('The selected octave range does not contain any playable notes.')
   }
 
   const centerMidi = (pitches[0].midi + pitches[pitches.length - 1].midi) / 2
-  const notes: Pitch[] = []
+  const events: NoteEvent[] = []
   for (let measure = 0; measure < measureCount; measure += 1) {
-    for (const degree of chordToneDegrees(phrasePlan.harmonyDegrees[measure] ?? 0)) {
-      notes.push(pitchByDegreeNear(pitches, degree, centerMidi))
+    const rootDegree = phrasePlan.harmonyDegrees[measure] ?? 0
+    for (let beat = 0; beat < BEATS_PER_MEASURE; beat += 1) {
+      events.push(triadNear(pitches, rootDegree, centerMidi))
     }
+  }
+  return events
+}
+
+function mergeMixedEvents(noteEvents: NoteEvent[], chordEvents: NoteEvent[]): NoteEvent[] {
+  return noteEvents.map((event, beat) =>
+    Math.floor(beat / BEATS_PER_MEASURE) % 2 === 0 ? event : (chordEvents[beat] ?? event),
+  )
+}
+
+function generateContentEvents(
+  pitches: Pitch[],
+  beatCount: number,
+  measureCount: number,
+  settings: TrainingSettings,
+  phrasePlan: PhrasePlan,
+  allowChromaticPassing: boolean,
+  rng: () => number,
+): NoteEvent[] {
+  if (settings.contentMode === 'triads') {
+    return triadEvents(pitches, measureCount, phrasePlan)
+  }
+
+  const notes = melodyEvents(pitches, beatCount, settings.difficulty, phrasePlan, allowChromaticPassing, rng)
+  if (settings.contentMode === 'mixed') {
+    return mergeMixedEvents(notes, triadEvents(pitches, measureCount, phrasePlan))
+  }
+  return notes
+}
+
+function generateLeftAccompaniment(
+  pitches: Pitch[],
+  measureCount: number,
+  phrasePlan: PhrasePlan,
+  contentMode: TrainingExerciseContentMode,
+): NoteEvent[] {
+  if (pitches.length === 0) {
+    throw new Error('The selected octave range does not contain any playable notes.')
+  }
+
+  const centerMidi = (pitches[0].midi + pitches[pitches.length - 1].midi) / 2
+  const notes: NoteEvent[] = []
+  const triads: NoteEvent[] = []
+  for (let measure = 0; measure < measureCount; measure += 1) {
+    const rootDegree = phrasePlan.harmonyDegrees[measure] ?? 0
+    for (const degree of accompanimentDegrees(rootDegree)) {
+      notes.push([pitchByDegreeNear(pitches, degree, centerMidi)])
+      triads.push(triadNear(pitches, rootDegree, centerMidi))
+    }
+  }
+  if (contentMode === 'triads') {
+    return triads
+  }
+  if (contentMode === 'mixed') {
+    return mergeMixedEvents(notes, triads)
   }
   return notes
 }
@@ -424,14 +506,19 @@ function asMusicXmlPitch(pitch: Pitch): string {
         </pitch>`
 }
 
-function noteXml(pitch: Pitch, staff: 1 | 2, voice: 1 | 2): string {
-  return `      <note>
+function noteXml(pitch: Pitch, staff: 1 | 2, voice: 1 | 2, isChordTone = false): string {
+  const chord = isChordTone ? '\n        <chord/>' : ''
+  return `      <note>${chord}
         ${asMusicXmlPitch(pitch)}
         <duration>1</duration>
         <voice>${voice}</voice>
         <type>quarter</type>
         <staff>${staff}</staff>
       </note>`
+}
+
+function noteEventXml(event: NoteEvent, staff: 1 | 2, voice: 1 | 2): string {
+  return event.map((pitch, index) => noteXml(pitch, staff, voice, index > 0)).join('\n')
 }
 
 function attributesXml(key: KeyConfig, handMode: TrainingHandMode): string {
@@ -493,22 +580,22 @@ function buildMeasureXml(
   measureNumber: number,
   key: KeyConfig,
   handMode: TrainingHandMode,
-  rightNotes: Pitch[],
-  leftNotes: Pitch[],
+  rightNotes: NoteEvent[],
+  leftNotes: NoteEvent[],
 ): string {
   const start = (measureNumber - 1) * BEATS_PER_MEASURE
   const attributes = measureNumber === 1 ? `\n${attributesXml(key, handMode)}\n` : '\n'
   if (handMode === 'both') {
     return `    <measure number="${measureNumber}">${attributes}${rightNotes
       .slice(start, start + BEATS_PER_MEASURE)
-      .map((pitch) => noteXml(pitch, 1, 1))
+      .map((event) => noteEventXml(event, 1, 1))
       .join('\n')}
       <backup>
         <duration>4</duration>
       </backup>
 ${leftNotes
   .slice(start, start + BEATS_PER_MEASURE)
-  .map((pitch) => noteXml(pitch, 2, 2))
+  .map((event) => noteEventXml(event, 2, 2))
   .join('\n')}
     </measure>`
   }
@@ -516,7 +603,7 @@ ${leftNotes
   const notes = handMode === 'left' ? leftNotes : rightNotes
   return `    <measure number="${measureNumber}">${attributes}${notes
     .slice(start, start + BEATS_PER_MEASURE)
-    .map((pitch) => noteXml(pitch, 1, 1))
+    .map((event) => noteEventXml(event, 1, 1))
     .join('\n')}
     </measure>`
 }
@@ -532,29 +619,40 @@ export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettin
   const leftRange = octaveRangeToMidi(settings.leftOctaveLow, settings.leftOctaveHigh)
   const rightScale = buildScalePitches(key, rightRange.low, rightRange.high)
   const leftScale = buildScalePitches(key, leftRange.low, leftRange.high)
+  const rightPlayablePitches =
+    settings.accidentalMode === 'chromatic' ? buildChromaticPitches(key, rightRange.low, rightRange.high) : rightScale
+  const leftPlayablePitches =
+    settings.accidentalMode === 'chromatic' ? buildChromaticPitches(key, leftRange.low, leftRange.high) : leftScale
   const rightNotes =
-    settings.handMode !== 'left'
-      ? generateMelodyLine(
-          settings.accidentalMode === 'chromatic'
-            ? buildChromaticPitches(key, rightRange.low, rightRange.high)
-            : rightScale,
+    settings.handMode === 'right'
+      ? generateContentEvents(
+          rightPlayablePitches,
           beatCount,
-          settings.difficulty,
+          settings.measureCount,
+          settings,
           phrasePlan,
           settings.accidentalMode === 'chromatic',
           rng,
         )
-      : []
-  const leftNotes =
-    settings.handMode === 'both'
-      ? generateLeftAccompaniment(leftScale, settings.measureCount, phrasePlan)
-      : settings.handMode === 'left'
-        ? generateMelodyLine(
-            settings.accidentalMode === 'chromatic'
-              ? buildChromaticPitches(key, leftRange.low, leftRange.high)
-              : leftScale,
+      : settings.handMode === 'both'
+        ? melodyEvents(
+            rightPlayablePitches,
             beatCount,
             settings.difficulty,
+            phrasePlan,
+            settings.accidentalMode === 'chromatic',
+            rng,
+          )
+        : []
+  const leftNotes =
+    settings.handMode === 'both'
+      ? generateLeftAccompaniment(leftScale, settings.measureCount, phrasePlan, settings.contentMode)
+      : settings.handMode === 'left'
+        ? generateContentEvents(
+            leftPlayablePitches,
+            beatCount,
+            settings.measureCount,
+            settings,
             phrasePlan,
             settings.accidentalMode === 'chromatic',
             rng,

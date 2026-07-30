@@ -6,6 +6,7 @@ import type { KeyboardAssistMode } from '../types/practice'
 import type {
   TrainingAccidentalMode,
   TrainingDifficulty,
+  TrainingExerciseContentMode,
   TrainingExerciseSettings,
   TrainingHandMode,
 } from '../types/training'
@@ -44,6 +45,9 @@ export function ExerciseSetup({
   const [streak] = useState(() => getStreakStats())
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
+  const [trainingContentMode, setTrainingContentMode] = useState<TrainingExerciseContentMode>(
+    initialSettings.contentMode,
+  )
   const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>(
     initialSettings.accidentalMode,
   )
@@ -61,6 +65,7 @@ export function ExerciseSetup({
         handMode: trainingHandMode,
         accidentalMode: trainingAccidentalMode,
         difficulty: trainingDifficulty,
+        contentMode: trainingContentMode,
         measureCount: trainingMeasureCount,
         rightOctaveLow,
         rightOctaveHigh,
@@ -127,6 +132,19 @@ export function ExerciseSetup({
               <option value="easy">Easy</option>
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Exercise type
+            <select
+              value={trainingContentMode}
+              onChange={(event) => setTrainingContentMode(event.target.value as TrainingExerciseContentMode)}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="notes">Notes</option>
+              <option value="triads">Triads</option>
+              <option value="mixed">Mixed</option>
             </select>
           </label>
 

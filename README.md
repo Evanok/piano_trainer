@@ -37,7 +37,7 @@ Set `PIANO_TRAINER_DATA_DIR` to store them elsewhere (recommended on a real depl
 
 ## Generated training
 
-The Exercise page generates a short training exercise without uploading a score. Pick the hand setup, octave range, accidental mode, difficulty and length; the app builds a MusicXML file in memory and opens it through the same Practice pipeline as a normal score. The generator favours small melodic motion, phrase endings on stable scale tones, key signatures, and simple left-hand accompaniment instead of pure random notes. Generated exercises are not saved to the catalog.
+The Exercise page generates a short training exercise without uploading a score. Pick the hand setup, exercise type (notes, triads, or mixed), octave range, accidental mode, difficulty and length; the app builds a MusicXML file in memory and opens it through the same Practice pipeline as a normal score. The generator favours small melodic motion, phrase endings on stable scale tones, key signatures, and simple left-hand accompaniment instead of pure random notes. Single-hand exercises can drill notes, triads, or alternating measures of both; two-hand exercises keep the right hand as melody and apply the notes/triads/mixed choice to the left-hand accompaniment. Generated exercises are not saved to the catalog.
 
 ## Deployment
 

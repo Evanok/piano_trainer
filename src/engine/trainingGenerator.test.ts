@@ -33,6 +33,29 @@ describe('generateTrainingMusicXml', () => {
     expect((xml.match(/<note>/g) ?? [])).toHaveLength(64)
   })
 
+  it('can generate triad exercises as MusicXML chords', () => {
+    const xml = generateTrainingMusicXml({ contentMode: 'triads', measureCount: 4, seed: 'triads' })
+
+    expect((xml.match(/<measure number="/g) ?? [])).toHaveLength(4)
+    expect((xml.match(/<note>/g) ?? [])).toHaveLength(48)
+    expect(xml.split('<chord/>').length - 1).toBe(32)
+  })
+
+  it('alternates notes and triads in mixed exercises', () => {
+    const xml = generateTrainingMusicXml({ contentMode: 'mixed', measureCount: 4, seed: 'mixed' })
+
+    expect((xml.match(/<note>/g) ?? [])).toHaveLength(32)
+    expect(xml.split('<chord/>').length - 1).toBe(16)
+  })
+
+  it('keeps right-hand melody over left-hand triads for two-hand triad exercises', () => {
+    const xml = generateTrainingMusicXml({ handMode: 'both', contentMode: 'triads', measureCount: 4, seed: 'both-triads' })
+
+    expect((xml.match(/<backup>/g) ?? [])).toHaveLength(4)
+    expect((xml.match(/<note>/g) ?? [])).toHaveLength(64)
+    expect(xml.split('<chord/>').length - 1).toBe(32)
+  })
+
   it('returns key metadata for generated backing tracks', () => {
     const exercise = createTrainingExercise({ accidentalMode: 'none', seed: 'metadata' })
 

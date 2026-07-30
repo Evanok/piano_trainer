@@ -27,7 +27,7 @@ A piano practice web app ("Wait Mode", Simply-Piano-style): load a MusicXML/`.mx
 
 The app deliberately avoids a router for now: `App.tsx` owns the screen enum and passes callbacks down. Keep `Home` as an intent menu only. Put generated-exercise settings in `ExerciseSetup.tsx`, and real-score upload/catalog/search in `ScoreLibrary.tsx`. Both flows must pass a real `File` into `Practice`; use `PracticeSourceKind` rather than filename heuristics whenever behavior differs between generated exercises and real scores. Currently generated exercises hide the mobile virtual keyboard so it does not give away answers, while regular scores keep it visible on mobile as a compact aid.
 
-`createTrainingExerciseFile()` returns an in-memory `.musicxml` `File`; generated exercises are not uploaded to or listed in the catalog.
+`createTrainingExerciseFile()` returns an in-memory `.musicxml` `File`; generated exercises are not uploaded to or listed in the catalog. Exercise generation supports `contentMode: 'notes' | 'triads' | 'mixed'`. Single-hand exercises apply that mode to the active hand; two-hand exercises keep a right-hand melody and apply the mode to the left-hand accompaniment. Triads are emitted as MusicXML chord notes with `<chord/>`, which the existing OSMD extraction and `WaitEngine` chord path consume as one expected event.
 
 ### Score catalog (`server/`, `src/api/catalog.ts`)
 

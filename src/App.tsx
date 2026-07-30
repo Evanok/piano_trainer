@@ -16,6 +16,7 @@ const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   handMode: 'right',
   accidentalMode: 'none',
   difficulty: 'easy',
+  contentMode: 'notes',
   measureCount: 8,
   rightOctaveLow: 4,
   rightOctaveHigh: 5,
