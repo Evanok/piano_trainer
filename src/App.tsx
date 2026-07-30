@@ -1,12 +1,14 @@
 import { useCallback, useState } from 'react'
 import { Home } from './pages/Home'
+import { ExerciseSetup } from './pages/ExerciseSetup'
+import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { useMidi } from './hooks/useMidi'
 import type { PracticeSourceKind } from './types/practice'
 import type { SessionStats } from './types/session'
 
-type Screen = 'home' | 'practice' | 'end'
+type Screen = 'home' | 'exercise-setup' | 'score-library' | 'practice' | 'end'
 
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
@@ -33,6 +35,34 @@ function App() {
     setScreen('home')
   }, [])
 
+  if (screen === 'exercise-setup') {
+    return (
+      <ExerciseSetup
+        devices={devices}
+        selectedDeviceId={selectedDeviceId}
+        onSelectDevice={selectDevice}
+        isSupported={isSupported}
+        midiError={error}
+        onExerciseReady={(file) => handleFileLoaded(file, 'generated-training')}
+        onBack={handleBackToHome}
+      />
+    )
+  }
+
+  if (screen === 'score-library') {
+    return (
+      <ScoreLibrary
+        devices={devices}
+        selectedDeviceId={selectedDeviceId}
+        onSelectDevice={selectDevice}
+        isSupported={isSupported}
+        midiError={error}
+        onFileLoaded={handleFileLoaded}
+        onBack={handleBackToHome}
+      />
+    )
+  }
+
   if (screen === 'practice' && scoreFile) {
     return (
       <Practice
@@ -49,16 +79,7 @@ function App() {
     return <End stats={sessionStats} onRestart={handleBackToHome} />
   }
 
-  return (
-    <Home
-      devices={devices}
-      selectedDeviceId={selectedDeviceId}
-      onSelectDevice={selectDevice}
-      isSupported={isSupported}
-      midiError={error}
-      onFileLoaded={handleFileLoaded}
-    />
-  )
+  return <Home onStartExercise={() => setScreen('exercise-setup')} onPracticeScore={() => setScreen('score-library')} />
 }
 
 export default App
