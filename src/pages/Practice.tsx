@@ -13,7 +13,7 @@ import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
-import type { PracticeSourceKind } from '../types/practice'
+import type { KeyboardAssistMode, PracticeSourceKind } from '../types/practice'
 import type { ExerciseSessionStats, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
@@ -71,12 +71,13 @@ function summarizeExerciseStats(
 interface PracticeProps {
   scoreFile: File
   sourceKind: PracticeSourceKind
+  keyboardAssistMode: KeyboardAssistMode
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
 }
 
-export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBack }: PracticeProps) {
+export function Practice({ scoreFile, sourceKind, keyboardAssistMode, onNoteEvent, onComplete, onBack }: PracticeProps) {
   // Mobile only ever gets scroll mode (and training mode, built on top of
   // it) -- the paginated page layout and the dense desktop control row don't
   // work well on a phone screen. See useIsMobile for the breakpoint.
@@ -157,6 +158,7 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
   currentSectionIndexRef.current = currentSectionIndex
   const sectionPerfectStreakRef = useRef(sectionPerfectStreak)
   sectionPerfectStreakRef.current = sectionPerfectStreak
+  const supportsSectionNavigation = sourceKind !== 'generated-training'
 
   const clearDecayTimer = () => {
     if (decayTimeoutRef.current !== null) {
@@ -253,16 +255,15 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
     }
   }, [isMobile])
 
-  // Mobile's compact header has no training-mode toggle -- section
-  // navigation (back-to-section-1, prev/next) IS the mobile practice mode,
-  // always on, not something to opt into. Guarded by trainingMode so this
-  // only fires once per isMobile transition, not on every render.
+  // Mobile regular-score practice uses section navigation as its compact
+  // drill mode. Generated exercises are already short tests, so they play
+  // straight through without section controls.
   useEffect(() => {
-    if (isMobile && !trainingMode) {
+    if (isMobile && supportsSectionNavigation && !trainingMode) {
       enterTrainingMode()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, trainingMode])
+  }, [isMobile, supportsSectionNavigation, trainingMode])
 
   const goToEventIndex = (targetIndex: number) => {
     const engine = waitEngineRef.current
@@ -575,7 +576,13 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
   }
 
   const displayedIndex = Math.min((engineState?.currentIndex ?? 0) + 1, totalEvents)
-  const showMobileKeyboard = sourceKind !== 'generated-training'
+  const showGeneratedAssistKeyboard =
+    sourceKind === 'generated-training' &&
+    (keyboardAssistMode === 'learning' || (keyboardAssistMode === 'mistakes-only' && wrongPitches.length > 0))
+  const showMobileKeyboard = sourceKind !== 'generated-training' || showGeneratedAssistKeyboard
+  const showDesktopKeyboard = sourceKind === 'generated-training' ? showGeneratedAssistKeyboard : showKeyboard
+  const keyboardAssistLabel =
+    keyboardAssistMode === 'none' ? 'No help' : keyboardAssistMode === 'mistakes-only' ? 'Mistakes only' : 'Learning'
 
   // Mobile gets a single compact icon-button header (name, home, back-to-
   // section-1, prev/next section) with every other row -- HUD, the desktop
@@ -596,30 +603,34 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
             <HomeIcon className="h-5 w-5" />
           </button>
           <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900">{scoreFile.name}</h1>
-          <button
-            type="button"
-            onClick={handleBackToSection1}
-            aria-label="Back to section 1"
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-          >
-            <SkipToStartIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={handlePrevSection}
-            aria-label="Previous section"
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-          >
-            <ChevronLeftIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={handleNextSection}
-            aria-label="Next section"
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-          >
-            <ChevronRightIcon className="h-5 w-5" />
-          </button>
+          {supportsSectionNavigation && (
+            <>
+              <button
+                type="button"
+                onClick={handleBackToSection1}
+                aria-label="Back to section 1"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <SkipToStartIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handlePrevSection}
+                aria-label="Previous section"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <ChevronLeftIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleNextSection}
+                aria-label="Next section"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <ChevronRightIcon className="h-5 w-5" />
+              </button>
+            </>
+          )}
         </div>
 
         <PianoScore
@@ -631,10 +642,8 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
         />
 
         {/* Always on for regular scores (no toggle button fits in the compact
-            header) -- on a small screen, re-reading the expected chord off
-            the sheet after a mistake is slow; the keyboard gives an immediate
-            reference exactly where a mis-hit note is also shown red. Generated
-            exercises hide it so the keyboard does not give away the answer. */}
+            header). Generated exercises follow the setup assistance mode: hidden,
+            visible only after mistakes, or always visible for learning. */}
         {showMobileKeyboard && (
           <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
             <VirtualKeyboard
@@ -710,13 +719,19 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
             onChange={(e) => handleZoomChange(Number(e.target.value))}
           />
         </label>
-        <button
-          type="button"
-          onClick={() => setShowKeyboard((value) => !value)}
-          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
-        >
-          {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
-        </button>
+        {sourceKind === 'generated-training' ? (
+          <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
+            Keyboard help: {keyboardAssistLabel}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowKeyboard((value) => !value)}
+            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+          >
+            {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
+          </button>
+        )}
         {!trainingMode && (
           <button
             type="button"
@@ -726,20 +741,22 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
             {layoutMode === 'page' ? 'Switch to scroll mode' : 'Switch to page mode'}
           </button>
         )}
-        <button
-          type="button"
-          onClick={handleToggleTrainingMode}
-          className={
-            trainingMode
-              ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
-              : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
-          }
-        >
-          {trainingMode ? 'Exit section drill' : 'Start section drill'}
-        </button>
+        {supportsSectionNavigation && (
+          <button
+            type="button"
+            onClick={handleToggleTrainingMode}
+            className={
+              trainingMode
+                ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
+                : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
+            }
+          >
+            {trainingMode ? 'Exit section drill' : 'Start section drill'}
+          </button>
+        )}
       </div>
 
-      {trainingMode && (
+      {supportsSectionNavigation && trainingMode && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
           <label className="flex items-center gap-2">
             Section
@@ -800,12 +817,12 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
       <PianoScore
         ref={scoreRef}
         source={scoreFile}
-        layoutMode={trainingMode ? 'scroll' : layoutMode}
+        layoutMode={supportsSectionNavigation && trainingMode ? 'scroll' : layoutMode}
         onReady={handleReady}
         onError={setLoadError}
       />
 
-      {showKeyboard && (
+      {showDesktopKeyboard && (
         <VirtualKeyboard
           lowestPitch={pitchRange.low}
           highestPitch={pitchRange.high}

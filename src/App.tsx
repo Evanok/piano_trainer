@@ -5,7 +5,7 @@ import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { useMidi } from './hooks/useMidi'
-import type { PracticeSourceKind } from './types/practice'
+import type { KeyboardAssistMode, PracticeSourceKind } from './types/practice'
 import type { SessionStats } from './types/session'
 
 type Screen = 'home' | 'exercise-setup' | 'score-library' | 'practice' | 'end'
@@ -14,15 +14,20 @@ function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [scoreFile, setScoreFile] = useState<File | null>(null)
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
+  const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
 
-  const handleFileLoaded = useCallback((file: File, sourceKind: PracticeSourceKind = 'score') => {
-    setScoreFile(file)
-    setPracticeSourceKind(sourceKind)
-    setScreen('practice')
-  }, [])
+  const handleFileLoaded = useCallback(
+    (file: File, sourceKind: PracticeSourceKind = 'score', assistMode?: KeyboardAssistMode) => {
+      setScoreFile(file)
+      setPracticeSourceKind(sourceKind)
+      setKeyboardAssistMode(assistMode ?? (sourceKind === 'generated-training' ? 'none' : 'learning'))
+      setScreen('practice')
+    },
+    [],
+  )
 
   const handleComplete = useCallback((stats: SessionStats) => {
     setSessionStats(stats)
@@ -43,7 +48,7 @@ function App() {
         onSelectDevice={selectDevice}
         isSupported={isSupported}
         midiError={error}
-        onExerciseReady={(file) => handleFileLoaded(file, 'generated-training')}
+        onExerciseReady={(file, assistMode) => handleFileLoaded(file, 'generated-training', assistMode)}
         onBack={handleBackToHome}
       />
     )
@@ -68,6 +73,7 @@ function App() {
       <Practice
         scoreFile={scoreFile}
         sourceKind={practiceSourceKind}
+        keyboardAssistMode={keyboardAssistMode}
         onNoteEvent={onNoteEvent}
         onComplete={handleComplete}
         onBack={handleBackToHome}

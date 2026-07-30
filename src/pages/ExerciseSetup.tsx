@@ -3,6 +3,7 @@ import { MidiDevice } from '../components/MidiDevice'
 import { getStreakStats } from '../engine/streakStore'
 import { createTrainingExerciseFile } from '../engine/trainingGenerator'
 import type { MidiDeviceInfo } from '../types/midi'
+import type { KeyboardAssistMode } from '../types/practice'
 import type { TrainingAccidentalMode, TrainingDifficulty, TrainingHandMode } from '../types/training'
 
 const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
@@ -13,7 +14,7 @@ interface ExerciseSetupProps {
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
-  onExerciseReady: (scoreFile: File) => void
+  onExerciseReady: (scoreFile: File, keyboardAssistMode: KeyboardAssistMode) => void
   onBack: () => void
 }
 
@@ -23,6 +24,7 @@ export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSup
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>('right')
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>('easy')
   const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>('none')
+  const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
   const [trainingMeasureCount, setTrainingMeasureCount] = useState(8)
   const [rightOctaveLow, setRightOctaveLow] = useState(4)
   const [rightOctaveHigh, setRightOctaveHigh] = useState(5)
@@ -42,6 +44,7 @@ export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSup
         leftOctaveHigh,
         seed: String(Date.now()),
       }),
+      keyboardAssistMode,
     )
   }
 
@@ -127,6 +130,19 @@ export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSup
               <option value={8}>8 measures</option>
               <option value={16}>16 measures</option>
               <option value={32}>32 measures</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Keyboard help
+            <select
+              value={keyboardAssistMode}
+              onChange={(event) => setKeyboardAssistMode(event.target.value as KeyboardAssistMode)}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="none">No help</option>
+              <option value="mistakes-only">Mistakes only</option>
+              <option value="learning">Learning</option>
             </select>
           </label>
         </div>
