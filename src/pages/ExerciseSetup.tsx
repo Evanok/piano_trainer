@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
 import { getStreakStats } from '../engine/streakStore'
-import { createTrainingExercise } from '../engine/trainingGenerator'
 import type { MidiDeviceInfo } from '../types/midi'
-import type { KeyboardAssistMode, PracticeBackingTrack } from '../types/practice'
-import type { TrainingAccidentalMode, TrainingDifficulty, TrainingHandMode } from '../types/training'
+import type { KeyboardAssistMode } from '../types/practice'
+import type {
+  TrainingAccidentalMode,
+  TrainingDifficulty,
+  TrainingExerciseSettings,
+  TrainingHandMode,
+} from '../types/training'
 
 const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
 
@@ -14,43 +18,57 @@ interface ExerciseSetupProps {
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
-  onExerciseReady: (scoreFile: File, keyboardAssistMode: KeyboardAssistMode, backingTrack: PracticeBackingTrack | null) => void
+  initialSettings: TrainingExerciseSettings
+  initialKeyboardAssistMode: KeyboardAssistMode
+  initialBackingTrackEnabled: boolean
+  onExerciseReady: (
+    settings: TrainingExerciseSettings,
+    keyboardAssistMode: KeyboardAssistMode,
+    backingTrackEnabled: boolean,
+  ) => void
   onBack: () => void
 }
 
-
-export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSupported, midiError, onExerciseReady, onBack }: ExerciseSetupProps) {
+export function ExerciseSetup({
+  devices,
+  selectedDeviceId,
+  onSelectDevice,
+  isSupported,
+  midiError,
+  initialSettings,
+  initialKeyboardAssistMode,
+  initialBackingTrackEnabled,
+  onExerciseReady,
+  onBack,
+}: ExerciseSetupProps) {
   const [streak] = useState(() => getStreakStats())
-  const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>('right')
-  const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>('easy')
-  const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>('none')
-  const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
-  const [backingTrackEnabled, setBackingTrackEnabled] = useState(false)
-  const [trainingMeasureCount, setTrainingMeasureCount] = useState(8)
-  const [rightOctaveLow, setRightOctaveLow] = useState(4)
-  const [rightOctaveHigh, setRightOctaveHigh] = useState(5)
-  const [leftOctaveLow, setLeftOctaveLow] = useState(2)
-  const [leftOctaveHigh, setLeftOctaveHigh] = useState(3)
+  const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
+  const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
+  const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>(
+    initialSettings.accidentalMode,
+  )
+  const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>(initialKeyboardAssistMode)
+  const [backingTrackEnabled, setBackingTrackEnabled] = useState(initialBackingTrackEnabled)
+  const [trainingMeasureCount, setTrainingMeasureCount] = useState(initialSettings.measureCount)
+  const [rightOctaveLow, setRightOctaveLow] = useState(initialSettings.rightOctaveLow)
+  const [rightOctaveHigh, setRightOctaveHigh] = useState(initialSettings.rightOctaveHigh)
+  const [leftOctaveLow, setLeftOctaveLow] = useState(initialSettings.leftOctaveLow)
+  const [leftOctaveHigh, setLeftOctaveHigh] = useState(initialSettings.leftOctaveHigh)
 
   const handleStartTrainingExercise = () => {
-    const exercise = createTrainingExercise({
-      handMode: trainingHandMode,
-      accidentalMode: trainingAccidentalMode,
-      difficulty: trainingDifficulty,
-      measureCount: trainingMeasureCount,
-      rightOctaveLow,
-      rightOctaveHigh,
-      leftOctaveLow,
-      leftOctaveHigh,
-      seed: String(Date.now()),
-    })
-
     onExerciseReady(
-      exercise.file,
+      {
+        handMode: trainingHandMode,
+        accidentalMode: trainingAccidentalMode,
+        difficulty: trainingDifficulty,
+        measureCount: trainingMeasureCount,
+        rightOctaveLow,
+        rightOctaveHigh,
+        leftOctaveLow,
+        leftOctaveHigh,
+      },
       keyboardAssistMode,
-      backingTrackEnabled
-        ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
-        : null,
+      backingTrackEnabled,
     )
   }
 

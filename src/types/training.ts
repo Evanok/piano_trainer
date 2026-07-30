@@ -13,3 +13,5 @@ export interface TrainingSettings {
   leftOctaveHigh: number
   seed: string
 }
+
+export type TrainingExerciseSettings = Omit<TrainingSettings, 'seed'>

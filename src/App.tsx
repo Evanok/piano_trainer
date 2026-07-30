@@ -4,11 +4,24 @@ import { ExerciseSetup } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
+import { createTrainingExercise } from './engine/trainingGenerator'
 import { useMidi } from './hooks/useMidi'
 import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from './types/practice'
 import type { SessionStats } from './types/session'
+import type { TrainingExerciseSettings } from './types/training'
 
 type Screen = 'home' | 'exercise-setup' | 'score-library' | 'practice' | 'end'
+
+const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
+  handMode: 'right',
+  accidentalMode: 'none',
+  difficulty: 'easy',
+  measureCount: 8,
+  rightOctaveLow: 4,
+  rightOctaveHigh: 5,
+  leftOctaveLow: 2,
+  leftOctaveHigh: 3,
+}
 
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
@@ -16,6 +29,9 @@ function App() {
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
+  const [exerciseSettings, setExerciseSettings] = useState<TrainingExerciseSettings>(DEFAULT_EXERCISE_SETTINGS)
+  const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
+  const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
@@ -36,6 +52,21 @@ function App() {
     [],
   )
 
+  const startGeneratedExercise = useCallback(
+    (settings: TrainingExerciseSettings, assistMode: KeyboardAssistMode, backingTrackEnabled: boolean) => {
+      const exercise = createTrainingExercise({ ...settings, seed: String(Date.now()) })
+      const backingTrack = backingTrackEnabled
+        ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
+        : null
+
+      setExerciseSettings(settings)
+      setExerciseKeyboardAssistMode(assistMode)
+      setExerciseBackingTrackEnabled(backingTrackEnabled)
+      handleFileLoaded(exercise.file, 'generated-training', assistMode, backingTrack)
+    },
+    [handleFileLoaded],
+  )
+
   const handleComplete = useCallback((stats: SessionStats) => {
     setSessionStats(stats)
     setScreen('end')
@@ -43,8 +74,21 @@ function App() {
 
   const handleBackToHome = useCallback(() => {
     setScoreFile(null)
+    setPracticeBackingTrack(null)
     setSessionStats(null)
     setScreen('home')
+  }, [])
+
+  const handleNextExercise = useCallback(() => {
+    setSessionStats(null)
+    startGeneratedExercise(exerciseSettings, exerciseKeyboardAssistMode, exerciseBackingTrackEnabled)
+  }, [exerciseBackingTrackEnabled, exerciseKeyboardAssistMode, exerciseSettings, startGeneratedExercise])
+
+  const handleChangeExerciseSettings = useCallback(() => {
+    setScoreFile(null)
+    setPracticeBackingTrack(null)
+    setSessionStats(null)
+    setScreen('exercise-setup')
   }, [])
 
   if (screen === 'exercise-setup') {
@@ -55,9 +99,10 @@ function App() {
         onSelectDevice={selectDevice}
         isSupported={isSupported}
         midiError={error}
-        onExerciseReady={(file, assistMode, backingTrack) =>
-          handleFileLoaded(file, 'generated-training', assistMode, backingTrack)
-        }
+        initialSettings={exerciseSettings}
+        initialKeyboardAssistMode={exerciseKeyboardAssistMode}
+        initialBackingTrackEnabled={exerciseBackingTrackEnabled}
+        onExerciseReady={startGeneratedExercise}
         onBack={handleBackToHome}
       />
     )
@@ -92,7 +137,15 @@ function App() {
   }
 
   if (screen === 'end' && sessionStats) {
-    return <End stats={sessionStats} onRestart={handleBackToHome} />
+    const isExerciseSession = practiceSourceKind === 'generated-training'
+    return (
+      <End
+        stats={sessionStats}
+        onHome={handleBackToHome}
+        onNextExercise={isExerciseSession ? handleNextExercise : undefined}
+        onChangeSettings={isExerciseSession ? handleChangeExerciseSettings : undefined}
+      />
+    )
   }
 
   return <Home onStartExercise={() => setScreen('exercise-setup')} onPracticeScore={() => setScreen('score-library')} />

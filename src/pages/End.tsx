@@ -4,7 +4,9 @@ import type { SessionStats } from '../types/session'
 
 interface EndProps {
   stats: SessionStats
-  onRestart: () => void
+  onHome: () => void
+  onNextExercise?: () => void
+  onChangeSettings?: () => void
 }
 
 function formatDuration(ms: number): string {
@@ -21,7 +23,7 @@ function formatResponse(ms: number): string {
   return (ms / 1000).toFixed(1) + ' s'
 }
 
-export function End({ stats, onRestart }: EndProps) {
+export function End({ stats, onHome, onNextExercise, onChangeSettings }: EndProps) {
   const grade = computeGrade(stats.successPercent)
   // recordPracticeDay() already ran when this session's Practice screen
   // mounted, so today already counts here -- no separate call needed.
@@ -116,13 +118,37 @@ export function End({ stats, onRestart }: EndProps) {
         {streak.totalDaysPracticed === 1 ? 'day' : 'days'} practiced total
       </p>
 
-      <button
-        type="button"
-        onClick={onRestart}
-        className="rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700"
-      >
-        Back to home
-      </button>
+      <div className="flex flex-wrap justify-center gap-3">
+        {onNextExercise && (
+          <button
+            type="button"
+            onClick={onNextExercise}
+            className="rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700"
+          >
+            Next exercise
+          </button>
+        )}
+        {onChangeSettings && (
+          <button
+            type="button"
+            onClick={onChangeSettings}
+            className="rounded-md border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-50"
+          >
+            Change settings
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onHome}
+          className={
+            onNextExercise
+              ? 'rounded-md border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-50'
+              : 'rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700'
+          }
+        >
+          Home
+        </button>
+      </div>
     </div>
   )
 }
