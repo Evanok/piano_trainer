@@ -11,9 +11,10 @@ import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '..
 import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useSoftBackingTrack } from '../hooks/useSoftBackingTrack'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
-import type { KeyboardAssistMode, PracticeSourceKind } from '../types/practice'
+import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from '../types/practice'
 import type { ExerciseSessionStats, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
@@ -72,12 +73,13 @@ interface PracticeProps {
   scoreFile: File
   sourceKind: PracticeSourceKind
   keyboardAssistMode: KeyboardAssistMode
+  backingTrack: PracticeBackingTrack | null
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
 }
 
-export function Practice({ scoreFile, sourceKind, keyboardAssistMode, onNoteEvent, onComplete, onBack }: PracticeProps) {
+export function Practice({ scoreFile, sourceKind, keyboardAssistMode, backingTrack, onNoteEvent, onComplete, onBack }: PracticeProps) {
   // Mobile only ever gets scroll mode (and training mode, built on top of
   // it) -- the paginated page layout and the dense desktop control row don't
   // work well on a phone screen. See useIsMobile for the breakpoint.
@@ -119,6 +121,8 @@ export function Practice({ scoreFile, sourceKind, keyboardAssistMode, onNoteEven
     () => computeSections(events, measuresPerSection, naturalBreaks),
     [events, measuresPerSection, naturalBreaks],
   )
+
+  const backing = useSoftBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
 
   const scoreRef = useRef<PianoScoreHandle | null>(null)
   const waitEngineRef = useRef<WaitEngine | null>(null)
@@ -583,6 +587,15 @@ export function Practice({ scoreFile, sourceKind, keyboardAssistMode, onNoteEven
   const showDesktopKeyboard = sourceKind === 'generated-training' ? showGeneratedAssistKeyboard : showKeyboard
   const keyboardAssistLabel =
     keyboardAssistMode === 'none' ? 'No help' : keyboardAssistMode === 'mistakes-only' ? 'Mistakes only' : 'Learning'
+  const backingTrackLabel = backingTrack ? 'Pad: ' + backingTrack.keyName : 'Pad'
+  const backingTrackButtonLabel = backing.isRunning ? backingTrackLabel : 'Start audio'
+  const handleBackingTrackButton = () => {
+    if (backing.isRunning) {
+      backing.stop()
+    } else {
+      void backing.start()
+    }
+  }
 
   // Mobile gets a single compact icon-button header (name, home, back-to-
   // section-1, prev/next section) with every other row -- HUD, the desktop
@@ -603,6 +616,19 @@ export function Practice({ scoreFile, sourceKind, keyboardAssistMode, onNoteEven
             <HomeIcon className="h-5 w-5" />
           </button>
           <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900">{scoreFile.name}</h1>
+          {backing.isEnabled && (
+            <button
+              type="button"
+              onClick={handleBackingTrackButton}
+              className={
+                backing.isRunning
+                  ? 'rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700'
+                  : 'rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white'
+              }
+            >
+              {backingTrackButtonLabel}
+            </button>
+          )}
           {supportsSectionNavigation && (
             <>
               <button
@@ -720,9 +746,24 @@ export function Practice({ scoreFile, sourceKind, keyboardAssistMode, onNoteEven
           />
         </label>
         {sourceKind === 'generated-training' ? (
-          <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
-            Keyboard help: {keyboardAssistLabel}
-          </span>
+          <>
+            <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
+              Keyboard help: {keyboardAssistLabel}
+            </span>
+            {backing.isEnabled && (
+              <button
+                type="button"
+                onClick={handleBackingTrackButton}
+                className={
+                  backing.isRunning
+                    ? 'rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-sm text-emerald-700'
+                    : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
+                }
+              >
+                {backingTrackButtonLabel}
+              </button>
+            )}
+          </>
         ) : (
           <button
             type="button"

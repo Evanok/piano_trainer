@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
 import { getStreakStats } from '../engine/streakStore'
-import { createTrainingExerciseFile } from '../engine/trainingGenerator'
+import { createTrainingExercise } from '../engine/trainingGenerator'
 import type { MidiDeviceInfo } from '../types/midi'
-import type { KeyboardAssistMode } from '../types/practice'
+import type { KeyboardAssistMode, PracticeBackingTrack } from '../types/practice'
 import type { TrainingAccidentalMode, TrainingDifficulty, TrainingHandMode } from '../types/training'
 
 const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
@@ -14,7 +14,7 @@ interface ExerciseSetupProps {
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
-  onExerciseReady: (scoreFile: File, keyboardAssistMode: KeyboardAssistMode) => void
+  onExerciseReady: (scoreFile: File, keyboardAssistMode: KeyboardAssistMode, backingTrack: PracticeBackingTrack | null) => void
   onBack: () => void
 }
 
@@ -25,6 +25,7 @@ export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSup
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>('easy')
   const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>('none')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
+  const [backingTrackEnabled, setBackingTrackEnabled] = useState(false)
   const [trainingMeasureCount, setTrainingMeasureCount] = useState(8)
   const [rightOctaveLow, setRightOctaveLow] = useState(4)
   const [rightOctaveHigh, setRightOctaveHigh] = useState(5)
@@ -32,19 +33,24 @@ export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSup
   const [leftOctaveHigh, setLeftOctaveHigh] = useState(3)
 
   const handleStartTrainingExercise = () => {
+    const exercise = createTrainingExercise({
+      handMode: trainingHandMode,
+      accidentalMode: trainingAccidentalMode,
+      difficulty: trainingDifficulty,
+      measureCount: trainingMeasureCount,
+      rightOctaveLow,
+      rightOctaveHigh,
+      leftOctaveLow,
+      leftOctaveHigh,
+      seed: String(Date.now()),
+    })
+
     onExerciseReady(
-      createTrainingExerciseFile({
-        handMode: trainingHandMode,
-        accidentalMode: trainingAccidentalMode,
-        difficulty: trainingDifficulty,
-        measureCount: trainingMeasureCount,
-        rightOctaveLow,
-        rightOctaveHigh,
-        leftOctaveLow,
-        leftOctaveHigh,
-        seed: String(Date.now()),
-      }),
+      exercise.file,
       keyboardAssistMode,
+      backingTrackEnabled
+        ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
+        : null,
     )
   }
 
@@ -143,6 +149,18 @@ export function ExerciseSetup({ devices, selectedDeviceId, onSelectDevice, isSup
               <option value="none">No help</option>
               <option value="mistakes-only">Mistakes only</option>
               <option value="learning">Learning</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Backing track
+            <select
+              value={backingTrackEnabled ? 'soft-pad' : 'off'}
+              onChange={(event) => setBackingTrackEnabled(event.target.value === 'soft-pad')}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="off">Off</option>
+              <option value="soft-pad">Soft tonal pad</option>
             </select>
           </label>
         </div>

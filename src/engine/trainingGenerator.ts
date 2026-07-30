@@ -24,6 +24,12 @@ interface PhrasePlan {
   harmonyDegrees: number[]
 }
 
+export interface CreatedTrainingExercise {
+  file: File
+  keyName: string
+  tonicPitchClass: number
+}
+
 const BEATS_PER_MEASURE = 4
 
 const KEYS: KeyConfig[] = [
@@ -580,10 +586,23 @@ ${measures}
 `
 }
 
-export function createTrainingExerciseFile(settings: Partial<TrainingSettings>): File {
-  const xml = generateTrainingMusicXml(settings)
+function createMusicXmlFile(xml: string): File {
   const dateStamp = new Date().toISOString().slice(0, 10)
-  return new File([xml], `training-exercise-${dateStamp}.musicxml`, {
+  return new File([xml], 'training-exercise-' + dateStamp + '.musicxml', {
     type: 'application/vnd.recordare.musicxml+xml',
   })
+}
+
+export function createTrainingExercise(settings: Partial<TrainingSettings>): CreatedTrainingExercise {
+  const sanitized = sanitizeSettings(settings)
+  const key = chooseKey(sanitized.accidentalMode, sanitized.difficulty, createRng(sanitized.seed))
+  return {
+    file: createMusicXmlFile(generateTrainingMusicXml(sanitized)),
+    keyName: key.name,
+    tonicPitchClass: key.scale[0].pc,
+  }
+}
+
+export function createTrainingExerciseFile(settings: Partial<TrainingSettings>): File {
+  return createTrainingExercise(settings).file
 }

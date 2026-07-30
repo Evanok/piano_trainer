@@ -5,7 +5,7 @@ import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { useMidi } from './hooks/useMidi'
-import type { KeyboardAssistMode, PracticeSourceKind } from './types/practice'
+import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from './types/practice'
 import type { SessionStats } from './types/session'
 
 type Screen = 'home' | 'exercise-setup' | 'score-library' | 'practice' | 'end'
@@ -15,15 +15,22 @@ function App() {
   const [scoreFile, setScoreFile] = useState<File | null>(null)
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
+  const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
 
   const handleFileLoaded = useCallback(
-    (file: File, sourceKind: PracticeSourceKind = 'score', assistMode?: KeyboardAssistMode) => {
+    (
+      file: File,
+      sourceKind: PracticeSourceKind = 'score',
+      assistMode?: KeyboardAssistMode,
+      backingTrack: PracticeBackingTrack | null = null,
+    ) => {
       setScoreFile(file)
       setPracticeSourceKind(sourceKind)
       setKeyboardAssistMode(assistMode ?? (sourceKind === 'generated-training' ? 'none' : 'learning'))
+      setPracticeBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
       setScreen('practice')
     },
     [],
@@ -48,7 +55,9 @@ function App() {
         onSelectDevice={selectDevice}
         isSupported={isSupported}
         midiError={error}
-        onExerciseReady={(file, assistMode) => handleFileLoaded(file, 'generated-training', assistMode)}
+        onExerciseReady={(file, assistMode, backingTrack) =>
+          handleFileLoaded(file, 'generated-training', assistMode, backingTrack)
+        }
         onBack={handleBackToHome}
       />
     )
@@ -74,6 +83,7 @@ function App() {
         scoreFile={scoreFile}
         sourceKind={practiceSourceKind}
         keyboardAssistMode={keyboardAssistMode}
+        backingTrack={practiceBackingTrack}
         onNoteEvent={onNoteEvent}
         onComplete={handleComplete}
         onBack={handleBackToHome}

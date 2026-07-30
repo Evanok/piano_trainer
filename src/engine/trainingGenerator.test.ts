@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateTrainingMusicXml } from './trainingGenerator'
+import { createTrainingExercise, generateTrainingMusicXml } from './trainingGenerator'
 
 describe('generateTrainingMusicXml', () => {
   it('is deterministic for the same settings and seed', () => {
@@ -31,6 +31,14 @@ describe('generateTrainingMusicXml', () => {
     expect(xml).toContain('<clef number="2">')
     expect((xml.match(/<backup>/g) ?? [])).toHaveLength(8)
     expect((xml.match(/<note>/g) ?? [])).toHaveLength(64)
+  })
+
+  it('returns key metadata for generated backing tracks', () => {
+    const exercise = createTrainingExercise({ accidentalMode: 'none', seed: 'metadata' })
+
+    expect(exercise.keyName).toBe('C major')
+    expect(exercise.tonicPitchClass).toBe(0)
+    expect(exercise.file.name).toMatch(/training-exercise-.*\.musicxml/)
   })
 
   it('resolves generated right-hand phrases back to the tonic', () => {
