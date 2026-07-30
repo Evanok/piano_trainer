@@ -23,6 +23,12 @@ A piano practice web app ("Wait Mode", Simply-Piano-style): load a MusicXML/`.mx
 
 `Home` is a small intent menu (`Exercise` / `Practice a score`). `App` holds the loaded `File`, a `PracticeSourceKind` (`score` or `generated-training`), and switches screens (`home` / `exercise-setup` / `score-library` / `practice` / `end`, plain `useState`, no router). `ExerciseSetup` builds generated MusicXML exercises in memory; `ScoreLibrary` owns upload/catalog browsing; both enter the shared `Practice` pipeline; `End` shows session stats. `useMidi` is instantiated once in `App` (not per-screen) so the Web MIDI permission prompt only fires once per session and device state survives screen switches.
 
+### Navigation and source kinds
+
+The app deliberately avoids a router for now: `App.tsx` owns the screen enum and passes callbacks down. Keep `Home` as an intent menu only. Put generated-exercise settings in `ExerciseSetup.tsx`, and real-score upload/catalog/search in `ScoreLibrary.tsx`. Both flows must pass a real `File` into `Practice`; use `PracticeSourceKind` rather than filename heuristics whenever behavior differs between generated exercises and real scores. Currently generated exercises hide the mobile virtual keyboard so it does not give away answers, while regular scores keep it visible on mobile as a compact aid.
+
+`createTrainingExerciseFile()` returns an in-memory `.musicxml` `File`; generated exercises are not uploaded to or listed in the catalog.
+
 ### Score catalog (`server/`, `src/api/catalog.ts`)
 
 The only server-side part of the app: uploaded scores are kept on disk so they can be re-opened later without re-picking the file. Deliberately dependency-free (`node:http` + `node:fs`, no framework, no database) -- it's a single-user personal deployment, not a service.
