@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Home } from './pages/Home'
 import { ExerciseSetup } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
+import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
@@ -10,7 +11,7 @@ import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } fro
 import type { SessionStats } from './types/session'
 import type { TrainingExerciseSettings } from './types/training'
 
-type Screen = 'home' | 'exercise-setup' | 'score-library' | 'practice' | 'end'
+type Screen = 'home' | 'exercise-setup' | 'score-library' | 'stats' | 'practice' | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   handMode: 'right',
@@ -123,6 +124,10 @@ function App() {
     )
   }
 
+  if (screen === 'stats') {
+    return <Stats onBack={handleBackToHome} />
+  }
+
   if (screen === 'practice' && scoreFile) {
     return (
       <Practice
@@ -150,7 +155,13 @@ function App() {
     )
   }
 
-  return <Home onStartExercise={() => setScreen('exercise-setup')} onPracticeScore={() => setScreen('score-library')} />
+  return (
+    <Home
+      onStartExercise={() => setScreen('exercise-setup')}
+      onPracticeScore={() => setScreen('score-library')}
+      onViewStats={() => setScreen('stats')}
+    />
+  )
 }
 
 export default App

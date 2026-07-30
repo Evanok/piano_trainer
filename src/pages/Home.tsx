@@ -5,9 +5,10 @@ import { useIsMobile } from '../hooks/useIsMobile'
 interface HomeProps {
   onStartExercise: () => void
   onPracticeScore: () => void
+  onViewStats: () => void
 }
 
-export function Home({ onStartExercise, onPracticeScore }: HomeProps) {
+export function Home({ onStartExercise, onPracticeScore, onViewStats }: HomeProps) {
   const isMobile = useIsMobile()
   const [streak] = useState(() => getStreakStats())
 
@@ -35,7 +36,7 @@ export function Home({ onStartExercise, onPracticeScore }: HomeProps) {
         )}
       </header>
 
-      <main className={isMobile ? 'grid min-h-0 flex-1 grid-cols-2 gap-4 pt-4' : 'grid grid-cols-2 gap-5'}>
+      <main className={isMobile ? 'grid min-h-0 flex-1 grid-cols-3 gap-3 pt-4' : 'grid grid-cols-3 gap-5'}>
         <button
           type="button"
           onClick={onStartExercise}
@@ -56,12 +57,26 @@ export function Home({ onStartExercise, onPracticeScore }: HomeProps) {
           className="flex min-h-0 flex-col justify-between rounded-lg border border-gray-200 bg-white p-5 text-left hover:border-gray-300 hover:bg-gray-50"
         >
           <span>
-            <span className={isMobile ? 'block text-xl font-semibold text-gray-900' : 'block text-2xl font-semibold text-gray-900'}>
+            <span className={isMobile ? 'block text-lg font-semibold text-gray-900' : 'block text-2xl font-semibold text-gray-900'}>
               Practice a score
             </span>
             <span className="mt-2 block text-sm leading-5 text-gray-600">Upload or open catalog</span>
           </span>
           <span className="mt-4 text-sm font-medium text-gray-900">Open</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onViewStats}
+          className="flex min-h-0 flex-col justify-between rounded-lg border border-gray-200 bg-white p-5 text-left hover:border-gray-300 hover:bg-gray-50"
+        >
+          <span>
+            <span className={isMobile ? 'block text-lg font-semibold text-gray-900' : 'block text-2xl font-semibold text-gray-900'}>
+              Stats
+            </span>
+            <span className="mt-2 block text-sm leading-5 text-gray-600">Progress and weak spots</span>
+          </span>
+          <span className="mt-4 text-sm font-medium text-gray-900">View</span>
         </button>
       </main>
     </div>

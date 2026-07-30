@@ -13,11 +13,11 @@ npm install
 npm run dev
 ```
 
-Open the printed local URL in Chrome or Edge, connect your MIDI keyboard, then choose either Exercise or Practice a score from the home screen.
+Open the printed local URL in Chrome or Edge, connect your MIDI keyboard, then choose Exercise, Practice a score, or Stats from the home screen.
 
 ## Navigation and mobile use
 
-The home screen intentionally stays small: Exercise opens the generated-exercise setup page, and Practice a score opens upload plus catalog. Practice itself is shared by both flows. On phone-sized screens the practice view is designed for landscape use and forces horizontal scroll mode; regular scores keep the virtual keyboard visible as a compact aid, while generated exercises hide it so it does not give away the answer.
+The home screen intentionally stays small: Exercise opens the generated-exercise setup page, Practice a score opens upload plus catalog, and Stats shows local exercise history. Practice itself is shared by both playable flows. On phone-sized screens the practice view is designed for landscape use and forces horizontal scroll mode; regular scores keep the virtual keyboard visible as a compact aid, while generated exercises hide it so it does not give away the answer.
 
 ## Score catalog
 
