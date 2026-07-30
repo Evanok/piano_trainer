@@ -33,6 +33,18 @@ describe('generateTrainingMusicXml', () => {
     expect((xml.match(/<note>/g) ?? [])).toHaveLength(64)
   })
 
+  it('resolves generated right-hand phrases back to the tonic', () => {
+    const xml = generateTrainingMusicXml({
+      accidentalMode: 'none',
+      difficulty: 'medium',
+      measureCount: 8,
+      seed: 'cadence',
+    })
+
+    const steps = Array.from(xml.matchAll(new RegExp('<step>([A-G])</step>', 'g')))
+    expect(steps.at(-1)?.[1]).toBe('C')
+  })
+
   it('can include accidentals when chromatic mode is selected', () => {
     const xml = generateTrainingMusicXml({
       accidentalMode: 'chromatic',

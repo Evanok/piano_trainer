@@ -19,6 +19,11 @@ interface Pitch {
   degree: number
 }
 
+interface PhrasePlan {
+  melodyDegrees: number[]
+  harmonyDegrees: number[]
+}
+
 const BEATS_PER_MEASURE = 4
 
 const KEYS: KeyConfig[] = [
@@ -232,10 +237,12 @@ function buildScalePitches(key: KeyConfig, lowMidi: number, highMidi: number): P
 
 function buildChromaticPitches(key: KeyConfig, lowMidi: number, highMidi: number): Pitch[] {
   const spellings = key.fifths < 0 ? CHROMATIC_FLAT : CHROMATIC_SHARP
+  const scaleByPc = new Map(key.scale.map((pitch) => [pitch.pc, pitch]))
   return Array.from({ length: highMidi - lowMidi + 1 }, (_, i) => {
     const midi = lowMidi + i
-    const spelling = spellings[((midi % 12) + 12) % 12]
-    return { midi, octave: xmlOctave(midi), degree: -1, ...spelling }
+    const pc = ((midi % 12) + 12) % 12
+    const spelling = spellings[pc]
+    return { midi, octave: xmlOctave(midi), degree: scaleByPc.get(pc)?.degree ?? -1, ...spelling }
   })
 }
 
@@ -259,38 +266,119 @@ function nearestStablePitch(pitches: Pitch[], currentMidi: number): Pitch {
   )
 }
 
-function melodicStepPool(difficulty: TrainingDifficulty): number[] {
-  if (difficulty === 'easy') {
-    return [-1, -1, 0, 1, 1, 2]
-  }
-  if (difficulty === 'medium') {
-    return [-3, -2, -1, -1, 0, 1, 1, 2, 3]
-  }
-  return [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]
+function nearestDegreePitchIndex(pitches: Pitch[], degree: number, targetMidi: number): number {
+  const matches = pitches
+    .map((pitch, index) => ({ pitch, index }))
+    .filter(({ pitch }) => pitch.degree === degree)
+  const candidates = matches.length > 0 ? matches : pitches.map((pitch, index) => ({ pitch, index }))
+  return candidates.reduce((best, candidate) =>
+    Math.abs(candidate.pitch.midi - targetMidi) < Math.abs(best.pitch.midi - targetMidi) ? candidate : best,
+  ).index
 }
 
-function generateMelodyLine(pitches: Pitch[], beatCount: number, difficulty: TrainingDifficulty, rng: () => number): Pitch[] {
+function shiftScaleIndexByMidi(pitches: Pitch[], startIndex: number, semitoneShift: number): number {
+  return nearestPitchIndex(pitches, pitches[startIndex].midi + semitoneShift)
+}
+
+function musicalPhraseTemplates(difficulty: TrainingDifficulty): number[][] {
+  if (difficulty === 'easy') {
+    return [
+      [0, 1, 2, 4, 2, 1, 0, 2],
+      [0, 2, 4, 2, 1, 2, 1, 0],
+      [2, 1, 0, 1, 2, 4, 2, 0],
+    ]
+  }
+  if (difficulty === 'medium') {
+    return [
+      [0, 2, 4, 5, 4, 2, 1, 0],
+      [2, 4, 5, 4, 2, 1, 0, 2],
+      [4, 5, 6, 4, 2, 4, 1, 0],
+      [0, 1, 2, 4, 5, 4, 2, 0],
+    ]
+  }
+  return [
+    [0, 2, 4, 6, 5, 4, 2, 0],
+    [2, 5, 4, 1, 6, 4, 2, 0],
+    [4, 2, 6, 5, 3, 4, 1, 0],
+    [0, 4, 6, 5, 2, 4, 1, 0],
+  ]
+}
+
+function cadenceDegrees(phraseIndex: number, totalPhrases: number): number[] {
+  if (phraseIndex === totalPhrases - 1) {
+    return [2, 1, 0]
+  }
+  return phraseIndex % 2 === 0 ? [4, 5, 4] : [2, 1, 0]
+}
+
+function buildPhrasePlan(beatCount: number, difficulty: TrainingDifficulty, rng: () => number): PhrasePlan {
+  const templates = musicalPhraseTemplates(difficulty)
+  const phraseLength = BEATS_PER_MEASURE * 2
+  const phraseCount = Math.ceil(beatCount / phraseLength)
+  const base = pick(templates, rng)
+  const melodyDegrees: number[] = []
+  const harmonyPattern = [0, 4, 5, 3]
+
+  for (let phrase = 0; phrase < phraseCount; phrase += 1) {
+    const cadence = cadenceDegrees(phrase, phraseCount)
+    for (let beat = 0; beat < phraseLength; beat += 1) {
+      const isCadenceBeat = beat >= phraseLength - cadence.length
+      const cadenceIndex = beat - (phraseLength - cadence.length)
+      const templateIndex = (beat + (phrase % 2 === 0 ? 0 : 2)) % base.length
+      const neighbor = phrase > 0 && beat % 4 === 1 ? (rng() > 0.5 ? 1 : -1) : 0
+      const degree = isCadenceBeat ? cadence[cadenceIndex] : base[templateIndex] + neighbor
+      melodyDegrees.push(clamp(degree, 0, 6))
+    }
+  }
+
+  const harmonyDegrees = Array.from({ length: Math.ceil(beatCount / BEATS_PER_MEASURE) }, (_, measure) => {
+    if (measure === Math.ceil(beatCount / BEATS_PER_MEASURE) - 1) {
+      return 0
+    }
+    return harmonyPattern[measure % harmonyPattern.length]
+  })
+
+  return { melodyDegrees: melodyDegrees.slice(0, beatCount), harmonyDegrees }
+}
+
+function generateMelodyLine(
+  pitches: Pitch[],
+  beatCount: number,
+  difficulty: TrainingDifficulty,
+  phrasePlan: PhrasePlan,
+  allowChromaticPassing: boolean,
+  rng: () => number,
+): Pitch[] {
   if (pitches.length === 0) {
     throw new Error('The selected octave range does not contain any playable notes.')
   }
 
   const middleMidi = (pitches[0].midi + pitches[pitches.length - 1].midi) / 2
-  let index = nearestPitchIndex(pitches, middleMidi)
-  const steps = melodicStepPool(difficulty)
-  const motif = Array.from({ length: BEATS_PER_MEASURE }, () => pick(steps, rng))
+  const phraseLength = BEATS_PER_MEASURE * 2
+  const contourShift = difficulty === 'hard' ? 12 : difficulty === 'medium' ? 7 : 0
+  const chromaticPassingChance = difficulty === 'hard' ? 0.3 : difficulty === 'medium' ? 0.22 : 0.12
 
   return Array.from({ length: beatCount }, (_, beat) => {
-    if (beat > 0) {
-      const isPhraseEnding = beat % (BEATS_PER_MEASURE * 4) === BEATS_PER_MEASURE * 4 - 1
-      const isMeasureEnding = beat % BEATS_PER_MEASURE === BEATS_PER_MEASURE - 1
-      if (isPhraseEnding) {
-        const cadence = nearestStablePitch(pitches, pitches[index].midi)
-        index = pitches.findIndex((pitch) => pitch.midi === cadence.midi)
-      } else {
-        const variation = difficulty === 'easy' ? 0 : Math.floor(rng() * 3) - 1
-        const nextIndex = index + motif[beat % motif.length] + (isMeasureEnding ? 0 : variation)
-        index = clamp(nextIndex, 0, pitches.length - 1)
-      }
+    const degree = phrasePlan.melodyDegrees[beat] ?? 0
+    const phraseIndex = Math.floor(beat / phraseLength)
+    const phraseBeat = beat % phraseLength
+    const targetCenter =
+      phraseIndex % 2 === 0 || phraseBeat >= phraseLength - 3
+        ? middleMidi
+        : middleMidi + contourShift * (rng() > 0.5 ? 1 : -1)
+    const isCadenceArea = phraseBeat >= phraseLength - 3 || beat === beatCount - 1
+    let index = nearestDegreePitchIndex(pitches, degree, targetCenter)
+
+    if (allowChromaticPassing && !isCadenceArea && beat % 2 === 1 && rng() < chromaticPassingChance) {
+      index = clamp(index + (rng() > 0.5 ? 1 : -1), 0, pitches.length - 1)
+    }
+
+    if (difficulty !== 'easy' && !isCadenceArea && rng() < 0.2) {
+      index = shiftScaleIndexByMidi(pitches, index, rng() > 0.5 ? 12 : -12)
+    }
+
+    if (beat === beatCount - 1) {
+      return nearestStablePitch(pitches, pitches[index].midi)
     }
     return pitches[index]
   })
@@ -303,21 +391,19 @@ function pitchByDegreeNear(pitches: Pitch[], degree: number, targetMidi: number)
   )
 }
 
-function generateLeftAccompaniment(pitches: Pitch[], measureCount: number): Pitch[] {
+function chordToneDegrees(rootDegree: number): number[] {
+  return [rootDegree, (rootDegree + 4) % 7, (rootDegree + 2) % 7, (rootDegree + 4) % 7]
+}
+
+function generateLeftAccompaniment(pitches: Pitch[], measureCount: number, phrasePlan: PhrasePlan): Pitch[] {
   if (pitches.length === 0) {
     throw new Error('The selected octave range does not contain any playable notes.')
   }
 
-  const progression = [
-    [0, 4, 2, 4],
-    [3, 0, 4, 0],
-    [5, 2, 4, 2],
-    [4, 1, 4, 1],
-  ]
   const centerMidi = (pitches[0].midi + pitches[pitches.length - 1].midi) / 2
   const notes: Pitch[] = []
   for (let measure = 0; measure < measureCount; measure += 1) {
-    for (const degree of progression[measure % progression.length]) {
+    for (const degree of chordToneDegrees(phrasePlan.harmonyDegrees[measure] ?? 0)) {
       notes.push(pitchByDegreeNear(pitches, degree, centerMidi))
     }
   }
@@ -434,6 +520,7 @@ export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettin
   const rng = createRng(settings.seed)
   const key = chooseKey(settings.accidentalMode, settings.difficulty, rng)
   const beatCount = settings.measureCount * BEATS_PER_MEASURE
+  const phrasePlan = buildPhrasePlan(beatCount, settings.difficulty, rng)
 
   const rightRange = octaveRangeToMidi(settings.rightOctaveLow, settings.rightOctaveHigh)
   const leftRange = octaveRangeToMidi(settings.leftOctaveLow, settings.leftOctaveHigh)
@@ -447,12 +534,14 @@ export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettin
             : rightScale,
           beatCount,
           settings.difficulty,
+          phrasePlan,
+          settings.accidentalMode === 'chromatic',
           rng,
         )
       : []
   const leftNotes =
     settings.handMode === 'both'
-      ? generateLeftAccompaniment(leftScale, settings.measureCount)
+      ? generateLeftAccompaniment(leftScale, settings.measureCount, phrasePlan)
       : settings.handMode === 'left'
         ? generateMelodyLine(
             settings.accidentalMode === 'chromatic'
@@ -460,6 +549,8 @@ export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettin
               : leftScale,
             beatCount,
             settings.difficulty,
+            phrasePlan,
+            settings.accidentalMode === 'chromatic',
             rng,
           )
         : []
