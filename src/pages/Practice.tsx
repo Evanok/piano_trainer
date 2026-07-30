@@ -11,7 +11,7 @@ import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '..
 import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useSoftBackingTrack } from '../hooks/useSoftBackingTrack'
+import { useBackingTrack } from '../hooks/useBackingTrack'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from '../types/practice'
@@ -132,7 +132,7 @@ export function Practice({
     [events, measuresPerSection, naturalBreaks],
   )
 
-  const backing = useSoftBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
+  const backing = useBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
 
   const scoreRef = useRef<PianoScoreHandle | null>(null)
   const waitEngineRef = useRef<WaitEngine | null>(null)
@@ -597,7 +597,7 @@ export function Practice({
   const showDesktopKeyboard = sourceKind === 'generated-training' ? showGeneratedAssistKeyboard : showKeyboard
   const keyboardAssistLabel =
     keyboardAssistMode === 'none' ? 'No help' : keyboardAssistMode === 'mistakes-only' ? 'Mistakes only' : 'Learning'
-  const backingTrackLabel = backingTrack ? 'Pad: ' + backingTrack.keyName : 'Pad'
+  const backingTrackLabel = backingTrack ? 'Beat: ' + backingTrack.keyName : 'Beat'
   const backingTrackButtonLabel = backing.isRunning ? backingTrackLabel : 'Start audio'
   const handleBackingTrackButton = () => {
     if (backing.isRunning) {

@@ -191,12 +191,12 @@ export function ExerciseSetup({
           <label className="flex flex-col gap-1 text-sm text-gray-700">
             Backing track
             <select
-              value={backingTrackEnabled ? 'soft-pad' : 'off'}
-              onChange={(event) => setBackingTrackEnabled(event.target.value === 'soft-pad')}
+              value={backingTrackEnabled ? 'rhythm' : 'off'}
+              onChange={(event) => setBackingTrackEnabled(event.target.value === 'rhythm')}
               className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
             >
               <option value="off">Off</option>
-              <option value="soft-pad">Soft tonal pad</option>
+              <option value="rhythm">Bass + drums</option>
             </select>
           </label>
         </div>
