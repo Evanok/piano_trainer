@@ -5,6 +5,7 @@ import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../component
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
+import { recordExerciseSession } from '../engine/exerciseStatsStore'
 import { computeSections, type Section } from '../engine/sections'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
@@ -13,13 +14,59 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type { PracticeSourceKind } from '../types/practice'
-import type { SessionStats } from '../types/session'
+import type { ExerciseSessionStats, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
 // A section only auto-advances once it's been played through with zero
 // errors this many times IN A ROW -- one clean pass isn't enough to prove
 // it's learned, but requiring more would make repetitive drilling tedious.
 const PERFECT_RUNS_TO_ADVANCE = 2
+const MAX_EXERCISE_STAT_ROWS = 3
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
+function incrementCount(map: Map<number, number>, key: number): void {
+  map.set(key, (map.get(key) ?? 0) + 1)
+}
+
+function topNoteStats(map: Map<number, number>) {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, MAX_EXERCISE_STAT_ROWS)
+    .map(([pitch, count]) => ({ note: midiToNoteName(pitch), count }))
+}
+
+function summarizeExerciseStats(
+  responseTimesMs: number[],
+  missedNoteCounts: Map<number, number>,
+  wrongNoteCounts: Map<number, number>,
+  confusionCounts: Map<string, { expected: string; played: string; count: number }>,
+): ExerciseSessionStats {
+  const sortedTimes = [...responseTimesMs].sort((a, b) => a - b)
+  const responseCount = sortedTimes.length
+  const medianIndex = Math.floor(responseCount / 2)
+  const medianResponseMs =
+    responseCount === 0
+      ? 0
+      : responseCount % 2 === 0
+        ? Math.round((sortedTimes[medianIndex - 1] + sortedTimes[medianIndex]) / 2)
+        : Math.round(sortedTimes[medianIndex])
+
+  return {
+    responseCount,
+    averageResponseMs:
+      responseCount === 0 ? 0 : Math.round(responseTimesMs.reduce((total, time) => total + time, 0) / responseCount),
+    medianResponseMs,
+    slowestResponseMs: responseCount === 0 ? 0 : Math.round(sortedTimes[responseCount - 1]),
+    missedNotes: topNoteStats(missedNoteCounts),
+    wrongNotes: topNoteStats(wrongNoteCounts),
+    confusions: Array.from(confusionCounts.values())
+      .sort((a, b) => b.count - a.count || a.expected.localeCompare(b.expected) || a.played.localeCompare(b.played))
+      .slice(0, MAX_EXERCISE_STAT_ROWS),
+  }
+}
 
 interface PracticeProps {
   scoreFile: File
@@ -87,6 +134,13 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
   const comboRef = useRef(0)
   const maxComboRef = useRef(0)
   const correctNoteCountRef = useRef(0)
+  const sourceKindRef = useRef(sourceKind)
+  sourceKindRef.current = sourceKind
+  const eventStartedAtRef = useRef(nowMs())
+  const responseTimesRef = useRef<number[]>([])
+  const missedNoteCountsRef = useRef<Map<number, number>>(new Map())
+  const wrongNoteCountsRef = useRef<Map<number, number>>(new Map())
+  const confusionCountsRef = useRef<Map<string, { expected: string; played: string; count: number }>>(new Map())
   const startedAtRef = useRef(Date.now())
   const decayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -121,6 +175,46 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
       sectionMessageTimeoutRef.current = null
     }, 3000)
   }
+
+  const resetExerciseStats = () => {
+    eventStartedAtRef.current = nowMs()
+    responseTimesRef.current = []
+    missedNoteCountsRef.current = new Map()
+    wrongNoteCountsRef.current = new Map()
+    confusionCountsRef.current = new Map()
+  }
+
+  const recordExerciseError = (expectedPitchesForEvent: number[], playedPitch: number) => {
+    if (sourceKindRef.current !== 'generated-training') {
+      return
+    }
+
+    expectedPitchesForEvent.forEach((pitch) => incrementCount(missedNoteCountsRef.current, pitch))
+    incrementCount(wrongNoteCountsRef.current, playedPitch)
+
+    const expected = expectedPitchesForEvent.map(midiToNoteName).join(', ')
+    const played = midiToNoteName(playedPitch)
+    const key = expected + ' -> ' + played
+    const existing = confusionCountsRef.current.get(key)
+    confusionCountsRef.current.set(key, { expected, played, count: (existing?.count ?? 0) + 1 })
+  }
+
+  const recordExerciseResponse = () => {
+    if (sourceKindRef.current !== 'generated-training') {
+      return
+    }
+    responseTimesRef.current.push(Math.max(0, nowMs() - eventStartedAtRef.current))
+  }
+
+  const buildExerciseStats = () =>
+    sourceKindRef.current === 'generated-training'
+      ? summarizeExerciseStats(
+          responseTimesRef.current,
+          missedNoteCountsRef.current,
+          wrongNoteCountsRef.current,
+          confusionCountsRef.current,
+        )
+      : undefined
 
   // A wrong keypress within the chord tolerance window is reported but
   // doesn't erase already-held correct notes (see WaitEngine.noteOn) -- the
@@ -194,6 +288,7 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
     setExpectedPitches(engine.currentExpectedPitches)
     setHeldPitches([])
     setWrongPitches([])
+    eventStartedAtRef.current = nowMs()
   }
 
   // Restricts the score to exactly one section's measures -- each section
@@ -260,6 +355,7 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
         return
       }
       const indexBeforeNote = engine.state.currentIndex
+      const expectedPitchesBeforeNote = engine.currentExpectedPitches
       const status = engine.noteOn(event.pitch, event.timestamp)
 
       setDebugLog((log) =>
@@ -280,6 +376,7 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
         if (activeSection) {
           sectionErrorCountRef.current += 1
         }
+        recordExerciseError(expectedPitchesBeforeNote, event.pitch)
         scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
@@ -293,6 +390,7 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
         setCorrectNoteCount(correctNoteCountRef.current)
         const newIndex = engine.state.currentIndex
         if (newIndex > previousIndexRef.current) {
+          recordExerciseResponse()
           clearDecayTimer()
           setWrongPitches([])
           if (!eventsWithErrorsRef.current.has(indexBeforeNote)) {
@@ -313,13 +411,19 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
             handleSectionCompleted()
           } else if (engine.state.completed) {
             const total = totalEventsRef.current
-            onComplete({
+            const exercise = buildExerciseStats()
+            const stats: SessionStats = {
               durationMs: Date.now() - startedAtRef.current,
               errorCount: errorCountRef.current,
               totalEvents: total,
               successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
               maxCombo: maxComboRef.current,
-            })
+              ...(exercise ? { exercise } : {}),
+            }
+            recordExerciseSession(scoreFile.name, stats)
+            onComplete(stats)
+          } else {
+            eventStartedAtRef.current = nowMs()
           }
         } else {
           scoreRef.current?.syncNotes(engine.currentHeldPitches)
@@ -360,6 +464,7 @@ export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBac
     comboRef.current = 0
     maxComboRef.current = 0
     correctNoteCountRef.current = 0
+    resetExerciseStats()
     sectionErrorCountRef.current = 0
     setCurrentCombo(0)
     setBestCombo(0)
