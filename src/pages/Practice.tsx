@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SkipToStartIcon } from '../components/icons'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
@@ -8,6 +9,7 @@ import { computeSections, type Section } from '../engine/sections'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
+import { useIsMobile } from '../hooks/useIsMobile'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type { SessionStats } from '../types/session'
@@ -26,6 +28,10 @@ interface PracticeProps {
 }
 
 export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: PracticeProps) {
+  // Mobile only ever gets scroll mode (and training mode, built on top of
+  // it) -- the paginated page layout and the dense desktop control row don't
+  // work well on a phone screen. See useIsMobile for the breakpoint.
+  const isMobile = useIsMobile()
   const [engineState, setEngineState] = useState<WaitEngineState | null>(null)
   const [errorCount, setErrorCount] = useState(0)
   const [currentCombo, setCurrentCombo] = useState(0)
@@ -41,7 +47,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('page')
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => (isMobile ? 'scroll' : 'page'))
   const [expectedPitches, setExpectedPitches] = useState<number[]>([])
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
@@ -142,6 +148,25 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       }
     }
   }, [])
+
+  // Covers becoming mobile mid-session (resize, orientation change) -- the
+  // initial state above only handles starting out mobile.
+  useEffect(() => {
+    if (isMobile) {
+      setLayoutMode('scroll')
+    }
+  }, [isMobile])
+
+  // Mobile's compact header has no training-mode toggle -- section
+  // navigation (back-to-section-1, prev/next) IS the mobile practice mode,
+  // always on, not something to opt into. Guarded by trainingMode so this
+  // only fires once per isMobile transition, not on every render.
+  useEffect(() => {
+    if (isMobile && !trainingMode) {
+      enterTrainingMode()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, trainingMode])
 
   const goToEventIndex = (targetIndex: number) => {
     const engine = waitEngineRef.current
@@ -393,20 +418,9 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
 
   const handlePrevSection = () => handleSelectSection(Math.max(0, currentSectionIndex - 1))
   const handleNextSection = () => handleSelectSection(Math.min(sections.length, currentSectionIndex + 1))
+  const handleBackToSection1 = () => handleSelectSection(0)
 
-  const handleToggleTrainingMode = () => {
-    if (trainingMode) {
-      setTrainingMode(false)
-      // Clear the crop, THEN walk -- see handleSectionCompleted for why the
-      // cursor walk must always happen with no crop active (OSMD's own
-      // tie/rest counting only lines up with WaitEngine's indices on the
-      // fully uncropped model). cursor.show() alone doesn't reliably relocate
-      // onto the freshly-uncropped, much larger graphical model either, so a
-      // fresh walk is required even though the logical index isn't changing.
-      applySectionBounds(null)
-      goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
-      return
-    }
+  const enterTrainingMode = () => {
     setTrainingMode(true)
     setCurrentSectionIndex(0)
     setSectionPerfectStreak(0)
@@ -415,6 +429,20 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     goToEventIndex(0)
     applySectionBounds(sections[0] ?? null)
   }
+
+  const exitTrainingMode = () => {
+    setTrainingMode(false)
+    // Clear the crop, THEN walk -- see handleSectionCompleted for why the
+    // cursor walk must always happen with no crop active (OSMD's own
+    // tie/rest counting only lines up with WaitEngine's indices on the
+    // fully uncropped model). cursor.show() alone doesn't reliably relocate
+    // onto the freshly-uncropped, much larger graphical model either, so a
+    // fresh walk is required even though the logical index isn't changing.
+    applySectionBounds(null)
+    goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
+  }
+
+  const handleToggleTrainingMode = () => (trainingMode ? exitTrainingMode() : enterTrainingMode())
 
   const handleMeasuresPerSectionChange = (value: number) => {
     if (Number.isFinite(value) && value >= 1) {
@@ -440,6 +468,76 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   }
 
   const displayedIndex = Math.min((engineState?.currentIndex ?? 0) + 1, totalEvents)
+
+  // Mobile gets a single compact icon-button header (name, home, back-to-
+  // section-1, prev/next section) with every other row -- HUD, the desktop
+  // controls, the training panel, banners, the debug panel -- omitted
+  // entirely so the score gets the whole rest of a landscape phone screen.
+  // Gamification stats still update underneath, just without a home for
+  // showing them on this screen yet.
+  if (isMobile) {
+    return (
+      <div className="flex h-screen w-full flex-col">
+        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to home"
+            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+          >
+            <HomeIcon className="h-5 w-5" />
+          </button>
+          <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900">{scoreFile.name}</h1>
+          <button
+            type="button"
+            onClick={handleBackToSection1}
+            aria-label="Back to section 1"
+            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+          >
+            <SkipToStartIcon className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={handlePrevSection}
+            aria-label="Previous section"
+            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+          >
+            <ChevronLeftIcon className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={handleNextSection}
+            aria-label="Next section"
+            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+          >
+            <ChevronRightIcon className="h-5 w-5" />
+          </button>
+        </div>
+
+        <PianoScore
+          ref={scoreRef}
+          source={scoreFile}
+          layoutMode="scroll"
+          onReady={handleReady}
+          onError={setLoadError}
+        />
+
+        {/* Always on (no toggle button fits in the compact header) -- on a
+            small screen, re-reading the expected chord off the sheet after a
+            mistake is slow; the keyboard gives an immediate "press these
+            keys" reference exactly where a mis-hit note is also shown red. */}
+        <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
+          <VirtualKeyboard
+            lowestPitch={pitchRange.low}
+            highestPitch={pitchRange.high}
+            expectedPitches={expectedPitches}
+            heldPitches={heldPitches}
+            wrongPitches={wrongPitches}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto flex h-screen w-full max-w-[1600px] flex-col gap-4 px-6 py-6">

@@ -25,11 +25,17 @@ function catalogApi(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), catalogApi()],
+  // Web MIDI (and other powerful browser APIs) requires a secure context --
+  // testing from a phone means going through an HTTPS tunnel (e.g.
+  // cloudflared) with a hostname Vite doesn't recognize by default, which its
+  // dev/preview servers otherwise block (DNS-rebinding protection).
   server: {
+    allowedHosts: true,
     watch: {
       // Uploads write into data/; without this, saving a score would trigger a
       // full page reload and drop a practice session in progress.
       ignored: ['**/data/**'],
     },
   },
+  preview: { allowedHosts: true },
 })
