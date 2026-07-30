@@ -5,6 +5,7 @@ import { getStreakStats } from '../engine/streakStore'
 import { createTrainingExerciseFile } from '../engine/trainingGenerator'
 import type { CatalogEntry, CatalogPage } from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
+import type { PracticeSourceKind } from '../types/practice'
 import type { TrainingAccidentalMode, TrainingDifficulty, TrainingHandMode } from '../types/training'
 
 const ALLOWED_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
@@ -20,7 +21,7 @@ interface HomeProps {
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
-  onFileLoaded: (scoreFile: File) => void
+  onFileLoaded: (scoreFile: File, sourceKind?: PracticeSourceKind) => void
 }
 
 function errorMessage(error: unknown): string {
@@ -174,6 +175,7 @@ export function Home({ devices, selectedDeviceId, onSelectDevice, isSupported, m
         leftOctaveHigh,
         seed: String(Date.now()),
       }),
+      'generated-training',
     )
   }
 

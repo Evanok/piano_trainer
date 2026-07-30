@@ -12,6 +12,7 @@ import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
+import type { PracticeSourceKind } from '../types/practice'
 import type { SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
@@ -22,12 +23,13 @@ const PERFECT_RUNS_TO_ADVANCE = 2
 
 interface PracticeProps {
   scoreFile: File
+  sourceKind: PracticeSourceKind
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
 }
 
-export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: PracticeProps) {
+export function Practice({ scoreFile, sourceKind, onNoteEvent, onComplete, onBack }: PracticeProps) {
   // Mobile only ever gets scroll mode (and training mode, built on top of
   // it) -- the paginated page layout and the dense desktop control row don't
   // work well on a phone screen. See useIsMobile for the breakpoint.
@@ -468,6 +470,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   }
 
   const displayedIndex = Math.min((engineState?.currentIndex ?? 0) + 1, totalEvents)
+  const showMobileKeyboard = sourceKind !== 'generated-training'
 
   // Mobile gets a single compact icon-button header (name, home, back-to-
   // section-1, prev/next section) with every other row -- HUD, the desktop
@@ -522,19 +525,22 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
           onError={setLoadError}
         />
 
-        {/* Always on (no toggle button fits in the compact header) -- on a
-            small screen, re-reading the expected chord off the sheet after a
-            mistake is slow; the keyboard gives an immediate "press these
-            keys" reference exactly where a mis-hit note is also shown red. */}
-        <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
-          <VirtualKeyboard
-            lowestPitch={pitchRange.low}
-            highestPitch={pitchRange.high}
-            expectedPitches={expectedPitches}
-            heldPitches={heldPitches}
-            wrongPitches={wrongPitches}
-          />
-        </div>
+        {/* Always on for regular scores (no toggle button fits in the compact
+            header) -- on a small screen, re-reading the expected chord off
+            the sheet after a mistake is slow; the keyboard gives an immediate
+            reference exactly where a mis-hit note is also shown red. Generated
+            exercises hide it so the keyboard does not give away the answer. */}
+        {showMobileKeyboard && (
+          <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
+            <VirtualKeyboard
+              lowestPitch={pitchRange.low}
+              highestPitch={pitchRange.high}
+              expectedPitches={expectedPitches}
+              heldPitches={heldPitches}
+              wrongPitches={wrongPitches}
+            />
+          </div>
+        )}
       </div>
     )
   }

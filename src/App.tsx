@@ -3,6 +3,7 @@ import { Home } from './pages/Home'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { useMidi } from './hooks/useMidi'
+import type { PracticeSourceKind } from './types/practice'
 import type { SessionStats } from './types/session'
 
 type Screen = 'home' | 'practice' | 'end'
@@ -10,12 +11,14 @@ type Screen = 'home' | 'practice' | 'end'
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [scoreFile, setScoreFile] = useState<File | null>(null)
+  const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
 
-  const handleFileLoaded = useCallback((file: File) => {
+  const handleFileLoaded = useCallback((file: File, sourceKind: PracticeSourceKind = 'score') => {
     setScoreFile(file)
+    setPracticeSourceKind(sourceKind)
     setScreen('practice')
   }, [])
 
@@ -34,6 +37,7 @@ function App() {
     return (
       <Practice
         scoreFile={scoreFile}
+        sourceKind={practiceSourceKind}
         onNoteEvent={onNoteEvent}
         onComplete={handleComplete}
         onBack={handleBackToHome}
