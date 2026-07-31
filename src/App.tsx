@@ -8,7 +8,12 @@ import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
-import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from './types/practice'
+import type {
+  KeyboardAssistMode,
+  PracticeBackingTrack,
+  PracticeKeySignature,
+  PracticeSourceKind,
+} from './types/practice'
 import type { SessionStats } from './types/session'
 import type { TrainingExerciseSettings } from './types/training'
 
@@ -19,6 +24,7 @@ const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   accidentalMode: 'none',
   difficulty: 'easy',
   contentMode: 'notes',
+  tonality: 'major',
   key: 'random',
   measureCount: 8,
   rightOctaveLow: 4,
@@ -33,6 +39,7 @@ function App() {
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
+  const [practiceKeySignature, setPracticeKeySignature] = useState<PracticeKeySignature | null>(null)
   const [exerciseSettings, setExerciseSettings] = useState<TrainingExerciseSettings>(DEFAULT_EXERCISE_SETTINGS)
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
   const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
@@ -56,11 +63,13 @@ function App() {
       sourceKind: PracticeSourceKind = 'score',
       assistMode?: KeyboardAssistMode,
       backingTrack: PracticeBackingTrack | null = null,
+      keySignature: PracticeKeySignature | null = null,
     ) => {
       setScoreFile(file)
       setPracticeSourceKind(sourceKind)
       setKeyboardAssistMode(assistMode ?? (sourceKind === 'generated-training' ? 'none' : 'learning'))
       setPracticeBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
+      setPracticeKeySignature(sourceKind === 'generated-training' ? keySignature : null)
       setScreen('practice')
     },
     [],
@@ -76,7 +85,10 @@ function App() {
       setExerciseSettings(settings)
       setExerciseKeyboardAssistMode(assistMode)
       setExerciseBackingTrackEnabled(backingTrackEnabled)
-      handleFileLoaded(exercise.file, 'generated-training', assistMode, backingTrack)
+      handleFileLoaded(exercise.file, 'generated-training', assistMode, backingTrack, {
+        keyName: exercise.keyName,
+        accidentalsLabel: exercise.accidentalsLabel,
+      })
     },
     [handleFileLoaded],
   )
@@ -89,6 +101,7 @@ function App() {
   const handleBackToHome = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
+    setPracticeKeySignature(null)
     setSessionStats(null)
     setScreen('home')
   }, [])
@@ -101,6 +114,7 @@ function App() {
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
+    setPracticeKeySignature(null)
     setSessionStats(null)
     setScreen('exercise-setup')
   }, [])
@@ -147,6 +161,7 @@ function App() {
         sourceKind={practiceSourceKind}
         keyboardAssistMode={keyboardAssistMode}
         backingTrack={practiceBackingTrack}
+        keySignature={practiceKeySignature}
         onNoteEvent={onNoteEvent}
         onComplete={handleComplete}
         onBack={handleBackToHome}

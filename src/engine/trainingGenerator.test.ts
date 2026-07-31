@@ -61,7 +61,38 @@ describe('generateTrainingMusicXml', () => {
 
     expect(exercise.keyName).toBe('C major')
     expect(exercise.tonicPitchClass).toBe(0)
+    expect(exercise.accidentalsLabel).toBe('No sharps or flats')
     expect(exercise.file.name).toMatch(/training-exercise-.*\.musicxml/)
+  })
+
+  it('generates natural minor exercises with the correct key signature and pitches', () => {
+    const xml = generateTrainingMusicXml({
+      accidentalMode: 'key',
+      tonality: 'minor',
+      key: 'C',
+      measureCount: 4,
+      seed: 'c-minor',
+    })
+
+    expect(xml).toContain('<work-title>Right-hand training - C minor</work-title>')
+    expect(xml).toContain('<fifths>-3</fifths>')
+    expect(xml).toContain('<step>E</step>\n          <alter>-1</alter>')
+  })
+
+  it('uses A minor for natural-notes-only minor exercises', () => {
+    const exercise = createTrainingExercise({ accidentalMode: 'none', tonality: 'minor', seed: 'natural-minor' })
+
+    expect(exercise.keyName).toBe('A minor')
+    expect(exercise.tonicPitchClass).toBe(9)
+    expect(exercise.accidentalsLabel).toBe('No sharps or flats')
+  })
+
+  it('returns a beginner-friendly list of key-signature accidentals', () => {
+    const sharpKey = createTrainingExercise({ accidentalMode: 'key', key: 'D', seed: 'd-major' })
+    const flatKey = createTrainingExercise({ accidentalMode: 'key', tonality: 'minor', key: 'C', seed: 'c-minor' })
+
+    expect(sharpKey.accidentalsLabel).toBe('Sharps: F♯, C♯')
+    expect(flatKey.accidentalsLabel).toBe('Flats: B♭, E♭, A♭')
   })
 
   it('resolves generated right-hand phrases back to the tonic', () => {

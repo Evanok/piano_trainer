@@ -14,7 +14,12 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useBackingTrack } from '../hooks/useBackingTrack'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
-import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from '../types/practice'
+import type {
+  KeyboardAssistMode,
+  PracticeBackingTrack,
+  PracticeKeySignature,
+  PracticeSourceKind,
+} from '../types/practice'
 import type { ExerciseSessionStats, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
@@ -74,6 +79,7 @@ interface PracticeProps {
   sourceKind: PracticeSourceKind
   keyboardAssistMode: KeyboardAssistMode
   backingTrack: PracticeBackingTrack | null
+  keySignature: PracticeKeySignature | null
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
@@ -85,6 +91,7 @@ export function Practice({
   sourceKind,
   keyboardAssistMode,
   backingTrack,
+  keySignature,
   onNoteEvent,
   onComplete,
   onBack,
@@ -599,6 +606,13 @@ export function Practice({
     keyboardAssistMode === 'none' ? 'No help' : keyboardAssistMode === 'mistakes-only' ? 'Mistakes only' : 'Learning'
   const backingTrackLabel = backingTrack ? 'Beat: ' + backingTrack.keyName : 'Beat'
   const backingTrackButtonLabel = backing.isRunning ? backingTrackLabel : 'Start audio'
+  const compactKeySignatureLabel = keySignature
+    ? `${keySignature.keyName} · ${
+        keySignature.accidentalsLabel === 'No sharps or flats'
+          ? 'no ♯/♭'
+          : keySignature.accidentalsLabel.replace(/^(Sharps|Flats): /, '')
+      }`
+    : null
   const handleBackingTrackButton = () => {
     if (backing.isRunning) {
       backing.stop()
@@ -635,7 +649,12 @@ export function Practice({
               <SettingsIcon className="h-5 w-5" />
             </button>
           )}
-          <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900">{scoreFile.name}</h1>
+          <h1
+            className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900"
+            title={keySignature ? `${keySignature.keyName} · ${keySignature.accidentalsLabel}` : scoreFile.name}
+          >
+            {compactKeySignatureLabel ?? scoreFile.name}
+          </h1>
           {backing.isEnabled && (
             <button
               type="button"
@@ -720,6 +739,14 @@ export function Practice({
           </button>
         </div>
       </div>
+
+      {keySignature && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span className="font-semibold">{keySignature.keyName}</span>
+          <span className="mx-2" aria-hidden="true">·</span>
+          {keySignature.accidentalsLabel}
+        </div>
+      )}
 
       <ScoreHud
         currentCombo={currentCombo}

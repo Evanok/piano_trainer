@@ -2,14 +2,15 @@ export type TrainingHandMode = 'right' | 'left' | 'both'
 export type TrainingAccidentalMode = 'none' | 'key' | 'chromatic'
 export type TrainingDifficulty = 'easy' | 'medium' | 'hard'
 export type TrainingExerciseContentMode = 'notes' | 'triads' | 'mixed'
+export type TrainingTonality = 'major' | 'minor'
 
 export interface TrainingSettings {
   handMode: TrainingHandMode
   accidentalMode: TrainingAccidentalMode
   difficulty: TrainingDifficulty
   contentMode: TrainingExerciseContentMode
-  // A KeyConfig.name from trainingGenerator.ts's KEYS, or 'random' to keep the
-  // existing difficulty-scaled random pick.
+  tonality: TrainingTonality
+  // A tonic name from trainingGenerator.ts's TRAINING_KEY_NAMES, or 'random'.
   key: string
   measureCount: number
   rightOctaveLow: number

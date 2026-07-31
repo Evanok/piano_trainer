@@ -10,6 +10,7 @@ import type {
   TrainingExerciseContentMode,
   TrainingExerciseSettings,
   TrainingHandMode,
+  TrainingTonality,
 } from '../types/training'
 
 const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
@@ -53,6 +54,7 @@ export function ExerciseSetup({
     initialSettings.accidentalMode,
   )
   const [trainingKey, setTrainingKey] = useState(initialSettings.key)
+  const [trainingTonality, setTrainingTonality] = useState<TrainingTonality>(initialSettings.tonality)
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>(initialKeyboardAssistMode)
   const [backingTrackEnabled, setBackingTrackEnabled] = useState(initialBackingTrackEnabled)
   const [trainingMeasureCount, setTrainingMeasureCount] = useState(initialSettings.measureCount)
@@ -68,6 +70,7 @@ export function ExerciseSetup({
         accidentalMode: trainingAccidentalMode,
         difficulty: trainingDifficulty,
         contentMode: trainingContentMode,
+        tonality: trainingTonality,
         key: trainingKey,
         measureCount: trainingMeasureCount,
         rightOctaveLow,
@@ -165,10 +168,22 @@ export function ExerciseSetup({
           </label>
 
           <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Tonality
+            <select
+              value={trainingTonality}
+              onChange={(event) => setTrainingTonality(event.target.value as TrainingTonality)}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="major">Major</option>
+              <option value="minor">Minor</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
             Key
             {trainingAccidentalMode === 'none' ? (
               <span className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
-                C major (natural notes only)
+                {trainingTonality === 'major' ? 'C major' : 'A minor'} (natural notes only)
               </span>
             ) : (
               <select

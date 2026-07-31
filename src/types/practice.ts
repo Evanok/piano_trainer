@@ -6,3 +6,8 @@ export interface PracticeBackingTrack {
   keyName: string
   tonicPitchClass: number
 }
+
+export interface PracticeKeySignature {
+  keyName: string
+  accidentalsLabel: string
+}
