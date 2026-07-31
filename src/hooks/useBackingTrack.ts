@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { backingTrackAudioUrl } from '../engine/backingTrack'
+import { backingTrackAudioUrl, backingTrackTakesFor } from '../engine/backingTrack'
 import type { PracticeBackingTrack } from '../types/practice'
 
 interface ActiveTrack {
@@ -89,7 +89,7 @@ export function useBackingTrack(backingTrack: PracticeBackingTrack | null) {
   const generationRef = useRef(0)
   const [isRunning, setIsRunning] = useState(false)
   const [needsUserStart, setNeedsUserStart] = useState(false)
-  const isEnabled = backingTrack?.enabled === true
+  const isEnabled = backingTrack?.enabled === true && backingTrackTakesFor(backingTrack.keyName).length > 0
 
   const stop = useCallback(() => {
     const active = activeRef.current

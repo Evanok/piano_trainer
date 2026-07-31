@@ -1,29 +1,45 @@
 export const BACKING_TRACK_AUDIO_DIR = '/audio/backing-tracks'
 
-// Downloaded from wikiloops.com (Blues/Drums-Bass-only), filtered by key
-// letter -- the site's key filter doesn't distinguish major/minor, so these
-// are assumed major. Only the keys we actually have takes for are listed;
-// trainingGenerator.ts's KEYS has two more (B-flat major, E-flat major) that
-// don't have a loop yet, so those simply play silently until takes are added.
-// Multiple takes per key exist for variety -- one is picked at random per
-// practice session.
-const KEY_AUDIO_TAKES: Record<string, string[]> = {
-  'C major': ['c1', 'c2', 'c3'],
-  'D major': ['d1', 'd2'],
-  'F major': ['f1', 'f2'],
-  'G major': ['g1', 'g2'],
-  'A major': ['a1', 'a2'],
+interface BackingTrackTake {
+  source: 'adg-blues' | 'paul-maine-jazz'
+  fileName: string
 }
 
-export function backingTrackTakesFor(keyName: string): string[] {
-  return KEY_AUDIO_TAKES[keyName] ?? []
+// Both collections contain a performance recorded/rendered specifically in
+// each of the 12 major keys. Keeping the source folders separate makes the
+// catalogue easy to audit and lets us add more complete collections later.
+const MAJOR_KEY_AUDIO_TAKES: Record<string, BackingTrackTake[]> = {
+  'C major': takes('C'),
+  'D-flat major': takes('Db'),
+  'D major': takes('D'),
+  'E-flat major': takes('Eb'),
+  'E major': takes('E'),
+  'F major': takes('F'),
+  'G-flat major': takes('Gb'),
+  'G major': takes('G'),
+  'A-flat major': takes('Ab'),
+  'A major': takes('A'),
+  'B-flat major': takes('Bb'),
+  'B major': takes('B'),
+}
+
+function takes(key: string): BackingTrackTake[] {
+  return [
+    { source: 'adg-blues', fileName: `${key}-major.m4a` },
+    { source: 'paul-maine-jazz', fileName: `${key}-major.mp3` },
+  ]
+}
+
+export function backingTrackTakesFor(keyName: string): readonly BackingTrackTake[] {
+  return MAJOR_KEY_AUDIO_TAKES[keyName] ?? []
 }
 
 export function backingTrackAudioUrl(keyName: string, pickRandom: () => number = Math.random): string | null {
-  const takes = backingTrackTakesFor(keyName)
-  if (takes.length === 0) {
+  const availableTakes = backingTrackTakesFor(keyName)
+  if (availableTakes.length === 0) {
     return null
   }
-  const take = takes[Math.floor(pickRandom() * takes.length) % takes.length]
-  return `${BACKING_TRACK_AUDIO_DIR}/${take}.wav`
+
+  const take = availableTakes[Math.floor(pickRandom() * availableTakes.length) % availableTakes.length]
+  return `${BACKING_TRACK_AUDIO_DIR}/${take.source}/${take.fileName}`
 }
