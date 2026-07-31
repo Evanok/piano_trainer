@@ -8,6 +8,9 @@ export interface TrainingSettings {
   accidentalMode: TrainingAccidentalMode
   difficulty: TrainingDifficulty
   contentMode: TrainingExerciseContentMode
+  // A KeyConfig.name from trainingGenerator.ts's KEYS, or 'random' to keep the
+  // existing difficulty-scaled random pick.
+  key: string
   measureCount: number
   rightOctaveLow: number
   rightOctaveHigh: number

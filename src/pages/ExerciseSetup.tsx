@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
+import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/trainingGenerator'
 import { getStreakStats } from '../engine/streakStore'
 import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
@@ -51,6 +52,7 @@ export function ExerciseSetup({
   const [trainingAccidentalMode, setTrainingAccidentalMode] = useState<TrainingAccidentalMode>(
     initialSettings.accidentalMode,
   )
+  const [trainingKey, setTrainingKey] = useState(initialSettings.key)
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>(initialKeyboardAssistMode)
   const [backingTrackEnabled, setBackingTrackEnabled] = useState(initialBackingTrackEnabled)
   const [trainingMeasureCount, setTrainingMeasureCount] = useState(initialSettings.measureCount)
@@ -66,6 +68,7 @@ export function ExerciseSetup({
         accidentalMode: trainingAccidentalMode,
         difficulty: trainingDifficulty,
         contentMode: trainingContentMode,
+        key: trainingKey,
         measureCount: trainingMeasureCount,
         rightOctaveLow,
         rightOctaveHigh,
@@ -159,6 +162,28 @@ export function ExerciseSetup({
               <option value="key">Key signatures</option>
               <option value="chromatic">Chromatic passing notes</option>
             </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-gray-700">
+            Key
+            {trainingAccidentalMode === 'none' ? (
+              <span className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
+                C major (natural notes only)
+              </span>
+            ) : (
+              <select
+                value={trainingKey}
+                onChange={(event) => setTrainingKey(event.target.value)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value={RANDOM_KEY}>Random</option>
+                {TRAINING_KEY_NAMES.map((keyName) => (
+                  <option key={keyName} value={keyName}>
+                    {keyName}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
 
           <label className="flex flex-col gap-1 text-sm text-gray-700">

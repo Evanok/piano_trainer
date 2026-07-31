@@ -1,5 +1,4 @@
 import type {
-  TrainingAccidentalMode,
   TrainingDifficulty,
   TrainingExerciseContentMode,
   TrainingHandMode,
@@ -159,11 +158,15 @@ const CHROMATIC_FLAT = [
   { step: 'B' },
 ]
 
+export const RANDOM_KEY = 'random'
+export const TRAINING_KEY_NAMES = KEYS.map((key) => key.name)
+
 const DEFAULT_SETTINGS: TrainingSettings = {
   handMode: 'right',
   accidentalMode: 'none',
   difficulty: 'easy',
   contentMode: 'notes',
+  key: RANDOM_KEY,
   measureCount: 8,
   rightOctaveLow: 4,
   rightOctaveHigh: 5,
@@ -212,14 +215,22 @@ function sanitizeSettings(settings: Partial<TrainingSettings>): TrainingSettings
   }
 }
 
-function chooseKey(accidentalMode: TrainingAccidentalMode, difficulty: TrainingDifficulty, rng: () => number): KeyConfig {
-  if (accidentalMode === 'none') {
+function chooseKey(settings: TrainingSettings, rng: () => number): KeyConfig {
+  // "Natural notes only" requires a key with no altered scale tones -- only
+  // C major qualifies, so an explicit key pick would contradict this mode.
+  if (settings.accidentalMode === 'none') {
     return KEYS[0]
   }
-  if (difficulty === 'easy') {
+  if (settings.key !== RANDOM_KEY) {
+    const explicit = KEYS.find((key) => key.name === settings.key)
+    if (explicit) {
+      return explicit
+    }
+  }
+  if (settings.difficulty === 'easy') {
     return pick(KEYS.slice(0, 4), rng)
   }
-  if (difficulty === 'medium') {
+  if (settings.difficulty === 'medium') {
     return pick(KEYS.slice(0, 5), rng)
   }
   return pick(KEYS, rng)
@@ -611,7 +622,7 @@ ${leftNotes
 export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettings> = {}): string {
   const settings = sanitizeSettings(partialSettings)
   const rng = createRng(settings.seed)
-  const key = chooseKey(settings.accidentalMode, settings.difficulty, rng)
+  const key = chooseKey(settings, rng)
   const beatCount = settings.measureCount * BEATS_PER_MEASURE
   const phrasePlan = buildPhrasePlan(beatCount, settings.difficulty, rng)
 
@@ -693,7 +704,7 @@ function createMusicXmlFile(xml: string): File {
 
 export function createTrainingExercise(settings: Partial<TrainingSettings>): CreatedTrainingExercise {
   const sanitized = sanitizeSettings(settings)
-  const key = chooseKey(sanitized.accidentalMode, sanitized.difficulty, createRng(sanitized.seed))
+  const key = chooseKey(sanitized, createRng(sanitized.seed))
   return {
     file: createMusicXmlFile(generateTrainingMusicXml(sanitized)),
     keyName: key.name,

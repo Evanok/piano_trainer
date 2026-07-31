@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { bassMidiForDegree, buildBassProgression, midiToFrequency } from './backingTrack'
+import { backingTrackAudioUrl, backingTrackTakesFor } from './backingTrack'
 
 describe('backingTrack', () => {
-  it('converts A4 midi pitch to 440 Hz', () => {
-    expect(midiToFrequency(69)).toBe(440)
+  it('lists the recorded takes for a key that has audio', () => {
+    expect(backingTrackTakesFor('C major')).toEqual(['c1', 'c2', 'c3'])
   })
 
-  it('builds a I-V-vi-IV bass progression from the tonic pitch class', () => {
-    // C major: I=C2(36), V=G2(43), vi=A2(45), IV=F2(41)
-    expect(buildBassProgression(0)).toEqual([36, 43, 45, 41])
+  it('returns no takes for a key without recorded audio yet', () => {
+    expect(backingTrackTakesFor('B-flat major')).toEqual([])
   })
 
-  it('normalizes pitch classes into the low bass octave', () => {
-    expect(bassMidiForDegree(14, 0)).toBe(38)
-    expect(bassMidiForDegree(-1, 0)).toBe(47)
+  it('builds a url from a deterministically picked take', () => {
+    expect(backingTrackAudioUrl('D major', () => 0)).toBe('/audio/backing-tracks/d1.wav')
+    expect(backingTrackAudioUrl('D major', () => 0.99)).toBe('/audio/backing-tracks/d2.wav')
+  })
+
+  it('returns null when no audio is available for the key', () => {
+    expect(backingTrackAudioUrl('E-flat major')).toBeNull()
   })
 })

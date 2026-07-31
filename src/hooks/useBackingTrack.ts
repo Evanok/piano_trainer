@@ -1,24 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BACKING_TRACK_BPM, BEATS_PER_BAR, buildBassProgression, midiToFrequency } from '../engine/backingTrack'
+import { backingTrackAudioUrl } from '../engine/backingTrack'
 import type { PracticeBackingTrack } from '../types/practice'
-
-// Standard Web Audio lookahead scheduling (Chris Wilson's "A Tale of Two
-// Clocks"): a cheap interval polls frequently and only schedules audio events
-// that fall inside a short lookahead window, so actual playback timing comes
-// from the audio clock, not from setInterval's own jitter.
-const SCHEDULER_INTERVAL_MS = 25
-const SCHEDULE_AHEAD_SEC = 0.1
-const SECONDS_PER_BEAT = 60 / BACKING_TRACK_BPM
 
 interface ActiveTrack {
   context: AudioContext
-  masterGain: GainNode
-  noiseBuffer: AudioBuffer
-  bassProgression: number[]
-  nextNoteTime: number
-  beatInBar: number
-  barIndex: number
-  timerId: number
+  gain: GainNode
+  source: AudioBufferSourceNode
 }
 
 interface WebkitAudioWindow extends Window {
@@ -33,146 +20,73 @@ function createAudioContext(): AudioContext | null {
   return AudioContextCtor ? new AudioContextCtor() : null
 }
 
-function createNoiseBuffer(context: AudioContext): AudioBuffer {
-  const length = Math.round(context.sampleRate * 0.3)
-  const buffer = context.createBuffer(1, length, context.sampleRate)
-  const data = buffer.getChannelData(0)
-  for (let i = 0; i < length; i += 1) {
-    data[i] = Math.random() * 2 - 1
-  }
-  return buffer
-}
+// Tracks every AudioContext this hook has created and not yet confirmed
+// closed, independent of any particular component instance or in-flight
+// async call. If a leak ever slips past the per-call generation guard below,
+// nothing in React holds a reference to it any more -- no amount of in-app
+// navigation can reach it. stopAllBackingTrackAudio() is a blunt safety net
+// the app calls on every screen change away from practice, so a leaked loop
+// can never outlive its own screen.
+const trackedContexts = new Set<AudioContext>()
 
-function scheduleKick(context: AudioContext, destination: AudioNode, time: number): void {
-  const oscillator = context.createOscillator()
-  const gain = context.createGain()
-  oscillator.type = 'sine'
-  oscillator.frequency.setValueAtTime(150, time)
-  oscillator.frequency.exponentialRampToValueAtTime(40, time + 0.12)
-  gain.gain.setValueAtTime(0.9, time)
-  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.16)
-  oscillator.connect(gain)
-  gain.connect(destination)
-  oscillator.start(time)
-  oscillator.stop(time + 0.18)
-}
-
-function scheduleNoiseHit(
-  context: AudioContext,
-  noiseBuffer: AudioBuffer,
-  destination: AudioNode,
-  time: number,
-  options: { filterType: BiquadFilterType; filterFrequency: number; duration: number; gainLevel: number },
-): void {
-  const source = context.createBufferSource()
-  source.buffer = noiseBuffer
-  const filter = context.createBiquadFilter()
-  filter.type = options.filterType
-  filter.frequency.setValueAtTime(options.filterFrequency, time)
-  const gain = context.createGain()
-  gain.gain.setValueAtTime(options.gainLevel, time)
-  gain.gain.exponentialRampToValueAtTime(0.001, time + options.duration)
-  source.connect(filter)
-  filter.connect(gain)
-  gain.connect(destination)
-  source.start(time)
-  source.stop(time + options.duration + 0.02)
-}
-
-function scheduleHihat(context: AudioContext, noiseBuffer: AudioBuffer, destination: AudioNode, time: number): void {
-  scheduleNoiseHit(context, noiseBuffer, destination, time, {
-    filterType: 'highpass',
-    filterFrequency: 8000,
-    duration: 0.05,
-    gainLevel: 0.18,
-  })
-}
-
-function scheduleSnare(context: AudioContext, noiseBuffer: AudioBuffer, destination: AudioNode, time: number): void {
-  scheduleNoiseHit(context, noiseBuffer, destination, time, {
-    filterType: 'bandpass',
-    filterFrequency: 1800,
-    duration: 0.14,
-    gainLevel: 0.32,
-  })
-}
-
-function scheduleBassNote(
-  context: AudioContext,
-  destination: AudioNode,
-  midi: number,
-  time: number,
-  duration: number,
-): void {
-  const oscillator = context.createOscillator()
-  const gain = context.createGain()
-  oscillator.type = 'sawtooth'
-  oscillator.frequency.setValueAtTime(midiToFrequency(midi), time)
-  gain.gain.setValueAtTime(0, time)
-  gain.gain.linearRampToValueAtTime(0.5, time + 0.015)
-  gain.gain.exponentialRampToValueAtTime(0.001, time + duration)
-  oscillator.connect(gain)
-  gain.connect(destination)
-  oscillator.start(time)
-  oscillator.stop(time + duration + 0.02)
-}
-
-function scheduleBeat(active: ActiveTrack, time: number): void {
-  const { context, masterGain, noiseBuffer, bassProgression, beatInBar, barIndex } = active
-  // Basic kick/snare/hihat pop-rock beat: kick on 1 & 3, snare (backbeat) on
-  // 2 & 4, hihat pulsing every beat.
-  if (beatInBar === 0 || beatInBar === 2) {
-    scheduleKick(context, masterGain, time)
-    const midi = bassProgression[barIndex % bassProgression.length]
-    scheduleBassNote(context, masterGain, midi, time, SECONDS_PER_BEAT * 1.8)
-  }
-  if (beatInBar === 1 || beatInBar === 3) {
-    scheduleSnare(context, noiseBuffer, masterGain, time)
-  }
-  scheduleHihat(context, noiseBuffer, masterGain, time)
-}
-
-function tick(active: ActiveTrack): void {
-  while (active.nextNoteTime < active.context.currentTime + SCHEDULE_AHEAD_SEC) {
-    scheduleBeat(active, active.nextNoteTime)
-    active.nextNoteTime += SECONDS_PER_BEAT
-    active.beatInBar += 1
-    if (active.beatInBar >= BEATS_PER_BAR) {
-      active.beatInBar = 0
-      active.barIndex += 1
-    }
+function closeTrackedContext(context: AudioContext): void {
+  trackedContexts.delete(context)
+  try {
+    void context.close()
+  } catch {
+    // Already closed/closing -- nothing to do.
   }
 }
 
-// Only called once the AudioContext is confirmed running: starting the
-// interval while still suspended would freeze nextNoteTime at creation time,
-// so the first tick after a delayed user-gesture resume would see a huge gap
-// to "catch up" and fire a burst of overdue beats all at once.
-function beginScheduling(active: ActiveTrack): void {
-  if (active.timerId !== 0) {
-    return
+export function stopAllBackingTrackAudio(): void {
+  for (const context of trackedContexts) {
+    closeTrackedContext(context)
   }
-  active.nextNoteTime = active.context.currentTime + 0.1
-  active.beatInBar = 0
-  active.barIndex = 0
-  active.timerId = window.setInterval(() => tick(active), SCHEDULER_INTERVAL_MS)
-  tick(active)
+}
+
+async function loadBackingTrackBuffer(context: AudioContext, keyName: string): Promise<AudioBuffer | null> {
+  const url = backingTrackAudioUrl(keyName)
+  if (!url) {
+    return null
+  }
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`backing track audio not found for ${keyName}: HTTP ${response.status}`)
+  }
+  const arrayBuffer = await response.arrayBuffer()
+  return context.decodeAudioData(arrayBuffer)
 }
 
 function stopActiveTrack(active: ActiveTrack): void {
-  if (active.timerId !== 0) {
-    window.clearInterval(active.timerId)
-  }
+  trackedContexts.delete(active.context)
   const now = active.context.currentTime
-  active.masterGain.gain.cancelScheduledValues(now)
-  active.masterGain.gain.setTargetAtTime(0, now, 0.08)
+  active.gain.gain.cancelScheduledValues(now)
+  active.gain.gain.setTargetAtTime(0, now, 0.15)
+  try {
+    active.source.stop(now + 0.6)
+  } catch {
+    // Already stopped -- nothing to do.
+  }
   window.setTimeout(() => {
     void active.context.close()
-  }, 500)
+  }, 800)
 }
 
 export function useBackingTrack(backingTrack: PracticeBackingTrack | null) {
   const activeRef = useRef<ActiveTrack | null>(null)
+  // start() awaits a fetch+decode before it has anything in activeRef to hand
+  // to stop(). React 18 StrictMode (see main.tsx) deliberately mounts every
+  // effect twice in dev -- mount, cleanup, mount again -- to catch exactly
+  // this shape of bug: a single shared "am I still live" boolean gets set
+  // back to true by the second mount while the first mount's start() call is
+  // still awaiting its fetch, so that stale call sees "live" and plays
+  // anyway once its fetch resolves, alongside the second, real one. A
+  // monotonic generation counter fixes it: each start() call captures the
+  // generation current at its own invocation and only proceeds past an await
+  // if that generation is still the latest one -- a superseded call can never
+  // be un-superseded by a later one the way a shared boolean can be
+  // un-flipped.
+  const generationRef = useRef(0)
   const [isRunning, setIsRunning] = useState(false)
   const [needsUserStart, setNeedsUserStart] = useState(false)
   const isEnabled = backingTrack?.enabled === true
@@ -193,18 +107,21 @@ export function useBackingTrack(backingTrack: PracticeBackingTrack | null) {
       return
     }
 
+    generationRef.current += 1
+    const myGeneration = generationRef.current
+
     if (activeRef.current) {
-      const active = activeRef.current
       try {
-        await active.context.resume()
+        await activeRef.current.context.resume()
       } catch {
         setNeedsUserStart(true)
         return
       }
-      const running = active.context.state === 'running'
-      if (running) {
-        beginScheduling(active)
+      if (generationRef.current !== myGeneration) {
+        stop()
+        return
       }
+      const running = activeRef.current.context.state === 'running'
       setIsRunning(running)
       setNeedsUserStart(!running)
       return
@@ -215,25 +132,46 @@ export function useBackingTrack(backingTrack: PracticeBackingTrack | null) {
       setNeedsUserStart(false)
       return
     }
+    trackedContexts.add(context)
 
-    const masterGain = context.createGain()
-    masterGain.gain.setValueAtTime(0, context.currentTime)
-    masterGain.gain.linearRampToValueAtTime(0.8, context.currentTime + 0.3)
-    const compressor = context.createDynamicsCompressor()
-    masterGain.connect(compressor)
-    compressor.connect(context.destination)
-
-    const active: ActiveTrack = {
-      context,
-      masterGain,
-      noiseBuffer: createNoiseBuffer(context),
-      bassProgression: buildBassProgression(backingTrack.tonicPitchClass),
-      nextNoteTime: 0,
-      beatInBar: 0,
-      barIndex: 0,
-      timerId: 0,
+    let buffer: AudioBuffer | null
+    try {
+      buffer = await loadBackingTrackBuffer(context, backingTrack.keyName)
+    } catch (error) {
+      // A missing/unreadable loop must not block practice -- log and leave
+      // the backing track silently off, same as a device the user hasn't set up yet.
+      console.error('[backingTrack] could not load loop:', error)
+      closeTrackedContext(context)
+      setNeedsUserStart(false)
+      return
     }
-    activeRef.current = active
+
+    if (!buffer) {
+      console.info(`[backingTrack] no loop recorded yet for ${backingTrack.keyName}`)
+      closeTrackedContext(context)
+      setNeedsUserStart(false)
+      return
+    }
+
+    if (generationRef.current !== myGeneration) {
+      // A newer start() call (unmount, key change, or a StrictMode remount)
+      // has already superseded this one -- abandon it unplayed.
+      closeTrackedContext(context)
+      return
+    }
+
+    const gain = context.createGain()
+    gain.gain.setValueAtTime(0, context.currentTime)
+    gain.gain.linearRampToValueAtTime(0.8, context.currentTime + 0.3)
+    gain.connect(context.destination)
+
+    const source = context.createBufferSource()
+    source.buffer = buffer
+    source.loop = true
+    source.connect(gain)
+    source.start(0)
+
+    activeRef.current = { context, gain, source }
 
     try {
       await context.resume()
@@ -242,22 +180,29 @@ export function useBackingTrack(backingTrack: PracticeBackingTrack | null) {
       return
     }
 
-    const running = context.state === 'running'
-    if (running) {
-      beginScheduling(active)
+    if (generationRef.current !== myGeneration) {
+      // Same race, just after the resume() await instead of the load.
+      stop()
+      return
     }
+
+    const running = context.state === 'running'
     setIsRunning(running)
     setNeedsUserStart(!running)
-  }, [backingTrack])
+  }, [backingTrack, stop])
 
   useEffect(() => {
     if (!isEnabled) {
+      generationRef.current += 1
       stop()
       return undefined
     }
 
     void start()
-    return stop
+    return () => {
+      generationRef.current += 1
+      stop()
+    }
   }, [isEnabled, start, stop])
 
   return { isEnabled, isRunning, needsUserStart, start, stop }

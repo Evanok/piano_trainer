@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Home } from './pages/Home'
 import { ExerciseSetup } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
@@ -7,6 +7,7 @@ import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { useMidi } from './hooks/useMidi'
+import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
 import type { KeyboardAssistMode, PracticeBackingTrack, PracticeSourceKind } from './types/practice'
 import type { SessionStats } from './types/session'
 import type { TrainingExerciseSettings } from './types/training'
@@ -18,6 +19,7 @@ const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   accidentalMode: 'none',
   difficulty: 'easy',
   contentMode: 'notes',
+  key: 'random',
   measureCount: 8,
   rightOctaveLow: 4,
   rightOctaveHigh: 5,
@@ -37,6 +39,16 @@ function App() {
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
+
+  // Safety net: only Practice ever plays a backing track, so any screen other
+  // than practice should never have one running. A normal unmount already
+  // stops it (see useBackingTrack's own cleanup), but this catches anything
+  // that slips past that -- a leaked loop can't outlive its own screen.
+  useEffect(() => {
+    if (screen !== 'practice') {
+      stopAllBackingTrackAudio()
+    }
+  }, [screen])
 
   const handleFileLoaded = useCallback(
     (

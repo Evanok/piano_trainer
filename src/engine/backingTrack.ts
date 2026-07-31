@@ -1,31 +1,29 @@
-export function midiToFrequency(midi: number): number {
-  return 440 * 2 ** ((midi - 69) / 12)
+export const BACKING_TRACK_AUDIO_DIR = '/audio/backing-tracks'
+
+// Downloaded from wikiloops.com (Blues/Drums-Bass-only), filtered by key
+// letter -- the site's key filter doesn't distinguish major/minor, so these
+// are assumed major. Only the keys we actually have takes for are listed;
+// trainingGenerator.ts's KEYS has two more (B-flat major, E-flat major) that
+// don't have a loop yet, so those simply play silently until takes are added.
+// Multiple takes per key exist for variety -- one is picked at random per
+// practice session.
+const KEY_AUDIO_TAKES: Record<string, string[]> = {
+  'C major': ['c1', 'c2', 'c3'],
+  'D major': ['d1', 'd2'],
+  'F major': ['f1', 'f2'],
+  'G major': ['g1', 'g2'],
+  'A major': ['a1', 'a2'],
 }
 
-function normalizePitchClass(pitchClass: number): number {
-  return ((Math.round(pitchClass) % 12) + 12) % 12
+export function backingTrackTakesFor(keyName: string): string[] {
+  return KEY_AUDIO_TAKES[keyName] ?? []
 }
 
-// Every generated-exercise key is currently major (see trainingGenerator.ts's
-// KEYS), so a plain major-scale interval table is enough to derive diatonic
-// chord roots from just the tonic pitch class, without threading the full
-// scale array through PracticeBackingTrack.
-const MAJOR_SCALE_SEMITONES = [0, 2, 4, 5, 7, 9, 11]
-
-export const BACKING_TRACK_BPM = 84
-export const BEATS_PER_BAR = 4
-
-// I - V - vi - IV, one bar per chord, looping: a basic diatonic pop
-// progression expressed as scale degrees, so it stays valid across every key.
-const PROGRESSION_DEGREES = [0, 4, 5, 3]
-
-const BASS_OCTAVE_BASE = 36 // C2: root notes land between C2 and B2.
-
-export function bassMidiForDegree(tonicPitchClass: number, degree: number): number {
-  const semitone = MAJOR_SCALE_SEMITONES[degree % MAJOR_SCALE_SEMITONES.length]
-  return BASS_OCTAVE_BASE + normalizePitchClass(tonicPitchClass + semitone)
-}
-
-export function buildBassProgression(tonicPitchClass: number): number[] {
-  return PROGRESSION_DEGREES.map((degree) => bassMidiForDegree(tonicPitchClass, degree))
+export function backingTrackAudioUrl(keyName: string, pickRandom: () => number = Math.random): string | null {
+  const takes = backingTrackTakesFor(keyName)
+  if (takes.length === 0) {
+    return null
+  }
+  const take = takes[Math.floor(pickRandom() * takes.length) % takes.length]
+  return `${BACKING_TRACK_AUDIO_DIR}/${take}.wav`
 }
