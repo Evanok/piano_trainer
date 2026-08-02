@@ -41,18 +41,51 @@ The Exercise page generates a short training exercise without uploading a score.
 
 ## Deployment
 
-```bash
-npm run build
-npm start            # PORT=4173 by default
+Piano Trainer is served **directly on port 5173**. There is no Nginx or reverse
+proxy in this deployment. Its public address is:
+
+```
+http://51.159.55.29:5173/
 ```
 
-`npm start` serves the built front-end from `dist/` and the catalog API from the same port. In development the very same API handler is mounted on the Vite dev server (see `vite.config.ts`), so `npm run dev` stays a single process and dev/production can't drift apart.
+Use the repository's deployment script. It manages the two PM2 processes and
+prevents them from fighting over port 5173:
+
+```bash
+# On the VPS: install exact dependencies, build, then expose the app publicly.
+./deploy.sh prod start
+
+# Stop the public production server.
+./deploy.sh prod stop
+
+# On a development machine: start Vite on localhost only.
+./deploy.sh dev start
+
+# Stop the local development server.
+./deploy.sh dev stop
+```
+
+To deploy the latest committed version on the VPS, first update the checkout,
+then run the production command:
+
+```bash
+git pull --ff-only
+./deploy.sh prod start
+```
+
+Production runs directly on `0.0.0.0:5173`; development is deliberately bound
+to `127.0.0.1:5173`. Ensure the VPS/firewall permits incoming TCP on port 5173.
+
+In development the same API handler is mounted on the Vite dev server (see
+`vite.config.ts`), so `npm run dev` stays a single process and dev/production
+cannot drift apart.
 
 ## Scripts
 
 - `npm run dev` -- dev server (front-end + catalog API)
 - `npm run build` -- typecheck + production build
-- `npm start` -- production server (serves `dist/` + the catalog API)
+- `npm start` -- production server on port 5173 (serves `dist/` + the catalog API)
+- `./deploy.sh dev|prod start|stop` -- start or stop the corresponding managed server
 - `npm test` -- run the test suite
 - `npm run lint` -- oxlint
 

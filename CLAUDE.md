@@ -5,13 +5,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `npm run dev` -- start the Vite dev server (port 5173 by default); the catalog API is mounted on it, so this is still a single process
 - `npm run build` -- typecheck (`tsc -b`) then production build
-- `npm start` -- production server: serves `dist/` + the catalog API (`PORT`, default 4173)
+- `npm start` -- production server: serves `dist/` + the catalog API (`PORT`, default 5173). It is exposed directly at `http://51.159.55.29:5173/`; do not use Nginx or a reverse proxy for Piano Trainer.
 - `npm test` -- run the vitest suite once
 - `npx vitest run src/engine/WaitEngine.test.ts` -- run a single test file
 - `npx tsc -b --noEmit` -- typecheck only, no build output
 - `npm run lint` -- oxlint
 
 There is no test runner watch mode wired up as a script; use `npx vitest` (no `run`) directly for watch mode.
+
+## Production deployment
+
+The VPS runs the app directly on TCP port 5173, managed by PM2. There is no
+Nginx configuration for this project. Use the repository script rather than
+running PM2 commands by hand:
+
+```bash
+./deploy.sh prod start  # npm ci, production build, then public server on :5173
+./deploy.sh prod stop
+./deploy.sh dev start   # Vite, bound only to 127.0.0.1:5173
+./deploy.sh dev stop
+```
+
+For later production deployments, run `git pull --ff-only` then
+`./deploy.sh prod start`. The script deliberately does not pull implicitly,
+so it never unexpectedly changes a checked-out VPS worktree. It stops the
+other mode before starting one because both use port 5173. If production is
+not reachable publicly, check that TCP 5173 is open in the VPS firewall/security
+group.
 
 ## What this is
 
