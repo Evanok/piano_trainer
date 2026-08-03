@@ -25,5 +25,11 @@ export interface SessionStats {
   totalEvents: number
   successPercent: number
   maxCombo: number
+  /**
+   * Free-play sessions still count as practice (the streak is recorded), but
+   * their accuracy figures are meaningless -- nothing forced the player to get
+   * a note right before moving on -- so End hides the grade for them.
+   */
+  practiceMode?: 'free' | 'wait'
   exercise?: ExerciseSessionStats
 }

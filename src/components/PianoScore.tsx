@@ -26,11 +26,16 @@ const SCROLL_MODE_SHEET_MAXIMUM_WIDTH = 300000
 
 export interface PianoScoreHandle {
   next: () => void
+  // Moves the cursor forward `steps` event positions without colouring
+  // anything -- free mode's cursor is a "you are here" marker, not a record of
+  // what was played right, and it can jump by more than one step when the
+  // follower re-anchors onto the player.
+  advanceCursor: (steps: number) => void
   reset: () => void
   syncNotes: (heldPitches: number[]) => void
   getCurrentMeasure: () => number
   setZoom: (value: number) => void
-  goToEventIndex: (targetIndex: number) => void
+  goToEventIndex: (targetIndex: number, options?: { highlight?: boolean }) => void
   // Restricts rendering to [startMeasure, endMeasure] (1-based, inclusive,
   // matching ExpectedEvent.measureNumber) -- training mode's "each section is
   // its own isolated score" (no leftover notes from the previous section
@@ -340,6 +345,25 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
         }
       },
+      advanceCursor: (steps: number) => {
+        const osmd = osmdRef.current
+        if (!osmd || !hasLoadedRef.current || steps <= 0) {
+          return
+        }
+        for (let step = 0; step < steps; step += 1) {
+          osmd.cursor.next()
+          // Same rest/tie-continuation skipping as next(), for the same reason:
+          // the cursor must only ever land on positions extractExpectedEvents
+          // counted, or it drifts out of sync with the engine's event index.
+          while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd.cursor).length === 0) {
+            osmd.cursor.next()
+          }
+        }
+        // One scroll for the whole move, not one per step.
+        if (containerRef.current) {
+          scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
+        }
+      },
       reset: () => osmdRef.current?.cursor.reset(),
       syncNotes: (heldPitches: number[]) => {
         const osmd = osmdRef.current
@@ -360,11 +384,13 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         )
       },
       getCurrentMeasure: () => (osmdRef.current?.cursor.Iterator.CurrentMeasureIndex ?? 0) + 1,
-      goToEventIndex: (targetIndex: number) => {
+      goToEventIndex: (targetIndex: number, options?: { highlight?: boolean }) => {
         const osmd = osmdRef.current
         if (!osmd || !hasLoadedRef.current) {
           return
         }
+        // Free mode leaves the target uncoloured (see advanceCursor).
+        const highlight = options?.highlight ?? true
         // A jump (in either direction) can leave positions colored by earlier
         // attempts (errors, partial chord progress, completed-and-green) that
         // would otherwise stay stuck forever -- clear every position in the
@@ -393,10 +419,12 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           }
           osmd.cursor.next()
         }
-        colorNotes(
-          osmd,
-          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
-        )
+        if (highlight) {
+          colorNotes(
+            osmd,
+            requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
+          )
+        }
         osmd.cursor.show()
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)

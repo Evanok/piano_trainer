@@ -18,6 +18,7 @@ import type {
   KeyboardAssistMode,
   PracticeBackingTrack,
   PracticeKeySignature,
+  PracticeMode,
   PracticeSourceKind,
 } from '../types/practice'
 import type { ExerciseSessionStats, SessionStats } from '../types/session'
@@ -28,6 +29,13 @@ const DEFAULT_MEASURES_PER_SECTION = 8
 // it's learned, but requiring more would make repetitive drilling tedious.
 const PERFECT_RUNS_TO_ADVANCE = 2
 const MAX_EXERCISE_STAT_ROWS = 3
+
+const PRACTICE_MODE_LABELS: Record<PracticeMode, string> = {
+  free: 'Free play',
+  wait: 'Wait mode',
+  drill: 'Section drill',
+}
+const PRACTICE_MODE_ORDER: PracticeMode[] = ['free', 'wait', 'drill']
 
 function nowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
@@ -122,8 +130,16 @@ export function Practice({
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
   const [wrongPitches, setWrongPitches] = useState<number[]>([])
 
-  // Training mode: split the piece into sections, drill one at a time.
-  const [trainingMode, setTrainingMode] = useState(false)
+  // What drives the cursor: see PracticeMode. Mobile score practice starts in
+  // the section drill (its compact default), everything else in wait mode.
+  // This is an initial value on purpose and NOT an effect: an effect that
+  // re-imposed the mode whenever it changed made the mode selector unusable on
+  // mobile -- leaving the drill immediately put you back in it.
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>(() =>
+    isMobile && sourceKind !== 'generated-training' ? 'drill' : 'wait',
+  )
+  const trainingMode = practiceMode === 'drill'
+  const freeMode = practiceMode === 'free'
   const [events, setEvents] = useState<ExpectedEvent[]>([])
   const [naturalBreaks, setNaturalBreaks] = useState<Set<number>>(new Set())
   const [measuresPerSection, setMeasuresPerSection] = useState(DEFAULT_MEASURES_PER_SECTION)
@@ -173,6 +189,8 @@ export function Practice({
   // training-mode state through these refs rather than stale closure values.
   const trainingModeRef = useRef(trainingMode)
   trainingModeRef.current = trainingMode
+  const freeModeRef = useRef(freeMode)
+  freeModeRef.current = freeMode
   const sectionsRef = useRef<Section[]>(sections)
   sectionsRef.current = sections
   const currentSectionIndexRef = useRef(currentSectionIndex)
@@ -276,24 +294,17 @@ export function Practice({
     }
   }, [isMobile])
 
-  // Mobile regular-score practice uses section navigation as its compact
-  // drill mode. Generated exercises are already short tests, so they play
-  // straight through without section controls.
-  useEffect(() => {
-    if (isMobile && supportsSectionNavigation && !trainingMode) {
-      enterTrainingMode()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, supportsSectionNavigation, trainingMode])
-
-  const goToEventIndex = (targetIndex: number) => {
+  // `highlight` is a parameter rather than always derived from freeMode because
+  // a mode switch calls this before its own setState has committed, so the
+  // render-time freeMode is still the mode being left.
+  const goToEventIndex = (targetIndex: number, highlight = !freeMode) => {
     const engine = waitEngineRef.current
     if (!engine) {
       return
     }
     clearDecayTimer()
     engine.jumpToEventIndex(targetIndex)
-    scoreRef.current?.goToEventIndex(targetIndex)
+    scoreRef.current?.goToEventIndex(targetIndex, { highlight })
     previousIndexRef.current = engine.state.currentIndex
     // Only the in-progress streak resets on a jump -- the session's best
     // combo (maxComboRef) is a record, not live progress, so it survives.
@@ -311,6 +322,41 @@ export function Practice({
     setHeldPitches([])
     setWrongPitches([])
     eventStartedAtRef.current = nowMs()
+  }
+
+  // Switching mode mid-piece keeps the player's position. Free mode has to
+  // repaint, though: the green trail and yellow "expected" highlight left by
+  // wait mode would otherwise stay frozen on the sheet, and the crop from a
+  // section drill would keep the rest of the piece hidden.
+  const handleSelectPracticeMode = (mode: PracticeMode) => {
+    if (mode === practiceMode) {
+      return
+    }
+    const engine = waitEngineRef.current
+    const currentIndex = engine?.state.currentIndex ?? 0
+    setPracticeMode(mode)
+    setSectionPerfectStreak(0)
+    setSectionMessage(null)
+    engine?.setMode(mode === 'free' ? 'free' : 'wait')
+    const highlight = mode !== 'free'
+
+    if (mode === 'drill') {
+      setCurrentSectionIndex(0)
+      setLayoutMode('scroll')
+      // See handleSectionCompleted for why the walk must happen with no crop.
+      applySectionBounds(null)
+      goToEventIndex(0, highlight)
+      applySectionBounds(sections[0] ?? null)
+      return
+    }
+
+    // Leaving the drill un-crops back to a much larger graphical model, which
+    // cursor.show() alone does not reliably relocate onto -- an explicit walk
+    // is required even though the logical index is not changing. The walk also
+    // repaints the whole piece, which is what clears wait mode's green trail
+    // when switching into free mode.
+    applySectionBounds(null)
+    goToEventIndex(currentIndex, highlight)
   }
 
   // Restricts the score to exactly one section's measures -- each section
@@ -399,11 +445,16 @@ export function Practice({
           sectionErrorCountRef.current += 1
         }
         recordExerciseError(expectedPitchesBeforeNote, event.pitch)
-        scoreRef.current?.syncNotes(engine.currentHeldPitches)
-        setWrongPitches((pitches) => [...pitches, event.pitch])
-        scheduleDecay()
-        const expectedNames = engine.currentExpectedPitches.map(midiToNoteName).join(', ')
-        setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
+        // Free mode counts the wrong note but shows nothing for it: no red key,
+        // no "expected X" banner, no recolouring. The point of the mode is to
+        // play through without being told off.
+        if (!freeModeRef.current) {
+          scoreRef.current?.syncNotes(engine.currentHeldPitches)
+          setWrongPitches((pitches) => [...pitches, event.pitch])
+          scheduleDecay()
+          const expectedNames = engine.currentExpectedPitches.map(midiToNoteName).join(', ')
+          setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
+        }
       } else {
         setWrongNoteFeedback(null)
         // Every correct keypress counts, whether it's a single note, one hit
@@ -421,7 +472,18 @@ export function Practice({
             setCurrentCombo(comboRef.current)
             setBestCombo(maxComboRef.current)
           }
-          scoreRef.current?.next()
+          // Wait mode always advances exactly one event, so next() (which
+          // paints the completed position green) is right. Free mode's follower
+          // can jump several events at once when it re-anchors onto the player,
+          // and those skipped notes were NOT played -- so it moves the cursor
+          // without colouring anything. Stepping rather than goToEventIndex is
+          // deliberate: goToEventIndex does an O(n) whole-piece recolour, fine
+          // for a manual jump but far too slow per keypress.
+          if (freeModeRef.current) {
+            scoreRef.current?.advanceCursor(newIndex - previousIndexRef.current)
+          } else {
+            scoreRef.current?.next()
+          }
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
 
@@ -440,6 +502,7 @@ export function Practice({
               totalEvents: total,
               successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
               maxCombo: maxComboRef.current,
+              practiceMode: freeModeRef.current ? 'free' : 'wait',
               ...(exercise ? { exercise } : {}),
             }
             recordExerciseSession(scoreFile.name, stats)
@@ -447,7 +510,9 @@ export function Practice({
           } else {
             eventStartedAtRef.current = nowMs()
           }
-        } else {
+        } else if (!freeModeRef.current) {
+          // Partial chord progress on the same event -- shown as green in wait
+          // mode, invisible in free mode (nothing on the sheet is coloured).
           scoreRef.current?.syncNotes(engine.currentHeldPitches)
           scheduleDecay()
         }
@@ -480,6 +545,7 @@ export function Practice({
       scoreRef.current?.setSectionBounds(null, null)
     }
     waitEngineRef.current = new WaitEngine(newEvents)
+    waitEngineRef.current.setMode(freeMode ? 'free' : 'wait')
     previousIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
@@ -508,7 +574,11 @@ export function Practice({
     if (allPitches.length > 0) {
       setPitchRange({ low: Math.min(...allPitches), high: Math.max(...allPitches) })
     }
-    scoreRef.current?.syncNotes([])
+    // Free mode shows no note colours at all, so it must not paint the opening
+    // position yellow either -- the cursor alone marks where the player is.
+    if (!freeMode) {
+      scoreRef.current?.syncNotes([])
+    }
   }
 
   const handleZoomChange = (value: number) => {
@@ -549,29 +619,10 @@ export function Practice({
   const handleNextSection = () => handleSelectSection(Math.min(sections.length, currentSectionIndex + 1))
   const handleBackToSection1 = () => handleSelectSection(0)
 
-  const enterTrainingMode = () => {
-    setTrainingMode(true)
-    setCurrentSectionIndex(0)
-    setSectionPerfectStreak(0)
-    setLayoutMode('scroll')
-    applySectionBounds(null)
-    goToEventIndex(0)
-    applySectionBounds(sections[0] ?? null)
-  }
-
-  const exitTrainingMode = () => {
-    setTrainingMode(false)
-    // Clear the crop, THEN walk -- see handleSectionCompleted for why the
-    // cursor walk must always happen with no crop active (OSMD's own
-    // tie/rest counting only lines up with WaitEngine's indices on the
-    // fully uncropped model). cursor.show() alone doesn't reliably relocate
-    // onto the freshly-uncropped, much larger graphical model either, so a
-    // fresh walk is required even though the logical index isn't changing.
-    applySectionBounds(null)
-    goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
-  }
-
-  const handleToggleTrainingMode = () => (trainingMode ? exitTrainingMode() : enterTrainingMode())
+  const handleCyclePracticeMode = () =>
+    handleSelectPracticeMode(
+      PRACTICE_MODE_ORDER[(PRACTICE_MODE_ORDER.indexOf(practiceMode) + 1) % PRACTICE_MODE_ORDER.length],
+    )
 
   const handleMeasuresPerSectionChange = (value: number) => {
     if (Number.isFinite(value) && value >= 1) {
@@ -597,6 +648,11 @@ export function Practice({
   }
 
   const displayedIndex = Math.min((engineState?.currentIndex ?? 0) + 1, totalEvents)
+  // In free mode the keyboard mirrors only what is actually being held: no
+  // yellow "play this next" hint (that's a gating affordance) and no red wrong
+  // key. Same reasoning as the sheet staying uncoloured.
+  const keyboardExpectedPitches = freeMode ? [] : expectedPitches
+  const keyboardWrongPitches = freeMode ? [] : wrongPitches
   const showGeneratedAssistKeyboard =
     sourceKind === 'generated-training' &&
     (keyboardAssistMode === 'learning' || (keyboardAssistMode === 'mistakes-only' && wrongPitches.length > 0))
@@ -670,30 +726,46 @@ export function Practice({
           )}
           {supportsSectionNavigation && (
             <>
+              {/* One compact button cycling the three modes -- a segmented
+                  control doesn't fit a landscape phone header, and the label
+                  always names the mode currently in effect. */}
               <button
                 type="button"
-                onClick={handleBackToSection1}
-                aria-label="Back to section 1"
+                onClick={handleCyclePracticeMode}
+                className="shrink-0 rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700"
+              >
+                {PRACTICE_MODE_LABELS[practiceMode]}
+              </button>
+              <button
+                type="button"
+                onClick={trainingMode ? handleBackToSection1 : handleBackToStart}
+                aria-label={trainingMode ? 'Back to section 1' : 'Back to start'}
                 className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
               >
                 <SkipToStartIcon className="h-5 w-5" />
               </button>
-              <button
-                type="button"
-                onClick={handlePrevSection}
-                aria-label="Previous section"
-                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-              >
-                <ChevronLeftIcon className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleNextSection}
-                aria-label="Next section"
-                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-              >
-                <ChevronRightIcon className="h-5 w-5" />
-              </button>
+              {/* Section stepping only means something while drilling; the
+                  other modes play the piece as one continuous run. */}
+              {trainingMode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handlePrevSection}
+                    aria-label="Previous section"
+                    className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+                  >
+                    <ChevronLeftIcon className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextSection}
+                    aria-label="Next section"
+                    className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+                  >
+                    <ChevronRightIcon className="h-5 w-5" />
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -714,9 +786,9 @@ export function Practice({
             <VirtualKeyboard
               lowestPitch={pitchRange.low}
               highestPitch={pitchRange.high}
-              expectedPitches={expectedPitches}
+              expectedPitches={keyboardExpectedPitches}
               heldPitches={heldPitches}
-              wrongPitches={wrongPitches}
+              wrongPitches={keyboardWrongPitches}
             />
           </div>
         )}
@@ -748,12 +820,16 @@ export function Practice({
         </div>
       )}
 
-      <ScoreHud
-        currentCombo={currentCombo}
-        bestCombo={bestCombo}
-        correctNoteCount={correctNoteCount}
-        errorCount={errorCount}
-      />
+      {/* Combos and an error tally are scoring for a mode that scores you. Free
+          play is explicitly not that, so the HUD sits out. */}
+      {!freeMode && (
+        <ScoreHud
+          currentCombo={currentCombo}
+          bestCombo={bestCombo}
+          correctNoteCount={correctNoteCount}
+          errorCount={errorCount}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600">
         <span>
@@ -837,17 +913,22 @@ export function Practice({
           </button>
         )}
         {supportsSectionNavigation && (
-          <button
-            type="button"
-            onClick={handleToggleTrainingMode}
-            className={
-              trainingMode
-                ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
-                : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
-            }
-          >
-            {trainingMode ? 'Exit section drill' : 'Start section drill'}
-          </button>
+          <div className="flex items-center gap-1 rounded-md border border-gray-300 bg-gray-50 p-0.5">
+            {PRACTICE_MODE_ORDER.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => handleSelectPracticeMode(mode)}
+                className={
+                  practiceMode === mode
+                    ? 'rounded bg-white px-2.5 py-0.5 text-sm font-medium text-indigo-700 shadow-sm'
+                    : 'rounded px-2.5 py-0.5 text-sm text-gray-600 hover:text-gray-900'
+                }
+              >
+                {PRACTICE_MODE_LABELS[mode]}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -921,9 +1002,9 @@ export function Practice({
         <VirtualKeyboard
           lowestPitch={pitchRange.low}
           highestPitch={pitchRange.high}
-          expectedPitches={expectedPitches}
+          expectedPitches={keyboardExpectedPitches}
           heldPitches={heldPitches}
-          wrongPitches={wrongPitches}
+          wrongPitches={keyboardWrongPitches}
         />
       )}
     </div>

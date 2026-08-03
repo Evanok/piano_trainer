@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { WaitEngine } from './WaitEngine'
+import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine } from './WaitEngine'
 import type { ExpectedEvent } from '../types/score'
 
 const C4 = 60
@@ -110,5 +110,116 @@ describe('WaitEngine', () => {
     engine.jumpToEventIndex(2)
     expect(engine.state.currentIndex).toBe(2)
     expect(engine.currentHeldPitches).toEqual([])
+  })
+})
+
+describe('WaitEngine free mode', () => {
+  // One event per measure keeps "how far ahead did it look" readable: with a
+  // 2-measure window, the cursor can reach at most two events past itself.
+  function scale(): ExpectedEvent[] {
+    return [
+      event(0, [C4], 1),
+      event(1, [D4], 2),
+      event(2, [E4], 3),
+      event(3, [F4], 4),
+      event(4, [G4], 5),
+      event(5, [A4], 6),
+    ]
+  }
+
+  function freeEngine(events = scale(), windowMeasures = 2): WaitEngine {
+    const engine = new WaitEngine(events, DEFAULT_CHORD_TOLERANCE_MS, windowMeasures)
+    engine.setMode('free')
+    return engine
+  }
+
+  it('advances on the expected note exactly like wait mode', () => {
+    const engine = freeEngine()
+    expect(engine.noteOn(C4, 0)).toBe('waiting')
+    expect(engine.state.currentIndex).toBe(1)
+  })
+
+  it('never blocks on a wrong note, and does not move for it', () => {
+    const engine = freeEngine()
+    // A4 is five measures away -- outside the window, so it matches nothing.
+    expect(engine.noteOn(A4, 0)).toBe('error')
+    expect(engine.state.currentIndex).toBe(0)
+    // Still perfectly playable: the run continues from where it was.
+    expect(engine.noteOn(C4, 100)).toBe('waiting')
+    expect(engine.state.currentIndex).toBe(1)
+  })
+
+  it('re-anchors onto the player when notes are skipped', () => {
+    const engine = freeEngine()
+    // Skip D4 entirely and play the note after it.
+    expect(engine.noteOn(E4, 0)).toBe('waiting')
+    expect(engine.state.currentIndex).toBe(3)
+  })
+
+  it('recovers position after playing on through a mistake', () => {
+    const engine = freeEngine()
+    engine.noteOn(C4, 0)
+    // Wrong note, not corrected -- the player just keeps going.
+    expect(engine.noteOn(C4, 100)).toBe('error')
+    expect(engine.noteOn(D4, 200)).toBe('waiting')
+    // Back on the player rather than stuck behind the uncorrected mistake.
+    expect(engine.state.currentIndex).toBe(2)
+  })
+
+  it('abandons a half-played chord instead of waiting for the rest of it', () => {
+    const engine = freeEngine([
+      event(0, [C4, E4, G4], 1),
+      event(1, [D4], 2),
+      event(2, [F4], 3),
+    ])
+    expect(engine.noteOn(C4, 0)).toBe('waiting')
+    expect(engine.state.currentIndex).toBe(0)
+    expect(engine.currentHeldPitches).toEqual([C4])
+    // The player moved on without completing the chord.
+    expect(engine.noteOn(D4, 100)).toBe('waiting')
+    expect(engine.state.currentIndex).toBe(2)
+    expect(engine.currentHeldPitches).toEqual([])
+  })
+
+  it('takes the nearest match so a recurring pitch cannot pull the cursor ahead', () => {
+    const engine = freeEngine([
+      event(0, [C4], 1),
+      event(1, [D4], 1),
+      event(2, [C4], 2),
+    ])
+    // C4 appears at index 0 and index 2, both inside the window.
+    expect(engine.noteOn(C4, 0)).toBe('waiting')
+    expect(engine.state.currentIndex).toBe(1)
+  })
+
+  it('never looks backwards -- a note already played does not rewind the cursor', () => {
+    const engine = freeEngine()
+    engine.noteOn(C4, 0)
+    engine.noteOn(D4, 100)
+    expect(engine.state.currentIndex).toBe(2)
+    expect(engine.noteOn(C4, 200)).toBe('error')
+    expect(engine.state.currentIndex).toBe(2)
+  })
+
+  it('reaches the end of the piece even when notes were skipped along the way', () => {
+    const engine = freeEngine()
+    engine.noteOn(C4, 0)
+    engine.noteOn(E4, 100)
+    engine.noteOn(G4, 200)
+    expect(engine.noteOn(A4, 300)).toBe('done')
+    expect(engine.state.completed).toBe(true)
+  })
+
+  it('switching mode leaves the player exactly where they were', () => {
+    const engine = new WaitEngine(scale())
+    engine.noteOn(C4, 0)
+    engine.noteOn(D4, 100)
+    engine.setMode('free')
+    expect(engine.state.currentIndex).toBe(2)
+    engine.setMode('wait')
+    expect(engine.state.currentIndex).toBe(2)
+    // And wait mode blocks again straight away.
+    expect(engine.noteOn(A4, 200)).toBe('error')
+    expect(engine.state.currentIndex).toBe(2)
   })
 })

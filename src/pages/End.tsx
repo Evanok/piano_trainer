@@ -28,32 +28,46 @@ export function End({ stats, onHome, onNextExercise, onChangeSettings }: EndProp
   // recordPracticeDay() already ran when this session's Practice screen
   // mounted, so today already counts here -- no separate call needed.
   const streak = getStreakStats()
+  // Free play never made the player get a note right before moving on, so
+  // grade, success rate and combo would all be flattering nonsense. The
+  // session still counts as practice (the streak above already includes it).
+  const isFreePlay = stats.practiceMode === 'free'
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 px-6 text-center">
-      <h1 className="text-3xl font-semibold text-gray-900">Session complete</h1>
+      <h1 className="text-3xl font-semibold text-gray-900">
+        {isFreePlay ? 'Piece finished' : 'Session complete'}
+      </h1>
 
       <dl className="grid w-full grid-cols-2 gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <dt className="text-xs uppercase text-gray-500">Grade</dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{grade}</dd>
-        </div>
+        {!isFreePlay && (
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <dt className="text-xs uppercase text-gray-500">Grade</dt>
+            <dd className="mt-1 text-2xl font-semibold text-gray-900">{grade}</dd>
+          </div>
+        )}
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <dt className="text-xs uppercase text-gray-500">Time</dt>
           <dd className="mt-1 text-2xl font-semibold text-gray-900">{formatDuration(stats.durationMs)}</dd>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <dt className="text-xs uppercase text-gray-500">Errors</dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{stats.errorCount}</dd>
+          <dt className="text-xs uppercase text-gray-500">{isFreePlay ? 'Notes' : 'Errors'}</dt>
+          <dd className="mt-1 text-2xl font-semibold text-gray-900">
+            {isFreePlay ? stats.totalEvents : stats.errorCount}
+          </dd>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <dt className="text-xs uppercase text-gray-500">Success</dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{stats.successPercent}%</dd>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <dt className="text-xs uppercase text-gray-500">Best combo</dt>
-          <dd className="mt-1 text-2xl font-semibold text-gray-900">{stats.maxCombo}</dd>
-        </div>
+        {!isFreePlay && (
+          <>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <dt className="text-xs uppercase text-gray-500">Success</dt>
+              <dd className="mt-1 text-2xl font-semibold text-gray-900">{stats.successPercent}%</dd>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <dt className="text-xs uppercase text-gray-500">Best combo</dt>
+              <dd className="mt-1 text-2xl font-semibold text-gray-900">{stats.maxCombo}</dd>
+            </div>
+          </>
+        )}
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <dt className="text-xs uppercase text-gray-500">Streak</dt>
           <dd className="mt-1 text-2xl font-semibold text-gray-900">{streak.currentStreak}</dd>

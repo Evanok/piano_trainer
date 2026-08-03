@@ -2,6 +2,18 @@ import type { ExpectedEvent, EventStatus } from '../types/score'
 
 export const DEFAULT_CHORD_TOLERANCE_MS = 2000
 
+/**
+ * How far ahead free mode looks for the note it just heard, in measures.
+ *
+ * Deliberately measured in measures rather than events: a dense passage and a
+ * sparse one hold very different numbers of notes, and what matters for
+ * re-anchoring is musical distance, not note count. Small on purpose -- a wide
+ * window lets a pitch that recurs later drag the cursor forward too early.
+ */
+export const DEFAULT_FOLLOW_WINDOW_MEASURES = 2
+
+export type WaitEngineMode = 'wait' | 'free'
+
 export interface WaitEngineState {
   currentIndex: number
   status: EventStatus
@@ -25,14 +37,31 @@ export type WaitEngineListener = (state: WaitEngineState) => void
 export class WaitEngine {
   private events: ExpectedEvent[]
   private chordToleranceMs: number
+  private followWindowMeasures: number
+  private mode: WaitEngineMode = 'wait'
   private currentIndex = 0
   private heldPitches = new Set<number>()
   private firstHeldTimestamp: number | null = null
   private listeners: WaitEngineListener[] = []
 
-  constructor(events: ExpectedEvent[], chordToleranceMs = DEFAULT_CHORD_TOLERANCE_MS) {
+  constructor(
+    events: ExpectedEvent[],
+    chordToleranceMs = DEFAULT_CHORD_TOLERANCE_MS,
+    followWindowMeasures = DEFAULT_FOLLOW_WINDOW_MEASURES,
+  ) {
     this.events = events
     this.chordToleranceMs = chordToleranceMs
+    this.followWindowMeasures = followWindowMeasures
+  }
+
+  /**
+   * Switching mode never moves the cursor -- the player stays exactly where
+   * they were, only what happens on the next note changes.
+   */
+  setMode(mode: WaitEngineMode): void {
+    this.mode = mode
+    this.heldPitches.clear()
+    this.firstHeldTimestamp = null
   }
 
   get state(): WaitEngineState {
@@ -65,9 +94,50 @@ export class WaitEngine {
     }
   }
 
+  /**
+   * The nearest event at or ahead of the cursor (within the follow window)
+   * that contains this pitch, or null if the note belongs to none of them.
+   *
+   * Nearest rather than best match on purpose: it is the conservative choice,
+   * so a pitch that happens to recur later in the window can never pull the
+   * cursor forward ahead of the player.
+   */
+  private findFollowMatch(pitch: number): number | null {
+    const lastMeasure = this.events[this.currentIndex].measureNumber + this.followWindowMeasures
+    for (let index = this.currentIndex; index < this.events.length; index += 1) {
+      const event = this.events[index]
+      if (event.measureNumber > lastMeasure) {
+        break
+      }
+      if (event.pitches.includes(pitch)) {
+        return index
+      }
+    }
+    return null
+  }
+
   noteOn(pitch: number, timestamp: number): EventStatus {
     if (this.currentIndex >= this.events.length) {
       return 'done'
+    }
+
+    if (this.mode === 'free') {
+      const matchIndex = this.findFollowMatch(pitch)
+      if (matchIndex === null) {
+        // Nothing nearby expects this note. Report it, but never block on it
+        // and never move -- in free mode a wrong note is just a wrong note.
+        this.emit('error')
+        return 'error'
+      }
+      if (matchIndex !== this.currentIndex) {
+        // The player has moved past the cursor (a skipped note, an abandoned
+        // chord, a flubbed bar). Re-anchor onto them rather than staying stuck
+        // where they no longer are -- this is what keeps the scroll following
+        // someone who plays on through their own mistakes.
+        this.currentIndex = matchIndex
+        this.heldPitches.clear()
+        this.firstHeldTimestamp = null
+      }
     }
 
     const expected = this.events[this.currentIndex]
