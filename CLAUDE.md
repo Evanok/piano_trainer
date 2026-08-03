@@ -1,18 +1,37 @@
 # CLAUDE.md
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands
 
 - `npm run dev` -- start the Vite dev server (port 5173 by default); the catalog API is mounted on it, so this is still a single process
 - `npm run build` -- typecheck (`tsc -b`) then production build
-- `npm start` -- production server: serves `dist/` + the catalog API (`PORT`, default 4173)
+- `npm start` -- production server: serves `dist/` + the catalog API (`PORT`, default 5173). It is exposed directly at `http://51.159.55.29:5173/`; do not use Nginx or a reverse proxy for Piano Trainer.
 - `npm test` -- run the vitest suite once
 - `npx vitest run src/engine/WaitEngine.test.ts` -- run a single test file
 - `npx tsc -b --noEmit` -- typecheck only, no build output
 - `npm run lint` -- oxlint
 
 There is no test runner watch mode wired up as a script; use `npx vitest` (no `run`) directly for watch mode.
+
+## Production deployment
+
+The VPS runs the app directly on TCP port 5173, managed by PM2. There is no
+Nginx configuration for this project. Use the repository script rather than
+running PM2 commands by hand:
+
+```bash
+./deploy.sh prod start  # npm ci, production build, then public server on :5173
+./deploy.sh prod stop
+./deploy.sh dev start   # Vite, bound only to 127.0.0.1:5173
+./deploy.sh dev stop
+```
+
+For later production deployments, run `git pull --ff-only` then
+`./deploy.sh prod start`. The script deliberately does not pull implicitly,
+so it never unexpectedly changes a checked-out VPS worktree. It stops the
+other mode before starting one because both use port 5173. If production is
+not reachable publicly, check that TCP 5173 is open in the VPS firewall/security
+group.
 
 ## What this is
 
@@ -22,7 +41,13 @@ A piano practice web app ("Wait Mode", Simply-Piano-style): load a MusicXML/`.mx
 
 ### Data flow
 
-`Home` (file picker + MIDI device picker + score catalog, using `useMidi`) -> `App` holds the loaded `File` and switches screens (`home` / `practice` / `end`, plain `useState`, no router) -> `Practice` wires everything together -> `End` shows session stats. `useMidi` is instantiated once in `App` (not per-screen) so the Web MIDI permission prompt only fires once per session and device state survives screen switches.
+`Home` is a small intent menu (`Exercise` / `Practice a score` / `Stats`). `App` holds the loaded `File`, a `PracticeSourceKind` (`score` or `generated-training`), and switches screens (`home` / `exercise-setup` / `score-library` / `stats` / `practice` / `end`, plain `useState`, no router). `ExerciseSetup` builds generated MusicXML exercises in memory; `ScoreLibrary` owns upload/catalog browsing; both enter the shared `Practice` pipeline; `Stats` summarizes local exercise history; `End` shows session stats. `useMidi` is instantiated once in `App` (not per-screen) so the Web MIDI permission prompt only fires once per session and device state survives screen switches.
+
+### Navigation and source kinds
+
+The app deliberately avoids a router for now: `App.tsx` owns the screen enum and passes callbacks down. Keep `Home` as an intent menu only. Put generated-exercise settings in `ExerciseSetup.tsx`, real-score upload/catalog/search in `ScoreLibrary.tsx`, and local exercise-history summaries in `Stats.tsx`. Both playable flows must pass a real `File` into `Practice`; use `PracticeSourceKind` rather than filename heuristics whenever behavior differs between generated exercises and real scores. Currently generated exercises hide the mobile virtual keyboard so it does not give away answers, while regular scores keep it visible on mobile as a compact aid.
+
+`createTrainingExerciseFile()` returns an in-memory `.musicxml` `File`; generated exercises are not uploaded to or listed in the catalog. Exercise generation supports `contentMode: 'notes' | 'triads' | 'mixed'`. Single-hand exercises apply that mode to the active hand; two-hand exercises keep a right-hand melody and apply the mode to the left-hand accompaniment. Triads are emitted as MusicXML chord notes with `<chord/>`, which the existing OSMD extraction and `WaitEngine` chord path consume as one expected event.
 
 ### Score catalog (`server/`, `src/api/catalog.ts`)
 
@@ -35,7 +60,7 @@ The only server-side part of the app: uploaded scores are kept on disk so they c
 - **Storage** (`server/catalogStore.ts`): `<dataDir>/catalog.json` + `<dataDir>/scores/<uuid><ext>`, where `dataDir` is `PIANO_TRAINER_DATA_DIR` or `./data`. Resolved from `process.cwd()` on purpose, *not* from `import.meta.url`: in dev this module is bundled into a temporary Vite config file at an unrelated path, which would silently move the data directory. `data/` is gitignored, and lives outside `public/` so Vite never serves it statically -- `server.watch.ignored` also excludes it, otherwise every upload would trigger a full page reload and drop a practice session in progress.
 - **The stored file name is always `<generated uuid><ext>`**, never the uploaded name, so a crafted filename can't escape the scores folder; ids coming back in a URL are checked against a UUID pattern before touching the filesystem. `catalog.json` is written tmp-then-rename, and a corrupt `catalog.json` throws instead of being read as an empty list (an empty list would be overwritten by the next upload, losing every entry while the score files are still on disk).
 - **`downloadScoreFile()` rebuilds a real `File` with the original filename** (`new File([blob], entry.filename)`) before handing it to `App`/`Practice`. The name matters: OSMD decides whether to unzip (`.mxl`) or parse XML from it, so a catalog score has to reach `PianoScore` exactly as a freshly picked file would. Everything downstream of `onFileLoaded` is unchanged and can't tell the two apart.
-- **Upload failure doesn't block practice.** `Home` awaits the upload before switching screens, and on failure shows the error plus a "practice without saving it" button -- an unreachable catalog degrades to the old behaviour rather than either blocking the session or silently losing the score.
+- **Upload failure does not block practice.** `ScoreLibrary` awaits the upload before switching screens, and on failure shows the error plus a "practice without saving it" button -- an unreachable catalog degrades to the old behaviour rather than either blocking the session or silently losing the score.
 
 `queryCatalog` (`server/catalogQuery.ts`) is pure and unit-tested (`server/catalogQuery.test.ts`): search is AND over whitespace-separated terms against title + filename, sorting is by `uploadedAt` descending with the id as a tie-break (two uploads can share a millisecond, and an unstable sort there would make entries jump between pages).
 
@@ -98,7 +123,7 @@ Un-cropping back to the whole piece (exiting training mode) rebuilds a much larg
 
 ### Mobile (`hooks/useIsMobile.ts`)
 
-Mobile only ever gets scroll mode -- forced on, and the page/scroll toggle button is hidden entirely; training mode (built on scroll mode) stays available. The intended use is landscape, phone-in-hand, Simply-Piano-style, so detecting "mobile" via viewport *width* alone (e.g. a `(max-width: 768px)` media query) breaks the moment the phone is rotated sideways -- width and height swap, and a phone's landscape width alone easily exceeds a portrait breakpoint (a large phone can hit ~930px landscape). `useIsMobile` instead checks `Math.min(window.innerWidth, window.innerHeight)` against the breakpoint: the physical screen's *shorter* dimension stays roughly constant across rotation, so it's what actually distinguishes a phone from a tablet/desktop.
+Mobile only ever gets scroll mode -- forced on, and the page/scroll toggle button is hidden entirely; training mode (built on scroll mode) stays available. The codebase should stay one app: use shared pages/components plus responsive classes, and branch with `useIsMobile` only where the mobile landscape layout genuinely differs. The intended use is landscape, phone-in-hand, Simply-Piano-style, so detecting "mobile" via viewport *width* alone (e.g. a `(max-width: 768px)` media query) breaks the moment the phone is rotated sideways -- width and height swap, and a phone's landscape width alone easily exceeds a portrait breakpoint (a large phone can hit ~930px landscape). `useIsMobile` instead checks `Math.min(window.innerWidth, window.innerHeight)` against the breakpoint: the physical screen's *shorter* dimension stays roughly constant across rotation, so it's what actually distinguishes a phone from a tablet/desktop.
 
 Chrome on Android supports Web MIDI (USB-OTG or Bluetooth MIDI keyboard); Safari on iOS does not support Web MIDI at all, full stop.
 

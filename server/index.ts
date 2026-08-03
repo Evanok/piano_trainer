@@ -4,7 +4,7 @@
 //
 //   npm run build && npm start
 //
-// Environment: PORT (default 4173), PIANO_TRAINER_DATA_DIR (default ./data).
+// Environment: PORT (default 5173), PIANO_TRAINER_DATA_DIR (default ./data).
 
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -12,7 +12,8 @@ import path from 'node:path'
 import { createCatalogApi } from './catalogApi.ts'
 import { migrateCatalog, resolveDataDir } from './catalogStore.ts'
 
-const PORT = Number(process.env.PORT ?? 4173)
+// Piano Trainer is exposed directly on this port; there is no Nginx proxy.
+const PORT = Number(process.env.PORT ?? 5173)
 const DIST_DIR = path.resolve(process.cwd(), 'dist')
 
 const MIME_TYPES: Record<string, string> = {

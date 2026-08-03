@@ -1,33 +1,102 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SkipToStartIcon } from '../components/icons'
+import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, SkipToStartIcon } from '../components/icons'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
+import { recordExerciseSession } from '../engine/exerciseStatsStore'
 import { computeSections, type Section } from '../engine/sections'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useBackingTrack } from '../hooks/useBackingTrack'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
-import type { SessionStats } from '../types/session'
+import type {
+  KeyboardAssistMode,
+  PracticeBackingTrack,
+  PracticeKeySignature,
+  PracticeSourceKind,
+} from '../types/practice'
+import type { ExerciseSessionStats, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
 // A section only auto-advances once it's been played through with zero
 // errors this many times IN A ROW -- one clean pass isn't enough to prove
 // it's learned, but requiring more would make repetitive drilling tedious.
 const PERFECT_RUNS_TO_ADVANCE = 2
+const MAX_EXERCISE_STAT_ROWS = 3
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
+function incrementCount(map: Map<number, number>, key: number): void {
+  map.set(key, (map.get(key) ?? 0) + 1)
+}
+
+function topNoteStats(map: Map<number, number>) {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, MAX_EXERCISE_STAT_ROWS)
+    .map(([pitch, count]) => ({ note: midiToNoteName(pitch), count }))
+}
+
+function summarizeExerciseStats(
+  responseTimesMs: number[],
+  missedNoteCounts: Map<number, number>,
+  wrongNoteCounts: Map<number, number>,
+  confusionCounts: Map<string, { expected: string; played: string; count: number }>,
+): ExerciseSessionStats {
+  const sortedTimes = [...responseTimesMs].sort((a, b) => a - b)
+  const responseCount = sortedTimes.length
+  const medianIndex = Math.floor(responseCount / 2)
+  const medianResponseMs =
+    responseCount === 0
+      ? 0
+      : responseCount % 2 === 0
+        ? Math.round((sortedTimes[medianIndex - 1] + sortedTimes[medianIndex]) / 2)
+        : Math.round(sortedTimes[medianIndex])
+
+  return {
+    responseCount,
+    averageResponseMs:
+      responseCount === 0 ? 0 : Math.round(responseTimesMs.reduce((total, time) => total + time, 0) / responseCount),
+    medianResponseMs,
+    slowestResponseMs: responseCount === 0 ? 0 : Math.round(sortedTimes[responseCount - 1]),
+    missedNotes: topNoteStats(missedNoteCounts),
+    wrongNotes: topNoteStats(wrongNoteCounts),
+    confusions: Array.from(confusionCounts.values())
+      .sort((a, b) => b.count - a.count || a.expected.localeCompare(b.expected) || a.played.localeCompare(b.played))
+      .slice(0, MAX_EXERCISE_STAT_ROWS),
+  }
+}
 
 interface PracticeProps {
   scoreFile: File
+  sourceKind: PracticeSourceKind
+  keyboardAssistMode: KeyboardAssistMode
+  backingTrack: PracticeBackingTrack | null
+  keySignature: PracticeKeySignature | null
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
+  onExerciseSettings?: () => void
 }
 
-export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: PracticeProps) {
+export function Practice({
+  scoreFile,
+  sourceKind,
+  keyboardAssistMode,
+  backingTrack,
+  keySignature,
+  onNoteEvent,
+  onComplete,
+  onBack,
+  onExerciseSettings,
+}: PracticeProps) {
   // Mobile only ever gets scroll mode (and training mode, built on top of
   // it) -- the paginated page layout and the dense desktop control row don't
   // work well on a phone screen. See useIsMobile for the breakpoint.
@@ -70,6 +139,8 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     [events, measuresPerSection, naturalBreaks],
   )
 
+  const backing = useBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
+
   const scoreRef = useRef<PianoScoreHandle | null>(null)
   const waitEngineRef = useRef<WaitEngine | null>(null)
   const previousIndexRef = useRef(0)
@@ -85,6 +156,13 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   const comboRef = useRef(0)
   const maxComboRef = useRef(0)
   const correctNoteCountRef = useRef(0)
+  const sourceKindRef = useRef(sourceKind)
+  sourceKindRef.current = sourceKind
+  const eventStartedAtRef = useRef(nowMs())
+  const responseTimesRef = useRef<number[]>([])
+  const missedNoteCountsRef = useRef<Map<number, number>>(new Map())
+  const wrongNoteCountsRef = useRef<Map<number, number>>(new Map())
+  const confusionCountsRef = useRef<Map<string, { expected: string; played: string; count: number }>>(new Map())
   const startedAtRef = useRef(Date.now())
   const decayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -101,6 +179,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   currentSectionIndexRef.current = currentSectionIndex
   const sectionPerfectStreakRef = useRef(sectionPerfectStreak)
   sectionPerfectStreakRef.current = sectionPerfectStreak
+  const supportsSectionNavigation = sourceKind !== 'generated-training'
 
   const clearDecayTimer = () => {
     if (decayTimeoutRef.current !== null) {
@@ -119,6 +198,46 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       sectionMessageTimeoutRef.current = null
     }, 3000)
   }
+
+  const resetExerciseStats = () => {
+    eventStartedAtRef.current = nowMs()
+    responseTimesRef.current = []
+    missedNoteCountsRef.current = new Map()
+    wrongNoteCountsRef.current = new Map()
+    confusionCountsRef.current = new Map()
+  }
+
+  const recordExerciseError = (expectedPitchesForEvent: number[], playedPitch: number) => {
+    if (sourceKindRef.current !== 'generated-training') {
+      return
+    }
+
+    expectedPitchesForEvent.forEach((pitch) => incrementCount(missedNoteCountsRef.current, pitch))
+    incrementCount(wrongNoteCountsRef.current, playedPitch)
+
+    const expected = expectedPitchesForEvent.map(midiToNoteName).join(', ')
+    const played = midiToNoteName(playedPitch)
+    const key = expected + ' -> ' + played
+    const existing = confusionCountsRef.current.get(key)
+    confusionCountsRef.current.set(key, { expected, played, count: (existing?.count ?? 0) + 1 })
+  }
+
+  const recordExerciseResponse = () => {
+    if (sourceKindRef.current !== 'generated-training') {
+      return
+    }
+    responseTimesRef.current.push(Math.max(0, nowMs() - eventStartedAtRef.current))
+  }
+
+  const buildExerciseStats = () =>
+    sourceKindRef.current === 'generated-training'
+      ? summarizeExerciseStats(
+          responseTimesRef.current,
+          missedNoteCountsRef.current,
+          wrongNoteCountsRef.current,
+          confusionCountsRef.current,
+        )
+      : undefined
 
   // A wrong keypress within the chord tolerance window is reported but
   // doesn't erase already-held correct notes (see WaitEngine.noteOn) -- the
@@ -157,16 +276,15 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     }
   }, [isMobile])
 
-  // Mobile's compact header has no training-mode toggle -- section
-  // navigation (back-to-section-1, prev/next) IS the mobile practice mode,
-  // always on, not something to opt into. Guarded by trainingMode so this
-  // only fires once per isMobile transition, not on every render.
+  // Mobile regular-score practice uses section navigation as its compact
+  // drill mode. Generated exercises are already short tests, so they play
+  // straight through without section controls.
   useEffect(() => {
-    if (isMobile && !trainingMode) {
+    if (isMobile && supportsSectionNavigation && !trainingMode) {
       enterTrainingMode()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, trainingMode])
+  }, [isMobile, supportsSectionNavigation, trainingMode])
 
   const goToEventIndex = (targetIndex: number) => {
     const engine = waitEngineRef.current
@@ -192,6 +310,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     setExpectedPitches(engine.currentExpectedPitches)
     setHeldPitches([])
     setWrongPitches([])
+    eventStartedAtRef.current = nowMs()
   }
 
   // Restricts the score to exactly one section's measures -- each section
@@ -258,6 +377,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         return
       }
       const indexBeforeNote = engine.state.currentIndex
+      const expectedPitchesBeforeNote = engine.currentExpectedPitches
       const status = engine.noteOn(event.pitch, event.timestamp)
 
       setDebugLog((log) =>
@@ -278,6 +398,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         if (activeSection) {
           sectionErrorCountRef.current += 1
         }
+        recordExerciseError(expectedPitchesBeforeNote, event.pitch)
         scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
@@ -291,6 +412,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
         setCorrectNoteCount(correctNoteCountRef.current)
         const newIndex = engine.state.currentIndex
         if (newIndex > previousIndexRef.current) {
+          recordExerciseResponse()
           clearDecayTimer()
           setWrongPitches([])
           if (!eventsWithErrorsRef.current.has(indexBeforeNote)) {
@@ -311,13 +433,19 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
             handleSectionCompleted()
           } else if (engine.state.completed) {
             const total = totalEventsRef.current
-            onComplete({
+            const exercise = buildExerciseStats()
+            const stats: SessionStats = {
               durationMs: Date.now() - startedAtRef.current,
               errorCount: errorCountRef.current,
               totalEvents: total,
               successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
               maxCombo: maxComboRef.current,
-            })
+              ...(exercise ? { exercise } : {}),
+            }
+            recordExerciseSession(scoreFile.name, stats)
+            onComplete(stats)
+          } else {
+            eventStartedAtRef.current = nowMs()
           }
         } else {
           scoreRef.current?.syncNotes(engine.currentHeldPitches)
@@ -358,6 +486,7 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
     comboRef.current = 0
     maxComboRef.current = 0
     correctNoteCountRef.current = 0
+    resetExerciseStats()
     sectionErrorCountRef.current = 0
     setCurrentCombo(0)
     setBestCombo(0)
@@ -468,6 +597,29 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
   }
 
   const displayedIndex = Math.min((engineState?.currentIndex ?? 0) + 1, totalEvents)
+  const showGeneratedAssistKeyboard =
+    sourceKind === 'generated-training' &&
+    (keyboardAssistMode === 'learning' || (keyboardAssistMode === 'mistakes-only' && wrongPitches.length > 0))
+  const showMobileKeyboard = sourceKind !== 'generated-training' || showGeneratedAssistKeyboard
+  const showDesktopKeyboard = sourceKind === 'generated-training' ? showGeneratedAssistKeyboard : showKeyboard
+  const keyboardAssistLabel =
+    keyboardAssistMode === 'none' ? 'No help' : keyboardAssistMode === 'mistakes-only' ? 'Mistakes only' : 'Learning'
+  const backingTrackLabel = backingTrack ? 'Beat: ' + backingTrack.keyName : 'Beat'
+  const backingTrackButtonLabel = backing.isRunning ? backingTrackLabel : 'Start audio'
+  const compactKeySignatureLabel = keySignature
+    ? `${keySignature.keyName} · ${
+        keySignature.accidentalsLabel === 'No sharps or flats'
+          ? 'no ♯/♭'
+          : keySignature.accidentalsLabel.replace(/^(Sharps|Flats): /, '')
+      }`
+    : null
+  const handleBackingTrackButton = () => {
+    if (backing.isRunning) {
+      backing.stop()
+    } else {
+      void backing.start()
+    }
+  }
 
   // Mobile gets a single compact icon-button header (name, home, back-to-
   // section-1, prev/next section) with every other row -- HUD, the desktop
@@ -487,31 +639,63 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
           >
             <HomeIcon className="h-5 w-5" />
           </button>
-          <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900">{scoreFile.name}</h1>
-          <button
-            type="button"
-            onClick={handleBackToSection1}
-            aria-label="Back to section 1"
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+          {sourceKind === 'generated-training' && onExerciseSettings && (
+            <button
+              type="button"
+              onClick={onExerciseSettings}
+              aria-label="Exercise settings"
+              className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+            >
+              <SettingsIcon className="h-5 w-5" />
+            </button>
+          )}
+          <h1
+            className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-gray-900"
+            title={keySignature ? `${keySignature.keyName} · ${keySignature.accidentalsLabel}` : scoreFile.name}
           >
-            <SkipToStartIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={handlePrevSection}
-            aria-label="Previous section"
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-          >
-            <ChevronLeftIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={handleNextSection}
-            aria-label="Next section"
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-          >
-            <ChevronRightIcon className="h-5 w-5" />
-          </button>
+            {compactKeySignatureLabel ?? scoreFile.name}
+          </h1>
+          {backing.isEnabled && (
+            <button
+              type="button"
+              onClick={handleBackingTrackButton}
+              className={
+                backing.isRunning
+                  ? 'rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700'
+                  : 'rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white'
+              }
+            >
+              {backingTrackButtonLabel}
+            </button>
+          )}
+          {supportsSectionNavigation && (
+            <>
+              <button
+                type="button"
+                onClick={handleBackToSection1}
+                aria-label="Back to section 1"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <SkipToStartIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handlePrevSection}
+                aria-label="Previous section"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <ChevronLeftIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleNextSection}
+                aria-label="Next section"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <ChevronRightIcon className="h-5 w-5" />
+              </button>
+            </>
+          )}
         </div>
 
         <PianoScore
@@ -522,31 +706,47 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
           onError={setLoadError}
         />
 
-        {/* Always on (no toggle button fits in the compact header) -- on a
-            small screen, re-reading the expected chord off the sheet after a
-            mistake is slow; the keyboard gives an immediate "press these
-            keys" reference exactly where a mis-hit note is also shown red. */}
-        <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
-          <VirtualKeyboard
-            lowestPitch={pitchRange.low}
-            highestPitch={pitchRange.high}
-            expectedPitches={expectedPitches}
-            heldPitches={heldPitches}
-            wrongPitches={wrongPitches}
-          />
-        </div>
+        {/* Always on for regular scores (no toggle button fits in the compact
+            header). Generated exercises follow the setup assistance mode: hidden,
+            visible only after mistakes, or always visible for learning. */}
+        {showMobileKeyboard && (
+          <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">
+            <VirtualKeyboard
+              lowestPitch={pitchRange.low}
+              highestPitch={pitchRange.high}
+              expectedPitches={expectedPitches}
+              heldPitches={heldPitches}
+              wrongPitches={wrongPitches}
+            />
+          </div>
+        )}
       </div>
     )
   }
 
   return (
     <div className="mx-auto flex h-screen w-full max-w-[1600px] flex-col gap-4 px-6 py-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">{scoreFile.name}</h1>
-        <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
-          Back to home
-        </button>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="min-w-0 flex-1 truncate text-xl font-semibold text-gray-900">{scoreFile.name}</h1>
+        <div className="flex shrink-0 items-center gap-3">
+          {sourceKind === 'generated-training' && onExerciseSettings && (
+            <button type="button" onClick={onExerciseSettings} className="text-sm text-gray-500 hover:underline">
+              Settings
+            </button>
+          )}
+          <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
+            Home
+          </button>
+        </div>
       </div>
+
+      {keySignature && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span className="font-semibold">{keySignature.keyName}</span>
+          <span className="mx-2" aria-hidden="true">·</span>
+          {keySignature.accidentalsLabel}
+        </div>
+      )}
 
       <ScoreHud
         currentCombo={currentCombo}
@@ -599,13 +799,34 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
             onChange={(e) => handleZoomChange(Number(e.target.value))}
           />
         </label>
-        <button
-          type="button"
-          onClick={() => setShowKeyboard((value) => !value)}
-          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
-        >
-          {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
-        </button>
+        {sourceKind === 'generated-training' ? (
+          <>
+            <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
+              Keyboard help: {keyboardAssistLabel}
+            </span>
+            {backing.isEnabled && (
+              <button
+                type="button"
+                onClick={handleBackingTrackButton}
+                className={
+                  backing.isRunning
+                    ? 'rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-sm text-emerald-700'
+                    : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
+                }
+              >
+                {backingTrackButtonLabel}
+              </button>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowKeyboard((value) => !value)}
+            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+          >
+            {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
+          </button>
+        )}
         {!trainingMode && (
           <button
             type="button"
@@ -615,20 +836,22 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
             {layoutMode === 'page' ? 'Switch to scroll mode' : 'Switch to page mode'}
           </button>
         )}
-        <button
-          type="button"
-          onClick={handleToggleTrainingMode}
-          className={
-            trainingMode
-              ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
-              : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
-          }
-        >
-          {trainingMode ? 'Exit training mode' : 'Start training mode'}
-        </button>
+        {supportsSectionNavigation && (
+          <button
+            type="button"
+            onClick={handleToggleTrainingMode}
+            className={
+              trainingMode
+                ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
+                : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
+            }
+          >
+            {trainingMode ? 'Exit section drill' : 'Start section drill'}
+          </button>
+        )}
       </div>
 
-      {trainingMode && (
+      {supportsSectionNavigation && trainingMode && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
           <label className="flex items-center gap-2">
             Section
@@ -689,12 +912,12 @@ export function Practice({ scoreFile, onNoteEvent, onComplete, onBack }: Practic
       <PianoScore
         ref={scoreRef}
         source={scoreFile}
-        layoutMode={trainingMode ? 'scroll' : layoutMode}
+        layoutMode={supportsSectionNavigation && trainingMode ? 'scroll' : layoutMode}
         onReady={handleReady}
         onError={setLoadError}
       />
 
-      {showKeyboard && (
+      {showDesktopKeyboard && (
         <VirtualKeyboard
           lowestPitch={pitchRange.low}
           highestPitch={pitchRange.high}
