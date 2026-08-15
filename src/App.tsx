@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Home } from './pages/Home'
 import { ExerciseSetup } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
@@ -49,6 +49,16 @@ const DEFAULT_HANON_SETTINGS: HanonSettings = {
 
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
+  // Tracks the screen we already have a browser-history entry for. Lets the
+  // effect below tell "screen changed via a fresh navigation" apart from
+  // "screen already matches the current history entry" -- the latter covers
+  // both the initial mount and a screen change just caused by popstate (see
+  // below), so no duplicate/conflicting entry gets pushed in either case. A
+  // ref's initial value is computed once per component instance (not once
+  // per effect invocation), which is what keeps this correct under
+  // StrictMode's deliberate double-invoke of effects on mount (main.tsx) --
+  // both invocations compare against the same untouched initial value.
+  const lastHistoryScreenRef = useRef(screen)
   const [scoreFile, setScoreFile] = useState<File | null>(null)
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
@@ -62,6 +72,37 @@ function App() {
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
+
+  // Establishes the base history entry for the app's current screen (so the
+  // very first back-press has something defined to land on) and listens for
+  // the user actually using the browser's back/forward buttons -- without
+  // this, the whole app sits in one single history entry and back/forward
+  // leaves the app instead of moving between screens.
+  useEffect(() => {
+    history.replaceState({ screen }, '', location.href)
+    const onPopState = (event: PopStateEvent) => {
+      const nextScreen = (event.state as { screen?: Screen } | null)?.screen ?? 'home'
+      // Set before setScreen so the effect below sees them already in sync
+      // on its next run and skips re-pushing what the browser just
+      // navigated to.
+      lastHistoryScreenRef.current = nextScreen
+      setScreen(nextScreen)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Every *forward* screen change (any of the existing setScreen(...) call
+  // sites below, all unmodified) gets its own history entry, pushed here in
+  // one place rather than at each call site.
+  useEffect(() => {
+    if (lastHistoryScreenRef.current === screen) {
+      return
+    }
+    lastHistoryScreenRef.current = screen
+    history.pushState({ screen }, '', location.href)
+  }, [screen])
 
   // Safety net: only Practice ever plays a backing track, so any screen other
   // than practice should never have one running. A normal unmount already
