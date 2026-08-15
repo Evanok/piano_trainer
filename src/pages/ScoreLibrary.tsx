@@ -20,6 +20,13 @@ interface ScoreLibraryProps {
   midiError: string | null
   onFileLoaded: (scoreFile: File) => void
   onBack: () => void
+  // Owned by App (survives this component unmounting when navigating away
+  // and back, e.g. via the browser's back button into Practice and back)
+  // so browsing the catalog resumes on the same page/search instead of
+  // silently resetting to page 1 every time.
+  initialSearch: string
+  initialPage: number
+  onBrowseStateChange: (search: string, page: number) => void
 }
 
 function errorMessage(error: unknown): string {
@@ -58,7 +65,18 @@ function formatUploadedAt(iso: string): string {
   return date.toLocaleDateString()
 }
 
-export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupported, midiError, onFileLoaded, onBack }: ScoreLibraryProps) {
+export function ScoreLibrary({
+  devices,
+  selectedDeviceId,
+  onSelectDevice,
+  isSupported,
+  midiError,
+  onFileLoaded,
+  onBack,
+  initialSearch,
+  initialPage,
+  onBrowseStateChange,
+}: ScoreLibraryProps) {
   const [fileError, setFileError] = useState<string | null>(null)
   // Set only when saving to the catalog failed: the score is still perfectly
   // playable, so we offer to practice it without keeping it server-side rather
@@ -70,9 +88,9 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
   // on screen switches), so it always reflects the latest practice day.
   const [streak] = useState(() => getStreakStats())
 
-  const [searchInput, setSearchInput] = useState('')
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+  const [searchInput, setSearchInput] = useState(initialSearch)
+  const [search, setSearch] = useState(initialSearch)
+  const [page, setPage] = useState(initialPage)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalog, setCatalog] = useState<CatalogPage | null>(null)
   const [isCatalogLoading, setIsCatalogLoading] = useState(true)
@@ -92,7 +110,20 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  // Tracks the searchInput value already reflected in `search`/`page` --
+  // lets this effect tell "the user actually typed something new" apart
+  // from "searchInput just matches what it was restored to on mount," so
+  // resuming on a restored page doesn't get immediately reset to page 1 by
+  // this same effect. A ref's initial value is computed once per component
+  // instance (not once per effect invocation), which keeps this correct
+  // under React StrictMode's deliberate double-invoke of effects on mount.
+  const lastDebouncedSearchInputRef = useRef(searchInput)
+
   useEffect(() => {
+    if (lastDebouncedSearchInputRef.current === searchInput) {
+      return
+    }
+    lastDebouncedSearchInputRef.current = searchInput
     const timer = setTimeout(() => {
       setSearch(searchInput.trim())
       // A new search invalidates the current page number: page 3 of the old
@@ -101,6 +132,14 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [searchInput])
+
+  // Reported up to App as the user browses, so navigating away (e.g. opening
+  // a score) and back later resumes on the same page/search instead of
+  // resetting -- this component fully unmounts on every screen switch.
+  useEffect(() => {
+    onBrowseStateChange(search, page)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, page])
 
   useEffect(() => {
     const controller = new AbortController()
