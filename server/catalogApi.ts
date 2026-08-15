@@ -4,12 +4,14 @@ import { queryCatalog } from './catalogQuery.ts'
 import {
   addScore,
   ALLOWED_EXTENSIONS,
+  deleteEntry,
   extensionOf,
   findEntry,
   MAX_SCORE_BYTES,
   readCatalog,
   resolveDataDir,
   scoreFilePath,
+  updateEntry,
 } from './catalogStore.ts'
 
 /** Connect-style middleware, so the same handler runs in dev (mounted on the
@@ -88,6 +90,54 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, dataDir: 
   sendJson(res, 201, await addScore(dataDir, filename, data))
 }
 
+// A metadata edit is a couple of short strings, nowhere near a score file --
+// capped separately (and much lower) than MAX_SCORE_BYTES.
+const MAX_METADATA_BYTES = 10 * 1024
+
+async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: string, id: string): Promise<void> {
+  const body = await readBody(req, MAX_METADATA_BYTES)
+  let payload: unknown
+  try {
+    payload = JSON.parse(body.toString('utf8'))
+  } catch {
+    throw new HttpError(400, 'Request body must be valid JSON.')
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    throw new HttpError(400, 'Request body must be a JSON object.')
+  }
+  const { title: rawTitle, composer: rawComposer } = payload as { title?: unknown; composer?: unknown }
+
+  const update: { title?: string; composer?: string | null } = {}
+  if (rawTitle !== undefined) {
+    if (typeof rawTitle !== 'string' || !rawTitle.trim()) {
+      throw new HttpError(400, 'Title cannot be empty.')
+    }
+    update.title = rawTitle.trim()
+  }
+  if (rawComposer !== undefined) {
+    if (rawComposer !== null && typeof rawComposer !== 'string') {
+      throw new HttpError(400, 'Composer must be a string or null.')
+    }
+    update.composer = typeof rawComposer === 'string' ? rawComposer.trim() || null : rawComposer
+  }
+  if (update.title === undefined && update.composer === undefined) {
+    throw new HttpError(400, 'Nothing to update: provide title and/or composer.')
+  }
+
+  const entry = updateEntry(dataDir, id, update)
+  if (!entry) {
+    throw new HttpError(404, 'Score not found in the catalog.')
+  }
+  sendJson(res, 200, entry)
+}
+
+function handleDelete(res: ServerResponse, dataDir: string, id: string): void {
+  if (!deleteEntry(dataDir, id)) {
+    throw new HttpError(404, 'Score not found in the catalog.')
+  }
+  res.writeHead(204).end()
+}
+
 function handleDownload(res: ServerResponse, dataDir: string, id: string): void {
   const entry = findEntry(dataDir, id)
   if (!entry) {
@@ -118,12 +168,17 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
 
     const run = async (): Promise<void> => {
       const downloadMatch = /^\/api\/scores\/([^/]+)\/file$/.exec(url.pathname)
+      const entryMatch = /^\/api\/scores\/([^/]+)$/.exec(url.pathname)
       if (url.pathname === '/api/scores' && req.method === 'GET') {
         handleList(res, dataDir, url)
       } else if (url.pathname === '/api/scores' && req.method === 'POST') {
         await handleUpload(req, res, dataDir, url)
       } else if (downloadMatch && req.method === 'GET') {
         handleDownload(res, dataDir, decodeURIComponent(downloadMatch[1]))
+      } else if (entryMatch && req.method === 'PATCH') {
+        await handleUpdate(req, res, dataDir, decodeURIComponent(entryMatch[1]))
+      } else if (entryMatch && req.method === 'DELETE') {
+        handleDelete(res, dataDir, decodeURIComponent(entryMatch[1]))
       } else {
         throw new HttpError(404, `No such endpoint: ${req.method} ${url.pathname}`)
       }

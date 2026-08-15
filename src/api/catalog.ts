@@ -33,6 +33,30 @@ export async function fetchCatalogPage({ search, page, pageSize, signal }: Catal
   return (await response.json()) as CatalogPage
 }
 
+export interface CatalogEntryUpdate {
+  title?: string
+  composer?: string | null
+}
+
+export async function updateScoreEntry(id: string, update: CatalogEntryUpdate): Promise<CatalogEntry> {
+  const response = await fetch(`/api/scores/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(update),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as CatalogEntry
+}
+
+export async function deleteScoreEntry(id: string): Promise<void> {
+  const response = await fetch(`/api/scores/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+}
+
 export async function uploadScore(file: File): Promise<CatalogEntry> {
   const response = await fetch(`/api/scores?filename=${encodeURIComponent(file.name)}`, {
     method: 'POST',

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { extractScoreMetadata } from './scoreMetadata.ts'
 import type { CatalogEntry } from '../src/types/catalog.ts'
@@ -130,6 +130,63 @@ export function findEntry(dataDir: string, id: string): StoredEntry | null {
     return null
   }
   return readCatalog(dataDir).find((entry) => entry.id === id) ?? null
+}
+
+export interface CatalogEntryUpdate {
+  title?: string
+  composer?: string | null
+}
+
+/**
+ * Applies a user edit (title/composer only -- everything else about an entry
+ * is derived from the uploaded file, not editable). A field left out of
+ * `update` is untouched; `composer: null` explicitly clears it.
+ * Returns null when the id doesn't resolve to an entry, same as findEntry.
+ */
+export function updateEntry(dataDir: string, id: string, update: CatalogEntryUpdate): StoredEntry | null {
+  if (!ID_PATTERN.test(id)) {
+    return null
+  }
+  const entries = readCatalog(dataDir)
+  const entry = entries.find((candidate) => candidate.id === id)
+  if (!entry) {
+    return null
+  }
+  if (update.title !== undefined) {
+    entry.title = update.title
+  }
+  if (update.composer !== undefined) {
+    entry.composer = update.composer
+  }
+  writeCatalog(dataDir, entries)
+  return entry
+}
+
+/**
+ * Removes an entry from the catalog and deletes its file on disk. Returns
+ * false (no-op) when the id doesn't resolve to an entry, same convention as
+ * updateEntry/findEntry -- a missing score is not an error, just nothing to do.
+ */
+export function deleteEntry(dataDir: string, id: string): boolean {
+  if (!ID_PATTERN.test(id)) {
+    return false
+  }
+  const entries = readCatalog(dataDir)
+  const entry = entries.find((candidate) => candidate.id === id)
+  if (!entry) {
+    return false
+  }
+  const file = scoreFilePath(dataDir, entry)
+  // The catalog entry is removed even if the file is already gone on disk --
+  // an orphaned entry pointing at nothing is worse than a slightly-early write.
+  if (file) {
+    unlinkSync(file)
+  }
+  writeCatalog(
+    dataDir,
+    entries.filter((candidate) => candidate.id !== id),
+  )
+  return true
 }
 
 /** Absolute path of the stored file, or null if it went missing on disk. */

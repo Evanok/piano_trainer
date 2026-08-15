@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
-import { downloadScoreFile, fetchCatalogPage, uploadScore } from '../api/catalog'
+import { PencilIcon, TrashIcon } from '../components/icons'
+import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streakStore'
 import type { CatalogEntry, CatalogPage } from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
@@ -78,6 +79,19 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
 
+  // Editing is inline in the list row, so only one entry's fields need to be
+  // held in state at a time (rather than one draft per row).
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editComposer, setEditComposer] = useState('')
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  // The entry pending confirmation in the delete modal, or null when it's closed.
+  const [deletingEntry, setDeletingEntry] = useState<CatalogEntry | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput.trim())
@@ -146,6 +160,53 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
     } catch (error: unknown) {
       setOpeningId(null)
       setCatalogError(`Could not open "${entry.title}": ${errorMessage(error)}`)
+    }
+  }
+
+  const startEditing = (entry: CatalogEntry) => {
+    setEditingId(entry.id)
+    setEditTitle(entry.title)
+    setEditComposer(entry.composer ?? '')
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async (entry: CatalogEntry) => {
+    const title = editTitle.trim()
+    if (!title) {
+      setEditError('Title cannot be empty.')
+      return
+    }
+    setIsSavingEdit(true)
+    setEditError(null)
+    try {
+      await updateScoreEntry(entry.id, { title, composer: editComposer.trim() || null })
+      setEditingId(null)
+      // Simplest way to get the edited fields back from the server: refetch
+      // the current page rather than patch the in-memory list by hand.
+      setReloadToken((token) => token + 1)
+    } catch (error: unknown) {
+      setEditError(errorMessage(error))
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deletingEntry) {
+      return
+    }
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteScoreEntry(deletingEntry.id)
+      setDeletingEntry(null)
+      // If this was the last entry on the page, the server will just clamp
+      // the page number back down on the next fetch.
+      setReloadToken((token) => token + 1)
+    } catch (error: unknown) {
+      setDeleteError(errorMessage(error))
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -258,31 +319,98 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
 
         {catalog && catalog.items.length > 0 && (
           <ul className="flex flex-col divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
-            {catalog.items.map((entry) => (
-              <li key={entry.id}>
-                <button
-                  type="button"
-                  disabled={isBusy}
-                  onClick={() => {
-                    void handleOpenEntry(entry)
-                  }}
-                  className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-gray-50 disabled:cursor-progress disabled:opacity-60"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-gray-900">{entry.title}</span>
-                    {entry.composer && (
-                      <span className="block truncate text-xs text-gray-600">{entry.composer}</span>
-                    )}
-                    <span className="block truncate text-xs text-gray-400">
-                      {formatUploadedAt(entry.uploadedAt)} - {formatSize(entry.sizeBytes)}
+            {catalog.items.map((entry) =>
+              editingId === entry.id ? (
+                <li key={entry.id} className="px-4 py-3">
+                  <form
+                    className="flex flex-col gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void handleSaveEdit(entry)
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={editTitle}
+                      onChange={(event) => setEditTitle(event.target.value)}
+                      placeholder="Title"
+                      autoFocus
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={editComposer}
+                      onChange={(event) => setEditComposer(event.target.value)}
+                      placeholder="Composer (optional)"
+                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                    />
+                    {editError && <p className="text-xs text-red-600">{editError}</p>}
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        disabled={isSavingEdit}
+                        onClick={() => setEditingId(null)}
+                        className="rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingEdit}
+                        className="rounded-md bg-gray-900 px-3 py-1 text-xs text-white hover:bg-gray-800 disabled:opacity-60"
+                      >
+                        {isSavingEdit ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
+                  </form>
+                </li>
+              ) : (
+                <li key={entry.id} className="flex items-center gap-1 px-4 py-3 hover:bg-gray-50">
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => {
+                      void handleOpenEntry(entry)
+                    }}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-gray-900">{entry.title}</span>
+                      {entry.composer && (
+                        <span className="block truncate text-xs text-gray-600">{entry.composer}</span>
+                      )}
+                      <span className="block truncate text-xs text-gray-400">
+                        {formatUploadedAt(entry.uploadedAt)} - {formatSize(entry.sizeBytes)}
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 text-xs text-gray-400">
-                    {openingId === entry.id ? 'Opening...' : 'Practice'}
-                  </span>
-                </button>
-              </li>
-            ))}
+                    <span className="shrink-0 text-xs text-gray-400">
+                      {openingId === entry.id ? 'Opening...' : 'Practice'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => startEditing(entry)}
+                    aria-label={`Edit "${entry.title}"`}
+                    className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40"
+                  >
+                    <PencilIcon className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => {
+                      setDeletingEntry(entry)
+                      setDeleteError(null)
+                    }}
+                    aria-label={`Delete "${entry.title}"`}
+                    className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                  >
+                    <TrashIcon className="h-4 w-4" />
+                  </button>
+                </li>
+              ),
+            )}
           </ul>
         )}
 
@@ -310,6 +438,53 @@ export function ScoreLibrary({ devices, selectedDeviceId, onSelectDevice, isSupp
           </div>
         )}
       </section>
+
+      {deletingEntry && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
+          onClick={() => {
+            if (!isDeleting) {
+              setDeletingEntry(null)
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-score-title"
+            onClick={(event) => event.stopPropagation()}
+            className="flex w-full max-w-sm flex-col gap-4 rounded-lg bg-white p-6 shadow-xl"
+          >
+            <h2 id="delete-score-title" className="text-lg font-semibold text-gray-900">
+              Delete this score?
+            </h2>
+            <p className="text-sm text-gray-600">
+              "{deletingEntry.title}" will be permanently removed from the catalog. This cannot be undone.
+            </p>
+            {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeletingEntry(null)}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  void handleConfirmDelete()
+                }}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
