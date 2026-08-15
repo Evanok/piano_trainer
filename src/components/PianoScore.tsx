@@ -276,6 +276,17 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           return
         }
         hasLoadedRef.current = true
+        // A malformed score can carry a repeat barline with no matching close
+        // (seen in the wild: an opening repeat and a final barline, but no
+        // closing repeat in between) -- OSMD's cursor would otherwise loop
+        // back through it forever, and since extractExpectedEvents walks this
+        // same cursor right after onReady fires below, the event list would
+        // never reach a real end either. Ignoring repetitions entirely means
+        // a genuinely repeated section is only played once instead of twice,
+        // but that trade-off is preferable to a piece that can silently never
+        // be completed. Must be set before the first cursor walk, i.e. before
+        // onReady (extractExpectedEvents) runs, not just before render().
+        osmd.EngravingRules.CursorIgnoreRepetitions = true
         osmd.render()
         if (layoutMode === 'scroll' && containerRef.current) {
           fitScrollZoom(osmd, containerRef.current)
