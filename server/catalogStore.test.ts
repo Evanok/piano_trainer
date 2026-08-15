@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   addScore,
+  deleteEntry,
   extensionOf,
   findEntry,
   migrateCatalog,
@@ -11,6 +12,7 @@ import {
   resolveDataDir,
   scoreFilePath,
   titleFromFilename,
+  updateEntry,
 } from './catalogStore.ts'
 
 const SCORE_WITH_METADATA = `<?xml version="1.0"?>
@@ -147,6 +149,77 @@ describe('migrateCatalog', () => {
     // The orphaned entry keeps its title but is marked as migrated, so it isn't
     // re-read from disk on every restart.
     expect(entries[1]).toMatchObject({ title: 'gone', composer: null })
+  })
+})
+
+describe('updateEntry', () => {
+  it('updates title and composer for an existing entry', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    const updated = updateEntry(dataDir, entry.id, { title: 'New Title', composer: 'New Composer' })
+    expect(updated).toMatchObject({ title: 'New Title', composer: 'New Composer' })
+    expect(readCatalog(dataDir)[0]).toMatchObject({ title: 'New Title', composer: 'New Composer' })
+  })
+
+  it('leaves a field out of the update untouched', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITH_METADATA))
+    const updated = updateEntry(dataDir, entry.id, { title: 'Renamed' })
+    expect(updated).toMatchObject({ title: 'Renamed', composer: 'Pyotr Ilyich Tchaikovsky' })
+  })
+
+  it('clears the composer when given null', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITH_METADATA))
+    const updated = updateEntry(dataDir, entry.id, { composer: null })
+    expect(updated).toMatchObject({ title: 'Album for the Young', composer: null })
+  })
+
+  it('returns null for an id that does not exist', async () => {
+    await addScore(dataDir, 'first.mxl', Buffer.from('a'))
+    expect(updateEntry(dataDir, '11111111-1111-1111-1111-111111111111', { title: 'x' })).toBeNull()
+  })
+
+  it('ignores an id that is not one we generated', async () => {
+    await addScore(dataDir, 'first.mxl', Buffer.from('a'))
+    expect(updateEntry(dataDir, '../../../etc/passwd', { title: 'x' })).toBeNull()
+  })
+})
+
+describe('deleteEntry', () => {
+  it('removes the entry from the catalog and its file from disk', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    const file = scoreFilePath(dataDir, entry) as string
+
+    expect(deleteEntry(dataDir, entry.id)).toBe(true)
+
+    expect(readCatalog(dataDir)).toEqual([])
+    expect(existsSync(file)).toBe(false)
+  })
+
+  it('leaves other entries untouched', async () => {
+    const first = await addScore(dataDir, 'first.mxl', Buffer.from('a'))
+    const second = await addScore(dataDir, 'second.mxl', Buffer.from('b'))
+
+    deleteEntry(dataDir, first.id)
+
+    expect(readCatalog(dataDir).map((entry) => entry.id)).toEqual([second.id])
+  })
+
+  it('returns false for an id that does not exist', async () => {
+    await addScore(dataDir, 'first.mxl', Buffer.from('a'))
+    expect(deleteEntry(dataDir, '11111111-1111-1111-1111-111111111111')).toBe(false)
+  })
+
+  it('ignores an id that is not one we generated', async () => {
+    await addScore(dataDir, 'first.mxl', Buffer.from('a'))
+    expect(deleteEntry(dataDir, '../../../etc/passwd')).toBe(false)
+  })
+
+  it('still removes the catalog entry when its file already went missing on disk', async () => {
+    const entry = await addScore(dataDir, 'first.mxl', Buffer.from('a'))
+    const file = scoreFilePath(dataDir, entry) as string
+    unlinkSync(file)
+
+    expect(deleteEntry(dataDir, entry.id)).toBe(true)
+    expect(readCatalog(dataDir)).toEqual([])
   })
 })
 
