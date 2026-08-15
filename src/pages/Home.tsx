@@ -46,7 +46,7 @@ export function Home({ onStartExercise, onPracticeScore, onViewStats }: HomeProp
             <span className={isMobile ? 'block text-xl font-semibold text-gray-900' : 'block text-2xl font-semibold text-gray-900'}>
               Exercise
             </span>
-            <span className="mt-2 block text-sm leading-5 text-gray-600">Generated note drills</span>
+            <span className="mt-2 block text-sm leading-5 text-gray-600">Drills and technique</span>
           </span>
           <span className="mt-4 text-sm font-medium text-gray-900">Start</span>
         </button>

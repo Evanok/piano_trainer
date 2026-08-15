@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
-import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/trainingGenerator'
+import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
+import { hanonMidiRange, isHanonRangePlayable } from '../engine/hanonGenerator'
+import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
+import { midiToNoteName } from '../engine/noteNames'
 import { getStreakStats } from '../engine/streakStore'
 import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
+  ExerciseKind,
+  ExerciseRequest,
+  HanonLength,
+  HanonSettings,
   TrainingAccidentalMode,
   TrainingDifficulty,
   TrainingExerciseContentMode,
@@ -15,17 +22,26 @@ import type {
 
 const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
 
+const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
+
+const EXERCISE_TABS: Array<{ kind: ExerciseKind; label: string }> = [
+  { kind: 'generated', label: 'Generated drills' },
+  { kind: 'hanon', label: 'Hanon' },
+]
+
 interface ExerciseSetupProps {
   devices: MidiDeviceInfo[]
   selectedDeviceId: string | null
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
+  initialExerciseKind: ExerciseKind
   initialSettings: TrainingExerciseSettings
+  initialHanonSettings: HanonSettings
   initialKeyboardAssistMode: KeyboardAssistMode
   initialBackingTrackEnabled: boolean
   onExerciseReady: (
-    settings: TrainingExerciseSettings,
+    request: ExerciseRequest,
     keyboardAssistMode: KeyboardAssistMode,
     backingTrackEnabled: boolean,
   ) => void
@@ -38,13 +54,17 @@ export function ExerciseSetup({
   onSelectDevice,
   isSupported,
   midiError,
+  initialExerciseKind,
   initialSettings,
+  initialHanonSettings,
   initialKeyboardAssistMode,
   initialBackingTrackEnabled,
   onExerciseReady,
   onBack,
 }: ExerciseSetupProps) {
   const [streak] = useState(() => getStreakStats())
+  const [exerciseKind, setExerciseKind] = useState<ExerciseKind>(initialExerciseKind)
+  const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
   const [trainingContentMode, setTrainingContentMode] = useState<TrainingExerciseContentMode>(
@@ -66,22 +86,36 @@ export function ExerciseSetup({
   const handleStartTrainingExercise = () => {
     onExerciseReady(
       {
-        handMode: trainingHandMode,
-        accidentalMode: trainingAccidentalMode,
-        difficulty: trainingDifficulty,
-        contentMode: trainingContentMode,
-        tonality: trainingTonality,
-        key: trainingKey,
-        measureCount: trainingMeasureCount,
-        rightOctaveLow,
-        rightOctaveHigh,
-        leftOctaveLow,
-        leftOctaveHigh,
+        kind: 'generated',
+        settings: {
+          handMode: trainingHandMode,
+          accidentalMode: trainingAccidentalMode,
+          difficulty: trainingDifficulty,
+          contentMode: trainingContentMode,
+          tonality: trainingTonality,
+          key: trainingKey,
+          measureCount: trainingMeasureCount,
+          rightOctaveLow,
+          rightOctaveHigh,
+          leftOctaveLow,
+          leftOctaveHigh,
+        },
       },
       keyboardAssistMode,
       backingTrackEnabled,
     )
   }
+
+  const handleStartHanonExercise = () => {
+    onExerciseReady({ kind: 'hanon', settings: hanonSettings }, keyboardAssistMode, backingTrackEnabled)
+  }
+
+  const updateHanon = <Key extends keyof HanonSettings>(key: Key, value: HanonSettings[Key]) => {
+    setHanonSettings((current) => ({ ...current, [key]: value }))
+  }
+
+  const hanonRange = hanonMidiRange(hanonSettings)
+  const hanonFitsKeyboard = isHanonRangePlayable(hanonSettings)
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-6 py-12">
@@ -108,113 +142,303 @@ export function ExerciseSetup({
         )}
       </header>
 
-      <section className="flex w-full flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-medium text-gray-900">Generated training</h2>
-          <span className="text-xs text-gray-500">Musical note drills</span>
-        </div>
+      <div className="flex w-full gap-2 rounded-lg border border-gray-200 bg-gray-50 p-1">
+        {EXERCISE_TABS.map((tab) => (
+          <button
+            key={tab.kind}
+            type="button"
+            onClick={() => setExerciseKind(tab.kind)}
+            className={
+              exerciseKind === tab.kind
+                ? 'flex-1 rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm'
+                : 'flex-1 rounded-md px-4 py-2 text-sm text-gray-600 hover:text-gray-900'
+            }
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Hands
-            <select
-              value={trainingHandMode}
-              onChange={(event) => setTrainingHandMode(event.target.value as TrainingHandMode)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-            >
-              <option value="right">Right hand</option>
-              <option value="left">Left hand</option>
-              <option value="both">Both hands</option>
-            </select>
-          </label>
+      {exerciseKind === 'generated' ? (
+        <section className="flex w-full flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-lg font-medium text-gray-900">Generated training</h2>
+            <span className="text-xs text-gray-500">Randomly generated note drills</span>
+          </div>
 
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Difficulty
-            <select
-              value={trainingDifficulty}
-              onChange={(event) => setTrainingDifficulty(event.target.value as TrainingDifficulty)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-            >
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Exercise type
-            <select
-              value={trainingContentMode}
-              onChange={(event) => setTrainingContentMode(event.target.value as TrainingExerciseContentMode)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-            >
-              <option value="notes">Notes</option>
-              <option value="triads">Triads</option>
-              <option value="mixed">Mixed</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Accidentals
-            <select
-              value={trainingAccidentalMode}
-              onChange={(event) => setTrainingAccidentalMode(event.target.value as TrainingAccidentalMode)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-            >
-              <option value="none">Natural notes only</option>
-              <option value="key">Key signatures</option>
-              <option value="chromatic">Chromatic passing notes</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Tonality
-            <select
-              value={trainingTonality}
-              onChange={(event) => setTrainingTonality(event.target.value as TrainingTonality)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-            >
-              <option value="major">Major</option>
-              <option value="minor">Minor</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Key
-            {trainingAccidentalMode === 'none' ? (
-              <span className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
-                {trainingTonality === 'major' ? 'C major' : 'A minor'} (natural notes only)
-              </span>
-            ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Hands
               <select
-                value={trainingKey}
-                onChange={(event) => setTrainingKey(event.target.value)}
+                value={trainingHandMode}
+                onChange={(event) => setTrainingHandMode(event.target.value as TrainingHandMode)}
                 className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
               >
-                <option value={RANDOM_KEY}>Random</option>
-                {TRAINING_KEY_NAMES.map((keyName) => (
-                  <option key={keyName} value={keyName}>
-                    {keyName}
+                <option value="right">Right hand</option>
+                <option value="left">Left hand</option>
+                <option value="both">Both hands</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Difficulty
+              <select
+                value={trainingDifficulty}
+                onChange={(event) => setTrainingDifficulty(event.target.value as TrainingDifficulty)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Exercise type
+              <select
+                value={trainingContentMode}
+                onChange={(event) => setTrainingContentMode(event.target.value as TrainingExerciseContentMode)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="notes">Notes</option>
+                <option value="triads">Triads</option>
+                <option value="mixed">Mixed</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Accidentals
+              <select
+                value={trainingAccidentalMode}
+                onChange={(event) => setTrainingAccidentalMode(event.target.value as TrainingAccidentalMode)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="none">Natural notes only</option>
+                <option value="key">Key signatures</option>
+                <option value="chromatic">Chromatic passing notes</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Tonality
+              <select
+                value={trainingTonality}
+                onChange={(event) => setTrainingTonality(event.target.value as TrainingTonality)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="major">Major</option>
+                <option value="minor">Minor</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Key
+              {trainingAccidentalMode === 'none' ? (
+                <span className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
+                  {trainingTonality === 'major' ? 'C major' : 'A minor'} (natural notes only)
+                </span>
+              ) : (
+                <select
+                  value={trainingKey}
+                  onChange={(event) => setTrainingKey(event.target.value)}
+                  className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                >
+                  <option value={RANDOM_KEY}>Random</option>
+                  {TRAINING_KEY_NAMES.map((keyName) => (
+                    <option key={keyName} value={keyName}>
+                      {keyName}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Length
+              <select
+                value={trainingMeasureCount}
+                onChange={(event) => setTrainingMeasureCount(Number(event.target.value))}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value={4}>4 measures</option>
+                <option value={8}>8 measures</option>
+                <option value={16}>16 measures</option>
+                <option value={32}>32 measures</option>
+              </select>
+            </label>
+
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-4">
+            {trainingHandMode !== 'left' && (
+              <>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  RH low
+                  <select
+                    value={rightOctaveLow}
+                    onChange={(event) => setRightOctaveLow(Math.min(Number(event.target.value), rightOctaveHigh))}
+                    className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                  >
+                    {OCTAVES.map((octave) => (
+                      <option key={octave} value={octave}>
+                        C{octave}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  RH high
+                  <select
+                    value={rightOctaveHigh}
+                    onChange={(event) => setRightOctaveHigh(Math.max(Number(event.target.value), rightOctaveLow))}
+                    className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                  >
+                    {OCTAVES.map((octave) => (
+                      <option key={octave} value={octave}>
+                        B{octave}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            {trainingHandMode !== 'right' && (
+              <>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  LH low
+                  <select
+                    value={leftOctaveLow}
+                    onChange={(event) => setLeftOctaveLow(Math.min(Number(event.target.value), leftOctaveHigh))}
+                    className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                  >
+                    {OCTAVES.map((octave) => (
+                      <option key={octave} value={octave}>
+                        C{octave}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  LH high
+                  <select
+                    value={leftOctaveHigh}
+                    onChange={(event) => setLeftOctaveHigh(Math.max(Number(event.target.value), leftOctaveLow))}
+                    className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                  >
+                    {OCTAVES.map((octave) => (
+                      <option key={octave} value={octave}>
+                        B{octave}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+
+        </section>
+      ) : (
+        <section className="flex w-full flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-lg font-medium text-gray-900">Hanon</h2>
+            <span className="text-xs text-gray-500">The Virtuoso Pianist, exercises 1-20</span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Exercise
+              <select
+                value={hanonSettings.exerciseNumber}
+                onChange={(event) => updateHanon('exerciseNumber', Number(event.target.value))}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                {HANON_EXERCISE_NUMBERS.map((number) => (
+                  <option key={number} value={number}>
+                    No. {number}
                   </option>
                 ))}
               </select>
-            )}
-          </label>
+            </label>
 
-          <label className="flex flex-col gap-1 text-sm text-gray-700">
-            Length
-            <select
-              value={trainingMeasureCount}
-              onChange={(event) => setTrainingMeasureCount(Number(event.target.value))}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-            >
-              <option value={4}>4 measures</option>
-              <option value={8}>8 measures</option>
-              <option value={16}>16 measures</option>
-              <option value={32}>32 measures</option>
-            </select>
-          </label>
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Hands
+              <select
+                value={hanonSettings.handMode}
+                onChange={(event) => updateHanon('handMode', event.target.value as TrainingHandMode)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="both">Both hands (as written)</option>
+                <option value="right">Right hand</option>
+                <option value="left">Left hand</option>
+              </select>
+            </label>
 
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Key
+              <select
+                value={hanonSettings.key}
+                onChange={(event) => updateHanon('key', event.target.value)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                {TRAINING_KEY_NAMES.map((keyName) => (
+                  <option key={keyName} value={keyName}>
+                    {keyName} major{keyName === 'C' ? ' (as written)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Length
+              <select
+                value={hanonSettings.length}
+                onChange={(event) => updateHanon('length', event.target.value as HanonLength)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="full">Full (up and down)</option>
+                <option value="ascending">Ascending only</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm text-gray-700">
+              Register
+              <select
+                value={hanonSettings.octaveShift}
+                onChange={(event) => updateHanon('octaveShift', Number(event.target.value))}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                {HANON_OCTAVE_SHIFTS.map((shift) => (
+                  <option key={shift} value={shift}>
+                    {shift === 0 ? 'As written' : `${shift > 0 ? '+' : ''}${shift} octave${Math.abs(shift) === 1 ? '' : 's'}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex flex-col gap-1 text-sm text-gray-700">
+              Range
+              <span
+                className={
+                  hanonFitsKeyboard
+                    ? 'rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500'
+                    : 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800'
+                }
+              >
+                {midiToNoteName(hanonRange.low)} - {midiToNoteName(hanonRange.high)}
+                {hanonFitsKeyboard ? '' : ' (off an 88-key piano)'}
+              </span>
+            </div>
+          </div>
+
+          <p className="text-xs leading-5 text-gray-500">
+            Hanon is finger technique, not a melody: one short figure walks up the scale a degree at a time, then
+            back down. Both hands play it in parallel, an octave apart.
+          </p>
+        </section>
+      )}
+
+      <section className="flex w-full flex-col gap-4 rounded-lg border border-gray-200 bg-white p-5">
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm text-gray-700">
             Keyboard help
             <select
@@ -241,79 +465,12 @@ export function ExerciseSetup({
           </label>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-4">
-          {trainingHandMode !== 'left' && (
-            <>
-              <label className="flex flex-col gap-1 text-sm text-gray-700">
-                RH low
-                <select
-                  value={rightOctaveLow}
-                  onChange={(event) => setRightOctaveLow(Math.min(Number(event.target.value), rightOctaveHigh))}
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
-                >
-                  {OCTAVES.map((octave) => (
-                    <option key={octave} value={octave}>
-                      C{octave}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-gray-700">
-                RH high
-                <select
-                  value={rightOctaveHigh}
-                  onChange={(event) => setRightOctaveHigh(Math.max(Number(event.target.value), rightOctaveLow))}
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
-                >
-                  {OCTAVES.map((octave) => (
-                    <option key={octave} value={octave}>
-                      B{octave}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-          {trainingHandMode !== 'right' && (
-            <>
-              <label className="flex flex-col gap-1 text-sm text-gray-700">
-                LH low
-                <select
-                  value={leftOctaveLow}
-                  onChange={(event) => setLeftOctaveLow(Math.min(Number(event.target.value), leftOctaveHigh))}
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
-                >
-                  {OCTAVES.map((octave) => (
-                    <option key={octave} value={octave}>
-                      C{octave}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-gray-700">
-                LH high
-                <select
-                  value={leftOctaveHigh}
-                  onChange={(event) => setLeftOctaveHigh(Math.max(Number(event.target.value), leftOctaveLow))}
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
-                >
-                  {OCTAVES.map((octave) => (
-                    <option key={octave} value={octave}>
-                      B{octave}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-        </div>
-
         <button
           type="button"
-          onClick={handleStartTrainingExercise}
+          onClick={exerciseKind === 'hanon' ? handleStartHanonExercise : handleStartTrainingExercise}
           className="self-start rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
         >
-          Start generated training
+          {exerciseKind === 'hanon' ? `Start Hanon No. ${hanonSettings.exerciseNumber}` : 'Start generated training'}
         </button>
       </section>
 

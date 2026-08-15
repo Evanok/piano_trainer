@@ -6,6 +6,7 @@ import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
+import { createHanonExercise } from './engine/hanonGenerator'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
 import type {
@@ -15,7 +16,12 @@ import type {
   PracticeSourceKind,
 } from './types/practice'
 import type { SessionStats } from './types/session'
-import type { TrainingExerciseSettings } from './types/training'
+import type {
+  ExerciseKind,
+  ExerciseRequest,
+  HanonSettings,
+  TrainingExerciseSettings,
+} from './types/training'
 
 type Screen = 'home' | 'exercise-setup' | 'score-library' | 'stats' | 'practice' | 'end'
 
@@ -33,6 +39,14 @@ const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   leftOctaveHigh: 3,
 }
 
+const DEFAULT_HANON_SETTINGS: HanonSettings = {
+  exerciseNumber: 1,
+  handMode: 'both',
+  key: 'C',
+  octaveShift: 0,
+  length: 'full',
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [scoreFile, setScoreFile] = useState<File | null>(null)
@@ -40,7 +54,9 @@ function App() {
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
   const [practiceKeySignature, setPracticeKeySignature] = useState<PracticeKeySignature | null>(null)
+  const [exerciseKind, setExerciseKind] = useState<ExerciseKind>('generated')
   const [exerciseSettings, setExerciseSettings] = useState<TrainingExerciseSettings>(DEFAULT_EXERCISE_SETTINGS)
+  const [hanonSettings, setHanonSettings] = useState<HanonSettings>(DEFAULT_HANON_SETTINGS)
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
   const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
@@ -75,14 +91,24 @@ function App() {
     [],
   )
 
-  const startGeneratedExercise = useCallback(
-    (settings: TrainingExerciseSettings, assistMode: KeyboardAssistMode, backingTrackEnabled: boolean) => {
-      const exercise = createTrainingExercise({ ...settings, seed: String(Date.now()) })
+  const startExercise = useCallback(
+    (request: ExerciseRequest, assistMode: KeyboardAssistMode, backingTrackEnabled: boolean) => {
+      // Hanon is deterministic on purpose -- no seed, so the same settings
+      // always give the same exercise. Generated drills re-roll every time.
+      const exercise =
+        request.kind === 'hanon'
+          ? createHanonExercise(request.settings)
+          : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
       const backingTrack = backingTrackEnabled
         ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
         : null
 
-      setExerciseSettings(settings)
+      setExerciseKind(request.kind)
+      if (request.kind === 'hanon') {
+        setHanonSettings(request.settings)
+      } else {
+        setExerciseSettings(request.settings)
+      }
       setExerciseKeyboardAssistMode(assistMode)
       setExerciseBackingTrackEnabled(backingTrackEnabled)
       handleFileLoaded(exercise.file, 'generated-training', assistMode, backingTrack, {
@@ -108,8 +134,21 @@ function App() {
 
   const handleNextExercise = useCallback(() => {
     setSessionStats(null)
-    startGeneratedExercise(exerciseSettings, exerciseKeyboardAssistMode, exerciseBackingTrackEnabled)
-  }, [exerciseBackingTrackEnabled, exerciseKeyboardAssistMode, exerciseSettings, startGeneratedExercise])
+    // A generated drill re-rolls; Hanon walks up the book instead, since
+    // replaying the identical score is what "Back to start" already does.
+    const request: ExerciseRequest =
+      exerciseKind === 'hanon'
+        ? { kind: 'hanon', settings: { ...hanonSettings, exerciseNumber: Math.min(hanonSettings.exerciseNumber + 1, 20) } }
+        : { kind: 'generated', settings: exerciseSettings }
+    startExercise(request, exerciseKeyboardAssistMode, exerciseBackingTrackEnabled)
+  }, [
+    exerciseBackingTrackEnabled,
+    exerciseKeyboardAssistMode,
+    exerciseKind,
+    exerciseSettings,
+    hanonSettings,
+    startExercise,
+  ])
 
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
@@ -127,10 +166,12 @@ function App() {
         onSelectDevice={selectDevice}
         isSupported={isSupported}
         midiError={error}
+        initialExerciseKind={exerciseKind}
         initialSettings={exerciseSettings}
+        initialHanonSettings={hanonSettings}
         initialKeyboardAssistMode={exerciseKeyboardAssistMode}
         initialBackingTrackEnabled={exerciseBackingTrackEnabled}
-        onExerciseReady={startGeneratedExercise}
+        onExerciseReady={startExercise}
         onBack={handleBackToHome}
       />
     )
