@@ -18,19 +18,33 @@ import type {
   KeyboardAssistMode,
   PracticeBackingTrack,
   PracticeKeySignature,
+  PracticeMode,
   PracticeSourceKind,
 } from '../types/practice'
 import type { ExerciseSessionStats, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
-// A section only auto-advances once it's been played through with zero
-// errors this many times IN A ROW -- one clean pass isn't enough to prove
-// it's learned, but requiring more would make repetitive drilling tedious.
-const PERFECT_RUNS_TO_ADVANCE = 2
 const MAX_EXERCISE_STAT_ROWS = 3
 
 function nowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
+function isSectionPracticeMode(mode: PracticeMode): boolean {
+  return mode === 'sectionFree' || mode === 'sectionTraining'
+}
+
+// Reproduces today's actual starting point for every (platform x sourceKind)
+// combination: desktop always starts in Page free; mobile starts in Section
+// training for real scores (its historical forced-drill default, now just a
+// starting point instead of a permanent lock) and Scroll free for generated
+// exercises (which have no sections to drill).
+function defaultPracticeMode(sourceKind: PracticeSourceKind, isMobile: boolean): PracticeMode {
+  const supportsSectionNavigation = sourceKind !== 'generated-training'
+  if (isMobile) {
+    return supportsSectionNavigation ? 'sectionTraining' : 'scroll'
+  }
+  return 'page'
 }
 
 function incrementCount(map: Map<number, number>, key: number): void {
@@ -97,9 +111,6 @@ export function Practice({
   onBack,
   onExerciseSettings,
 }: PracticeProps) {
-  // Mobile only ever gets scroll mode (and training mode, built on top of
-  // it) -- the paginated page layout and the dense desktop control row don't
-  // work well on a phone screen. See useIsMobile for the breakpoint.
   const isMobile = useIsMobile()
   const [engineState, setEngineState] = useState<WaitEngineState | null>(null)
   const [errorCount, setErrorCount] = useState(0)
@@ -116,24 +127,25 @@ export function Practice({
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => (isMobile ? 'scroll' : 'page'))
+  // What drives navigation through the piece -- see PracticeMode. Computed
+  // once at mount only: re-forcing a default whenever isMobile flips (resize,
+  // rotation) would reintroduce the "state fights the user's choice" problem
+  // this consolidation is meant to remove.
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>(() => defaultPracticeMode(sourceKind, isMobile))
   const [expectedPitches, setExpectedPitches] = useState<number[]>([])
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
   const [wrongPitches, setWrongPitches] = useState<number[]>([])
 
-  // Training mode: split the piece into sections, drill one at a time.
-  const [trainingMode, setTrainingMode] = useState(false)
   const [events, setEvents] = useState<ExpectedEvent[]>([])
   const [naturalBreaks, setNaturalBreaks] = useState<Set<number>>(new Set())
   const [measuresPerSection, setMeasuresPerSection] = useState(DEFAULT_MEASURES_PER_SECTION)
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
-  const [sectionPerfectStreak, setSectionPerfectStreak] = useState(0)
   const [sectionMessage, setSectionMessage] = useState<string | null>(null)
 
   // currentSectionIndex === sections.length is the implicit "Whole piece"
-  // choice -- practice every event with no section boundary, same as
-  // training mode being off.
+  // choice -- practice every event with no section boundary, same as being
+  // in a non-section-scoped practiceMode.
   const sections = useMemo(
     () => computeSections(events, measuresPerSection, naturalBreaks),
     [events, measuresPerSection, naturalBreaks],
@@ -170,16 +182,16 @@ export function Practice({
   // session) -- resets every time a section (re)starts, see goToEventIndex.
   const sectionErrorCountRef = useRef(0)
   // The onNoteEvent effect below only runs once (stable deps), so it reads
-  // training-mode state through these refs rather than stale closure values.
-  const trainingModeRef = useRef(trainingMode)
-  trainingModeRef.current = trainingMode
+  // practice-mode state through this ref rather than a stale closure value.
+  const practiceModeRef = useRef(practiceMode)
+  practiceModeRef.current = practiceMode
   const sectionsRef = useRef<Section[]>(sections)
   sectionsRef.current = sections
   const currentSectionIndexRef = useRef(currentSectionIndex)
   currentSectionIndexRef.current = currentSectionIndex
-  const sectionPerfectStreakRef = useRef(sectionPerfectStreak)
-  sectionPerfectStreakRef.current = sectionPerfectStreak
   const supportsSectionNavigation = sourceKind !== 'generated-training'
+  const isSectionMode = isSectionPracticeMode(practiceMode)
+  const resolvedLayoutMode: LayoutMode = practiceMode === 'page' ? 'page' : 'scroll'
 
   const clearDecayTimer = () => {
     if (decayTimeoutRef.current !== null) {
@@ -268,24 +280,6 @@ export function Practice({
     }
   }, [])
 
-  // Covers becoming mobile mid-session (resize, orientation change) -- the
-  // initial state above only handles starting out mobile.
-  useEffect(() => {
-    if (isMobile) {
-      setLayoutMode('scroll')
-    }
-  }, [isMobile])
-
-  // Mobile regular-score practice uses section navigation as its compact
-  // drill mode. Generated exercises are already short tests, so they play
-  // straight through without section controls.
-  useEffect(() => {
-    if (isMobile && supportsSectionNavigation && !trainingMode) {
-      enterTrainingMode()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, supportsSectionNavigation, trainingMode])
-
   const goToEventIndex = (targetIndex: number) => {
     const engine = waitEngineRef.current
     if (!engine) {
@@ -317,26 +311,24 @@ export function Practice({
   // reads like its own isolated mini-score (Simply-Piano-style), with no
   // leftover notes from the section just left still visible off to the side.
   // null means the whole piece (used for the explicit "Whole piece" choice
-  // and when exiting training mode).
+  // and when leaving a section-scoped mode).
   const applySectionBounds = (bounds: Section | null) => {
     scoreRef.current?.setSectionBounds(bounds ? bounds.startMeasure : null, bounds ? bounds.endMeasure : null)
   }
 
-  // Called when the section currently being drilled has just been completed
-  // (see the note-event handler below). Advances only once it's been played
-  // perfectly PERFECT_RUNS_TO_ADVANCE times in a row -- otherwise repeats the
-  // same section, keeping the streak so the next attempt still counts toward it.
+  // Called when the section currently being practiced has just been
+  // completed (see the note-event handler below). Section free always
+  // advances; section training only advances on a clean pass (zero errors
+  // this attempt), otherwise it repeats the same section.
   const handleSectionCompleted = () => {
     const wasPerfect = sectionErrorCountRef.current === 0
-    const streak = wasPerfect ? sectionPerfectStreakRef.current + 1 : 0
-    setSectionPerfectStreak(streak)
-
     const completedSectionNumber = currentSectionIndexRef.current + 1
-    if (streak >= PERFECT_RUNS_TO_ADVANCE) {
+    const shouldAdvance = practiceModeRef.current === 'sectionFree' || wasPerfect
+
+    if (shouldAdvance) {
       const nextIndex = completedSectionNumber // 0-based next index === 1-based completed number
       const nextBounds = nextIndex < sectionsRef.current.length ? sectionsRef.current[nextIndex] : null
       setCurrentSectionIndex(nextIndex)
-      setSectionPerfectStreak(0)
       // Cursor navigation MUST happen with NO crop active -- OSMD's own
       // tie/rest counting only lines up with WaitEngine's indices on the
       // fully uncropped model (the one extractExpectedEvents originally
@@ -351,19 +343,15 @@ export function Practice({
       applySectionBounds(nextBounds)
       showSectionMessage(
         nextBounds
-          ? `Section ${completedSectionNumber} mastered! Moving to section ${nextIndex + 1}.`
-          : 'All sections mastered! Now practice the whole piece.',
+          ? `Section ${completedSectionNumber} complete! Moving to section ${nextIndex + 1}.`
+          : 'All sections complete! Now practice the whole piece.',
       )
     } else {
       const activeSection = sectionsRef.current[currentSectionIndexRef.current]
       applySectionBounds(null)
       goToEventIndex(activeSection.startEventIndex)
       applySectionBounds(activeSection)
-      showSectionMessage(
-        wasPerfect
-          ? `Section ${completedSectionNumber} clean! One more perfect run to advance.`
-          : `Section ${completedSectionNumber} had errors -- let's try again.`,
-      )
+      showSectionMessage(`Section ${completedSectionNumber} had errors -- let's try again.`)
     }
   }
 
@@ -385,7 +373,7 @@ export function Practice({
       )
 
       const activeSection =
-        trainingModeRef.current && currentSectionIndexRef.current < sectionsRef.current.length
+        isSectionPracticeMode(practiceModeRef.current) && currentSectionIndexRef.current < sectionsRef.current.length
           ? sectionsRef.current[currentSectionIndexRef.current]
           : null
 
@@ -469,11 +457,11 @@ export function Practice({
     setEvents(newEvents)
     const freshNaturalBreaks = extractNaturalBreakMeasures(osmd)
     setNaturalBreaks(freshNaturalBreaks)
-    // A remount (e.g. entering training mode, which forces scroll layout)
-    // loses any previously-set section crop -- the `sections` memo above
-    // hasn't recomputed yet at this point in the render cycle, so section 0's
+    // A remount (e.g. a layoutMode change from switching modes) loses any
+    // previously-set section crop -- the `sections` memo above hasn't
+    // recomputed yet at this point in the render cycle, so section 0's
     // bounds are derived fresh here instead of read from that stale value.
-    if (trainingMode) {
+    if (isSectionPracticeMode(practiceMode)) {
       const freshSections = computeSections(newEvents, measuresPerSection, freshNaturalBreaks)
       scoreRef.current?.setSectionBounds(freshSections[0]?.startMeasure ?? null, freshSections[0]?.endMeasure ?? null)
     } else {
@@ -492,7 +480,6 @@ export function Practice({
     setBestCombo(0)
     setCorrectNoteCount(0)
     setCurrentSectionIndex(0)
-    setSectionPerfectStreak(0)
     setSectionMessage(null)
     startedAtRef.current = Date.now()
     recordPracticeDay()
@@ -535,7 +522,6 @@ export function Practice({
   // applies to automatic advancement.
   const handleSelectSection = (newSectionIndex: number) => {
     setCurrentSectionIndex(newSectionIndex)
-    setSectionPerfectStreak(0)
     setSectionMessage(null)
     const bounds = newSectionIndex < sections.length ? sections[newSectionIndex] : null
     // See handleSectionCompleted for why the cursor jump must happen with no
@@ -549,36 +535,52 @@ export function Practice({
   const handleNextSection = () => handleSelectSection(Math.min(sections.length, currentSectionIndex + 1))
   const handleBackToSection1 = () => handleSelectSection(0)
 
-  const enterTrainingMode = () => {
-    setTrainingMode(true)
-    setCurrentSectionIndex(0)
-    setSectionPerfectStreak(0)
-    setLayoutMode('scroll')
-    applySectionBounds(null)
-    goToEventIndex(0)
-    applySectionBounds(sections[0] ?? null)
-  }
+  const handleSelectPracticeMode = (newMode: PracticeMode) => {
+    if (newMode === practiceMode) {
+      return
+    }
+    const entering = isSectionPracticeMode(newMode)
+    const wasIn = isSectionPracticeMode(practiceMode)
+    setPracticeMode(newMode)
+    setSectionMessage(null)
 
-  const exitTrainingMode = () => {
-    setTrainingMode(false)
-    // Clear the crop, THEN walk -- see handleSectionCompleted for why the
-    // cursor walk must always happen with no crop active (OSMD's own
-    // tie/rest counting only lines up with WaitEngine's indices on the
-    // fully uncropped model). cursor.show() alone doesn't reliably relocate
-    // onto the freshly-uncropped, much larger graphical model either, so a
-    // fresh walk is required even though the logical index isn't changing.
-    applySectionBounds(null)
-    goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
+    if (entering && !wasIn) {
+      // Fresh entry into section-scoped practice: always restart at section 1.
+      setCurrentSectionIndex(0)
+      applySectionBounds(null)
+      goToEventIndex(0)
+      applySectionBounds(sections[0] ?? null)
+    } else if (!entering && wasIn) {
+      // Leaving section-scoped practice: clear the crop, THEN walk -- see
+      // handleSectionCompleted for why the cursor walk must always happen
+      // with no crop active (OSMD's own tie/rest counting only lines up with
+      // WaitEngine's indices on the fully uncropped model). cursor.show()
+      // alone doesn't reliably relocate onto the freshly-uncropped, much
+      // larger graphical model either, so a fresh walk is required even
+      // though the logical index isn't changing.
+      applySectionBounds(null)
+      goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
+    }
+    // else: page <-> scroll (no section state to touch), or sectionFree <->
+    // sectionTraining (already section-scoped, stays put -- only the
+    // completion rule used by handleSectionCompleted changes).
   }
-
-  const handleToggleTrainingMode = () => (trainingMode ? exitTrainingMode() : enterTrainingMode())
 
   const handleMeasuresPerSectionChange = (value: number) => {
-    if (Number.isFinite(value) && value >= 1) {
-      setMeasuresPerSection(value)
-      setCurrentSectionIndex(0)
-      setSectionPerfectStreak(0)
+    if (!Number.isFinite(value) || value < 1) {
+      return
     }
+    setMeasuresPerSection(value)
+    setSectionMessage(null)
+    // The `sections` memo hasn't recomputed yet at this point, so the new
+    // section 0 is derived fresh here, same pattern as handleReady -- this is
+    // only reachable while already in a section mode (the input is gated by
+    // isSectionMode), so re-cropping to it is always correct.
+    const freshSections = computeSections(events, value, naturalBreaks)
+    setCurrentSectionIndex(0)
+    applySectionBounds(null)
+    goToEventIndex(freshSections[0]?.startEventIndex ?? 0)
+    applySectionBounds(freshSections[0] ?? null)
   }
 
   if (loadError) {
@@ -668,7 +670,18 @@ export function Practice({
               {backingTrackButtonLabel}
             </button>
           )}
-          {supportsSectionNavigation && (
+          <select
+            value={practiceMode}
+            onChange={(e) => handleSelectPracticeMode(e.target.value as PracticeMode)}
+            aria-label="Practice mode"
+            className="w-20 shrink-0 rounded-md border border-gray-300 bg-white px-1 py-1.5 text-xs"
+          >
+            <option value="page">Page</option>
+            <option value="scroll">Scroll</option>
+            {supportsSectionNavigation && <option value="sectionFree">Sect. free</option>}
+            {supportsSectionNavigation && <option value="sectionTraining">Sect. drill</option>}
+          </select>
+          {supportsSectionNavigation && isSectionMode && (
             <>
               <button
                 type="button"
@@ -701,7 +714,7 @@ export function Practice({
         <PianoScore
           ref={scoreRef}
           source={scoreFile}
-          layoutMode="scroll"
+          layoutMode={resolvedLayoutMode}
           onReady={handleReady}
           onError={setLoadError}
         />
@@ -827,31 +840,22 @@ export function Practice({
             {showKeyboard ? 'Hide keyboard' : 'Show keyboard'}
           </button>
         )}
-        {!trainingMode && (
-          <button
-            type="button"
-            onClick={() => setLayoutMode((mode) => (mode === 'page' ? 'scroll' : 'page'))}
-            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+        <label className="flex items-center gap-2">
+          Mode
+          <select
+            value={practiceMode}
+            onChange={(e) => handleSelectPracticeMode(e.target.value as PracticeMode)}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1"
           >
-            {layoutMode === 'page' ? 'Switch to scroll mode' : 'Switch to page mode'}
-          </button>
-        )}
-        {supportsSectionNavigation && (
-          <button
-            type="button"
-            onClick={handleToggleTrainingMode}
-            className={
-              trainingMode
-                ? 'rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-sm text-indigo-700 hover:bg-indigo-100'
-                : 'rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
-            }
-          >
-            {trainingMode ? 'Exit section drill' : 'Start section drill'}
-          </button>
-        )}
+            <option value="page">Page free</option>
+            <option value="scroll">Scroll free</option>
+            {supportsSectionNavigation && <option value="sectionFree">Section free</option>}
+            {supportsSectionNavigation && <option value="sectionTraining">Section training</option>}
+          </select>
+        </label>
       </div>
 
-      {supportsSectionNavigation && trainingMode && (
+      {supportsSectionNavigation && isSectionMode && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
           <label className="flex items-center gap-2">
             Section
@@ -894,7 +898,9 @@ export function Practice({
           </label>
           {currentSectionIndex < sections.length && (
             <span>
-              Perfect runs: {sectionPerfectStreak}/{PERFECT_RUNS_TO_ADVANCE} to advance
+              {practiceMode === 'sectionTraining'
+                ? 'Any error repeats this section -- a clean pass advances.'
+                : 'Advances automatically once you reach the end of the section.'}
             </span>
           )}
         </div>
@@ -912,7 +918,7 @@ export function Practice({
       <PianoScore
         ref={scoreRef}
         source={scoreFile}
-        layoutMode={supportsSectionNavigation && trainingMode ? 'scroll' : layoutMode}
+        layoutMode={resolvedLayoutMode}
         onReady={handleReady}
         onError={setLoadError}
       />
