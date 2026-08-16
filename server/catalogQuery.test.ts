@@ -8,8 +8,9 @@ function entry(
   uploadedAt: string,
   filename = `${title}.mxl`,
   composer: string | null = null,
+  difficulty: CatalogEntry['difficulty'] = null,
 ): CatalogEntry {
-  return { id, title, composer, filename, sizeBytes: 1024, uploadedAt }
+  return { id, title, composer, filename, sizeBytes: 1024, uploadedAt, difficulty }
 }
 
 function manyEntries(count: number): CatalogEntry[] {
@@ -102,5 +103,24 @@ describe('queryCatalog', () => {
     const result = queryCatalog(entries, { search: 'unique' })
     expect(result.total).toBe(1)
     expect(result.pageCount).toBe(1)
+  })
+
+  it('filters by exact difficulty', () => {
+    const entries = [
+      entry('a', 'Easy One', '2026-01-01T10:00:00.000Z', 'a.mxl', null, 'easy'),
+      entry('b', 'Hard One', '2026-01-02T10:00:00.000Z', 'b.mxl', null, 'hard'),
+      entry('c', 'Unset One', '2026-01-03T10:00:00.000Z', 'c.mxl', null, null),
+    ]
+    expect(queryCatalog(entries, { difficulty: 'easy' }).items.map((item) => item.id)).toEqual(['a'])
+    expect(queryCatalog(entries, { difficulty: 'hard' }).items.map((item) => item.id)).toEqual(['b'])
+    expect(queryCatalog(entries).total).toBe(3)
+  })
+
+  it('combines a difficulty filter with a search term', () => {
+    const entries = [
+      entry('a', 'Clair de Lune', '2026-01-01T10:00:00.000Z', 'a.mxl', null, 'easy'),
+      entry('b', 'Clair Matin', '2026-01-02T10:00:00.000Z', 'b.mxl', null, 'hard'),
+    ]
+    expect(queryCatalog(entries, { search: 'clair', difficulty: 'easy' }).items.map((item) => item.id)).toEqual(['a'])
   })
 })

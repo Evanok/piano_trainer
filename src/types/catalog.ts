@@ -1,6 +1,9 @@
 // Shared by the browser (src/api/catalog.ts) and the server (server/*.ts) --
 // this file is the single source of truth for the catalog wire format.
 
+/** User-assigned only -- nothing in a MusicXML file states how hard it is to play. */
+export type ScoreDifficulty = 'easy' | 'medium' | 'hard'
+
 export interface CatalogEntry {
   id: string
   /** The score's own <work-title>, or a readable form of the file name. */
@@ -12,6 +15,8 @@ export interface CatalogEntry {
   sizeBytes: number
   /** ISO-8601, UTC. */
   uploadedAt: string
+  /** Optional so entries saved before this field existed decode without it -- treat missing the same as null (not set). */
+  difficulty?: ScoreDifficulty | null
 }
 
 export interface CatalogPage {

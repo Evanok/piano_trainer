@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { extractScoreMetadata } from './scoreMetadata.ts'
-import type { CatalogEntry } from '../src/types/catalog.ts'
+import type { CatalogEntry, ScoreDifficulty } from '../src/types/catalog.ts'
 
 export const ALLOWED_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
 export const MAX_SCORE_BYTES = 20 * 1024 * 1024
@@ -135,13 +135,15 @@ export function findEntry(dataDir: string, id: string): StoredEntry | null {
 export interface CatalogEntryUpdate {
   title?: string
   composer?: string | null
+  difficulty?: ScoreDifficulty | null
 }
 
 /**
- * Applies a user edit (title/composer only -- everything else about an entry
- * is derived from the uploaded file, not editable). A field left out of
- * `update` is untouched; `composer: null` explicitly clears it.
- * Returns null when the id doesn't resolve to an entry, same as findEntry.
+ * Applies a user edit (title/composer/difficulty only -- everything else
+ * about an entry is derived from the uploaded file, not editable). A field
+ * left out of `update` is untouched; `composer: null`/`difficulty: null`
+ * explicitly clears it. Returns null when the id doesn't resolve to an
+ * entry, same as findEntry.
  */
 export function updateEntry(dataDir: string, id: string, update: CatalogEntryUpdate): StoredEntry | null {
   if (!ID_PATTERN.test(id)) {
@@ -157,6 +159,9 @@ export function updateEntry(dataDir: string, id: string, update: CatalogEntryUpd
   }
   if (update.composer !== undefined) {
     entry.composer = update.composer
+  }
+  if (update.difficulty !== undefined) {
+    entry.difficulty = update.difficulty
   }
   writeCatalog(dataDir, entries)
   return entry
@@ -218,6 +223,9 @@ export async function addScore(dataDir: string, filename: string, data: Uint8Arr
     // wherever it was downloaded ("persona-5-piano-the-days-when...").
     title: metadata.title ?? titleFromFilename(safeFilename),
     composer: metadata.composer,
+    // Nothing in a MusicXML file states how hard it is to play -- always
+    // starts unset, the player assigns it manually via updateEntry.
+    difficulty: null,
     filename: safeFilename,
     sizeBytes: data.byteLength,
     uploadedAt: new Date().toISOString(),

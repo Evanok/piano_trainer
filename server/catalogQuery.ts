@@ -1,4 +1,4 @@
-import type { CatalogEntry, CatalogPage } from '../src/types/catalog.ts'
+import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../src/types/catalog.ts'
 
 export const DEFAULT_PAGE_SIZE = 10
 // Only a guard against a hand-crafted ?limit=999999 -- the UI never asks for
@@ -7,6 +7,9 @@ export const MAX_PAGE_SIZE = 50
 
 export interface CatalogQuery {
   search?: string
+  /** Exact match, not a search term -- an entry with no difficulty set never
+   *  matches any of the three values, it only shows up with no filter applied. */
+  difficulty?: ScoreDifficulty
   page?: number
   pageSize?: number
 }
@@ -33,7 +36,8 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
-  const matched = terms.length > 0 ? entries.filter((entry) => matchesSearch(entry, terms)) : [...entries]
+  const bySearch = terms.length > 0 ? entries.filter((entry) => matchesSearch(entry, terms)) : [...entries]
+  const matched = query.difficulty ? bySearch.filter((entry) => entry.difficulty === query.difficulty) : bySearch
 
   // ISO-8601 strings compare lexicographically in chronological order, so no
   // Date parsing is needed. Two uploads can land in the same millisecond, so

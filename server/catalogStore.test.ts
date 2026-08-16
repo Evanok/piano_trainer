@@ -77,6 +77,11 @@ describe('addScore', () => {
   it('rejects an unsupported file type', async () => {
     await expect(addScore(dataDir, 'notes.pdf', Buffer.from('x'))).rejects.toThrow(/Unsupported file type/)
   })
+
+  it('leaves difficulty unset -- nothing in a MusicXML file states it', async () => {
+    const entry = await addScore(dataDir, 'first.mxl', Buffer.from(SCORE_WITHOUT_METADATA))
+    expect(entry.difficulty).toBeNull()
+  })
 })
 
 describe('titleFromFilename', () => {
@@ -170,6 +175,22 @@ describe('updateEntry', () => {
     const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITH_METADATA))
     const updated = updateEntry(dataDir, entry.id, { composer: null })
     expect(updated).toMatchObject({ title: 'Album for the Young', composer: null })
+  })
+
+  it('sets and clears the difficulty', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    const withDifficulty = updateEntry(dataDir, entry.id, { difficulty: 'hard' })
+    expect(withDifficulty).toMatchObject({ difficulty: 'hard' })
+
+    const cleared = updateEntry(dataDir, entry.id, { difficulty: null })
+    expect(cleared).toMatchObject({ difficulty: null })
+  })
+
+  it('leaves difficulty untouched when title/composer are edited without it', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    updateEntry(dataDir, entry.id, { difficulty: 'easy' })
+    const updated = updateEntry(dataDir, entry.id, { title: 'Renamed' })
+    expect(updated).toMatchObject({ title: 'Renamed', difficulty: 'easy' })
   })
 
   it('returns null for an id that does not exist', async () => {

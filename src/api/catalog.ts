@@ -1,7 +1,8 @@
-import type { CatalogEntry, CatalogPage } from '../types/catalog'
+import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
 
 export interface CatalogQueryParams {
   search: string
+  difficulty?: ScoreDifficulty
   page: number
   pageSize?: number
   signal?: AbortSignal
@@ -21,8 +22,17 @@ async function readError(response: Response): Promise<string> {
   return `${response.status} ${response.statusText}`
 }
 
-export async function fetchCatalogPage({ search, page, pageSize, signal }: CatalogQueryParams): Promise<CatalogPage> {
+export async function fetchCatalogPage({
+  search,
+  difficulty,
+  page,
+  pageSize,
+  signal,
+}: CatalogQueryParams): Promise<CatalogPage> {
   const params = new URLSearchParams({ q: search, page: String(page) })
+  if (difficulty !== undefined) {
+    params.set('difficulty', difficulty)
+  }
   if (pageSize !== undefined) {
     params.set('limit', String(pageSize))
   }
@@ -36,6 +46,7 @@ export async function fetchCatalogPage({ search, page, pageSize, signal }: Catal
 export interface CatalogEntryUpdate {
   title?: string
   composer?: string | null
+  difficulty?: ScoreDifficulty | null
 }
 
 export async function updateScoreEntry(id: string, update: CatalogEntryUpdate): Promise<CatalogEntry> {

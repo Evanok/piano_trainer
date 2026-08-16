@@ -3,7 +3,7 @@ import { MidiDevice } from '../components/MidiDevice'
 import { PencilIcon, TrashIcon } from '../components/icons'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streakStore'
-import type { CatalogEntry, CatalogPage } from '../types/catalog'
+import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
 
 const ALLOWED_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
@@ -22,11 +22,12 @@ interface ScoreLibraryProps {
   onBack: () => void
   // Owned by App (survives this component unmounting when navigating away
   // and back, e.g. via the browser's back button into Practice and back)
-  // so browsing the catalog resumes on the same page/search instead of
-  // silently resetting to page 1 every time.
+  // so browsing the catalog resumes on the same page/search/filter instead
+  // of silently resetting to page 1 every time.
   initialSearch: string
+  initialDifficulty: ScoreDifficulty | ''
   initialPage: number
-  onBrowseStateChange: (search: string, page: number) => void
+  onBrowseStateChange: (search: string, difficulty: ScoreDifficulty | '', page: number) => void
 }
 
 function errorMessage(error: unknown): string {
@@ -41,6 +42,18 @@ function formatSize(bytes: number): string {
     return `${Math.round(bytes / 1024)} KB`
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const DIFFICULTY_LABELS: Record<ScoreDifficulty, string> = {
+  easy: 'Easy',
+  medium: 'Medium',
+  hard: 'Hard',
+}
+
+const DIFFICULTY_BADGE_CLASSES: Record<ScoreDifficulty, string> = {
+  easy: 'bg-green-50 text-green-700',
+  medium: 'bg-amber-50 text-amber-700',
+  hard: 'bg-red-50 text-red-700',
 }
 
 function startOfLocalDay(date: Date): number {
@@ -74,6 +87,7 @@ export function ScoreLibrary({
   onFileLoaded,
   onBack,
   initialSearch,
+  initialDifficulty,
   initialPage,
   onBrowseStateChange,
 }: ScoreLibraryProps) {
@@ -90,6 +104,7 @@ export function ScoreLibrary({
 
   const [searchInput, setSearchInput] = useState(initialSearch)
   const [search, setSearch] = useState(initialSearch)
+  const [difficultyFilter, setDifficultyFilter] = useState<ScoreDifficulty | ''>(initialDifficulty)
   const [page, setPage] = useState(initialPage)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalog, setCatalog] = useState<CatalogPage | null>(null)
@@ -102,6 +117,7 @@ export function ScoreLibrary({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editComposer, setEditComposer] = useState('')
+  const [editDifficulty, setEditDifficulty] = useState<ScoreDifficulty | ''>('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
@@ -134,17 +150,29 @@ export function ScoreLibrary({
   }, [searchInput])
 
   // Reported up to App as the user browses, so navigating away (e.g. opening
-  // a score) and back later resumes on the same page/search instead of
-  // resetting -- this component fully unmounts on every screen switch.
+  // a score) and back later resumes on the same page/search/filter instead
+  // of resetting -- this component fully unmounts on every screen switch.
   useEffect(() => {
-    onBrowseStateChange(search, page)
+    onBrowseStateChange(search, difficultyFilter, page)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, page])
+  }, [search, difficultyFilter, page])
+
+  const handleSelectDifficultyFilter = (value: ScoreDifficulty | '') => {
+    setDifficultyFilter(value)
+    // A new filter invalidates the current page number, same as a new search.
+    setPage(1)
+  }
 
   useEffect(() => {
     const controller = new AbortController()
     setIsCatalogLoading(true)
-    fetchCatalogPage({ search, page, pageSize: CATALOG_PAGE_SIZE, signal: controller.signal })
+    fetchCatalogPage({
+      search,
+      difficulty: difficultyFilter || undefined,
+      page,
+      pageSize: CATALOG_PAGE_SIZE,
+      signal: controller.signal,
+    })
       .then((result) => {
         setCatalog(result)
         setCatalogError(null)
@@ -162,7 +190,7 @@ export function ScoreLibrary({
         }
       })
     return () => controller.abort()
-  }, [search, page, reloadToken])
+  }, [search, difficultyFilter, page, reloadToken])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -206,6 +234,7 @@ export function ScoreLibrary({
     setEditingId(entry.id)
     setEditTitle(entry.title)
     setEditComposer(entry.composer ?? '')
+    setEditDifficulty(entry.difficulty ?? '')
     setEditError(null)
   }
 
@@ -218,7 +247,11 @@ export function ScoreLibrary({
     setIsSavingEdit(true)
     setEditError(null)
     try {
-      await updateScoreEntry(entry.id, { title, composer: editComposer.trim() || null })
+      await updateScoreEntry(entry.id, {
+        title,
+        composer: editComposer.trim() || null,
+        difficulty: editDifficulty || null,
+      })
       setEditingId(null)
       // Simplest way to get the edited fields back from the server: refetch
       // the current page rather than patch the in-memory list by hand.
@@ -327,13 +360,26 @@ export function ScoreLibrary({
           )}
         </div>
 
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="Search saved scores..."
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search saved scores..."
+            className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+          />
+          <select
+            value={difficultyFilter}
+            onChange={(event) => handleSelectDifficultyFilter(event.target.value as ScoreDifficulty | '')}
+            aria-label="Filter by difficulty"
+            className="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+          >
+            <option value="">All difficulties</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
 
         {catalogError && (
           <div className="flex items-center justify-between gap-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -352,7 +398,11 @@ export function ScoreLibrary({
 
         {catalog && catalog.items.length === 0 && !isCatalogLoading && (
           <p className="py-4 text-sm text-gray-500">
-            {search ? `No score matches "${search}".` : 'No score saved yet. Upload one above and it will show up here.'}
+            {search || difficultyFilter
+              ? `No score matches${search ? ` "${search}"` : ''}${
+                  difficultyFilter ? ` (${DIFFICULTY_LABELS[difficultyFilter]} difficulty)` : ''
+                }.`
+              : 'No score saved yet. Upload one above and it will show up here.'}
           </p>
         )}
 
@@ -383,6 +433,17 @@ export function ScoreLibrary({
                       placeholder="Composer (optional)"
                       className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
                     />
+                    <select
+                      value={editDifficulty}
+                      onChange={(event) => setEditDifficulty(event.target.value as ScoreDifficulty | '')}
+                      aria-label="Difficulty"
+                      className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                    >
+                      <option value="">Difficulty: not set</option>
+                      <option value="easy">Easy</option>
+                      <option value="medium">Medium</option>
+                      <option value="hard">Hard</option>
+                    </select>
                     {editError && <p className="text-xs text-red-600">{editError}</p>}
                     <div className="flex justify-end gap-2">
                       <button
@@ -414,7 +475,16 @@ export function ScoreLibrary({
                     className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-gray-900">{entry.title}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-gray-900">{entry.title}</span>
+                        {entry.difficulty && (
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${DIFFICULTY_BADGE_CLASSES[entry.difficulty]}`}
+                          >
+                            {DIFFICULTY_LABELS[entry.difficulty]}
+                          </span>
+                        )}
+                      </span>
                       {entry.composer && (
                         <span className="block truncate text-xs text-gray-600">{entry.composer}</span>
                       )}

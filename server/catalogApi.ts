@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { queryCatalog } from './catalogQuery.ts'
+import type { ScoreDifficulty } from '../src/types/catalog.ts'
 import {
   addScore,
   ALLOWED_EXTENSIONS,
@@ -61,12 +62,21 @@ function parsePositiveInt(raw: string | null): number | undefined {
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined
 }
 
+const VALID_DIFFICULTIES: ScoreDifficulty[] = ['easy', 'medium', 'hard']
+
+// A malformed ?difficulty= (or none at all) just means "no filter" -- same
+// leniency as parsePositiveInt above, no need to 400 a GET listing over it.
+function parseDifficulty(raw: string | null): ScoreDifficulty | undefined {
+  return raw !== null && (VALID_DIFFICULTIES as string[]).includes(raw) ? (raw as ScoreDifficulty) : undefined
+}
+
 function handleList(res: ServerResponse, dataDir: string, url: URL): void {
   sendJson(
     res,
     200,
     queryCatalog(readCatalog(dataDir), {
       search: url.searchParams.get('q') ?? '',
+      difficulty: parseDifficulty(url.searchParams.get('difficulty')),
       page: parsePositiveInt(url.searchParams.get('page')),
       pageSize: parsePositiveInt(url.searchParams.get('limit')),
     }),
@@ -105,9 +115,13 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
   if (typeof payload !== 'object' || payload === null) {
     throw new HttpError(400, 'Request body must be a JSON object.')
   }
-  const { title: rawTitle, composer: rawComposer } = payload as { title?: unknown; composer?: unknown }
+  const {
+    title: rawTitle,
+    composer: rawComposer,
+    difficulty: rawDifficulty,
+  } = payload as { title?: unknown; composer?: unknown; difficulty?: unknown }
 
-  const update: { title?: string; composer?: string | null } = {}
+  const update: { title?: string; composer?: string | null; difficulty?: ScoreDifficulty | null } = {}
   if (rawTitle !== undefined) {
     if (typeof rawTitle !== 'string' || !rawTitle.trim()) {
       throw new HttpError(400, 'Title cannot be empty.')
@@ -120,8 +134,14 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     }
     update.composer = typeof rawComposer === 'string' ? rawComposer.trim() || null : rawComposer
   }
-  if (update.title === undefined && update.composer === undefined) {
-    throw new HttpError(400, 'Nothing to update: provide title and/or composer.')
+  if (rawDifficulty !== undefined) {
+    if (rawDifficulty !== null && !VALID_DIFFICULTIES.includes(rawDifficulty as ScoreDifficulty)) {
+      throw new HttpError(400, `Difficulty must be one of ${VALID_DIFFICULTIES.join(', ')}, or null.`)
+    }
+    update.difficulty = rawDifficulty as ScoreDifficulty | null
+  }
+  if (update.title === undefined && update.composer === undefined && update.difficulty === undefined) {
+    throw new HttpError(400, 'Nothing to update: provide title, composer and/or difficulty.')
   }
 
   const entry = updateEntry(dataDir, id, update)

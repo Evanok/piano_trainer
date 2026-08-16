@@ -16,6 +16,7 @@ import type {
   PracticeSourceKind,
 } from './types/practice'
 import type { SessionStats } from './types/session'
+import type { ScoreDifficulty } from './types/catalog'
 import type {
   ExerciseKind,
   ExerciseRequest,
@@ -64,9 +65,11 @@ function App() {
   // unmounting when navigating away and back -- otherwise browsing the
   // catalog always resumed reset to page 1.
   const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogDifficulty, setCatalogDifficulty] = useState<ScoreDifficulty | ''>('')
   const [catalogPage, setCatalogPage] = useState(1)
-  const handleCatalogBrowseChange = useCallback((search: string, page: number) => {
+  const handleCatalogBrowseChange = useCallback((search: string, difficulty: ScoreDifficulty | '', page: number) => {
     setCatalogSearch(search)
+    setCatalogDifficulty(difficulty)
     setCatalogPage(page)
   }, [])
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
@@ -238,6 +241,7 @@ function App() {
         onFileLoaded={handleFileLoaded}
         onBack={handleBackToHome}
         initialSearch={catalogSearch}
+        initialDifficulty={catalogDifficulty}
         initialPage={catalogPage}
         onBrowseStateChange={handleCatalogBrowseChange}
       />
