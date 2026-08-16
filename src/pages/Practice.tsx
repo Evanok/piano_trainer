@@ -37,14 +37,13 @@ function isSectionPracticeMode(mode: PracticeMode): boolean {
 }
 
 // Reproduces today's actual starting point for every (platform x sourceKind)
-// combination: desktop always starts in Page free; mobile starts in Section
-// training for real scores (its historical forced-drill default, now just a
-// starting point instead of a permanent lock) and Scroll free for generated
-// exercises (which have no sections to drill).
-function defaultPracticeMode(sourceKind: PracticeSourceKind, isMobile: boolean): PracticeMode {
-  const supportsSectionNavigation = sourceKind !== 'generated-training'
+// combination: desktop always starts in Page free; mobile always starts in
+// Scroll free (both real scores and generated exercises) -- this used to
+// default a real score into Section training on mobile, but that's now just
+// one of the choices in the mode picker rather than the starting point.
+function defaultPracticeMode(_sourceKind: PracticeSourceKind, isMobile: boolean): PracticeMode {
   if (isMobile) {
-    return supportsSectionNavigation ? 'sectionTraining' : 'scroll'
+    return 'scroll'
   }
   return 'page'
 }
