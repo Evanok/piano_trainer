@@ -60,6 +60,15 @@ function App() {
   // both invocations compare against the same untouched initial value.
   const lastHistoryScreenRef = useRef(screen)
   const [scoreFile, setScoreFile] = useState<File | null>(null)
+  // Owned here (not inside ScoreLibrary) so it survives that component
+  // unmounting when navigating away and back -- otherwise browsing the
+  // catalog always resumed reset to page 1.
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogPage, setCatalogPage] = useState(1)
+  const handleCatalogBrowseChange = useCallback((search: string, page: number) => {
+    setCatalogSearch(search)
+    setCatalogPage(page)
+  }, [])
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
@@ -228,6 +237,9 @@ function App() {
         midiError={error}
         onFileLoaded={handleFileLoaded}
         onBack={handleBackToHome}
+        initialSearch={catalogSearch}
+        initialPage={catalogPage}
+        onBrowseStateChange={handleCatalogBrowseChange}
       />
     )
   }

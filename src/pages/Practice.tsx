@@ -681,7 +681,7 @@ export function Practice({
             {supportsSectionNavigation && <option value="sectionFree">Sect. free</option>}
             {supportsSectionNavigation && <option value="sectionTraining">Sect. drill</option>}
           </select>
-          {supportsSectionNavigation && isSectionMode && (
+          {supportsSectionNavigation && isSectionMode ? (
             <>
               <button
                 type="button"
@@ -708,6 +708,15 @@ export function Practice({
                 <ChevronRightIcon className="h-5 w-5" />
               </button>
             </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleBackToStart}
+              aria-label="Back to start"
+              className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+            >
+              <SkipToStartIcon className="h-5 w-5" />
+            </button>
           )}
         </div>
 
