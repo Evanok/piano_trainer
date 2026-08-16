@@ -335,10 +335,30 @@ export function Practice({
     scoreRef.current?.setSectionBounds(bounds ? bounds.startMeasure : null, bounds ? bounds.endMeasure : null)
   }
 
+  // Shared by both completion paths below: the WaitEngine reaching its last
+  // event (whole-piece modes), and a section-scoped mode clearing its last
+  // section (see handleSectionCompleted) -- either one means the piece is
+  // actually done, so both build and report the same SessionStats shape.
+  const finishSession = () => {
+    const total = totalEventsRef.current
+    const exercise = buildExerciseStats()
+    const stats: SessionStats = {
+      durationMs: Date.now() - startedAtRef.current,
+      errorCount: errorCountRef.current,
+      totalEvents: total,
+      successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
+      maxCombo: maxComboRef.current,
+      ...(exercise ? { exercise } : {}),
+    }
+    recordExerciseSession(scoreFile.name, stats)
+    onComplete(stats)
+  }
+
   // Called when the section currently being practiced has just been
   // completed (see the note-event handler below). Section free always
   // advances; section training only advances on a clean pass (zero errors
-  // this attempt), otherwise it repeats the same section.
+  // this attempt), otherwise it repeats the same section. Clearing the LAST
+  // section ends the session right there -- no extra whole-piece replay.
   const handleSectionCompleted = () => {
     const wasPerfect = sectionErrorCountRef.current === 0
     const completedSectionNumber = currentSectionIndexRef.current + 1
@@ -347,6 +367,10 @@ export function Practice({
     if (shouldAdvance) {
       const nextIndex = completedSectionNumber // 0-based next index === 1-based completed number
       const nextBounds = nextIndex < sectionsRef.current.length ? sectionsRef.current[nextIndex] : null
+      if (nextBounds === null) {
+        finishSession()
+        return
+      }
       setCurrentSectionIndex(nextIndex)
       // Cursor navigation MUST happen with NO crop active -- OSMD's own
       // tie/rest counting only lines up with WaitEngine's indices on the
@@ -358,13 +382,9 @@ export function Practice({
       // past a non-adjacent one landed measures away with no highlight at
       // all). Always clear, walk, then crop to the new section.
       applySectionBounds(null)
-      goToEventIndex(nextBounds ? nextBounds.startEventIndex : 0)
+      goToEventIndex(nextBounds.startEventIndex)
       applySectionBounds(nextBounds)
-      showSectionMessage(
-        nextBounds
-          ? `Section ${completedSectionNumber} complete! Moving to section ${nextIndex + 1}.`
-          : 'All sections complete! Now practice the whole piece.',
-      )
+      showSectionMessage(`Section ${completedSectionNumber} complete! Moving to section ${nextIndex + 1}.`)
     } else {
       const activeSection = sectionsRef.current[currentSectionIndexRef.current]
       applySectionBounds(null)
@@ -433,24 +453,13 @@ export function Practice({
           previousIndexRef.current = newIndex
 
           if (activeSection && newIndex >= activeSection.endEventIndex) {
-            // A bounded section always wins over whole-piece completion --
-            // the LAST section's end coincides with the piece's end, but
-            // finishing it should offer a distinct final "whole piece" pass
-            // rather than immediately ending the session.
+            // Finishing the LAST section ends the session immediately
+            // (handleSectionCompleted calls finishSession itself in that
+            // case) -- a bounded section only wins over plain completion
+            // while there's another section still ahead of it.
             handleSectionCompleted()
           } else if (engine.state.completed) {
-            const total = totalEventsRef.current
-            const exercise = buildExerciseStats()
-            const stats: SessionStats = {
-              durationMs: Date.now() - startedAtRef.current,
-              errorCount: errorCountRef.current,
-              totalEvents: total,
-              successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
-              maxCombo: maxComboRef.current,
-              ...(exercise ? { exercise } : {}),
-            }
-            recordExerciseSession(scoreFile.name, stats)
-            onComplete(stats)
+            finishSession()
           } else {
             eventStartedAtRef.current = nowMs()
           }
