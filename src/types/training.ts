@@ -1,4 +1,6 @@
-export type TrainingHandMode = 'right' | 'left' | 'both'
+import type { HandMode } from './practice'
+
+export type TrainingHandMode = HandMode
 export type TrainingAccidentalMode = 'none' | 'key' | 'chromatic'
 export type TrainingDifficulty = 'easy' | 'medium' | 'hard'
 export type TrainingExerciseContentMode = 'notes' | 'triads' | 'mixed'

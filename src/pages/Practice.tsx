@@ -16,6 +16,7 @@ import { useWakeLock } from '../hooks/useWakeLock'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type {
+  HandMode,
   KeyboardAssistMode,
   PracticeBackingTrack,
   PracticeKeySignature,
@@ -139,6 +140,11 @@ export function Practice({
   // rotation) would reintroduce the "state fights the user's choice" problem
   // this consolidation is meant to remove.
   const [practiceMode, setPracticeMode] = useState<PracticeMode>(() => defaultPracticeMode(sourceKind, isMobile))
+  // Which hand(s) are required to advance -- always starts at 'both'
+  // regardless of platform/source/mode, and is a live control the player can
+  // change mid-session (see handleSelectHandMode), not just a pre-practice
+  // setting.
+  const [handMode, setHandMode] = useState<HandMode>('both')
   const [expectedPitches, setExpectedPitches] = useState<number[]>([])
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
@@ -161,6 +167,12 @@ export function Practice({
   const backing = useBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
 
   const scoreRef = useRef<PianoScoreHandle | null>(null)
+  // Kept so handleSelectHandMode can re-walk the already-loaded OSMD instance
+  // to recompute ExpectedEvents for the new hand mode, without asking
+  // PianoScore to remount/reparse the file (a hand-mode switch shouldn't pay
+  // that cost -- the graphical score doesn't change, only which notes are
+  // required).
+  const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
   const waitEngineRef = useRef<WaitEngine | null>(null)
   const previousIndexRef = useRef(0)
   const eventsWithErrorsRef = useRef<Set<number>>(new Set())
@@ -458,7 +470,8 @@ export function Practice({
 
   const handleReady = (osmd: OpenSheetMusicDisplay) => {
     clearDecayTimer()
-    const newEvents = extractExpectedEvents(osmd)
+    osmdRef.current = osmd
+    const newEvents = extractExpectedEvents(osmd, handMode)
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
     setEvents(newEvents)
@@ -590,6 +603,59 @@ export function Practice({
     applySectionBounds(freshSections[0] ?? null)
   }
 
+  // Live hand-mode switch: which notes are required changes, which changes
+  // how many cursor positions count as a real event (a step where only the
+  // deselected hand plays is no longer required at all) -- so the event
+  // count/indices can shift, and the safest thing is to recompute events and
+  // restart from the current section (or the very start outside section
+  // modes), same trade-off already made for a layoutMode remount.
+  const handleSelectHandMode = (newHandMode: HandMode) => {
+    if (newHandMode === handMode) {
+      return
+    }
+    const osmd = osmdRef.current
+    if (!osmd) {
+      return
+    }
+    setHandMode(newHandMode)
+    // Synchronous ref write inside PianoScore -- must happen before the
+    // goToEventIndex() calls below, which run in this same tick, well before
+    // React re-renders PianoScore with the new handMode prop.
+    scoreRef.current?.setHandMode(newHandMode)
+    clearDecayTimer()
+    const newEvents = extractExpectedEvents(osmd, newHandMode)
+    totalEventsRef.current = newEvents.length
+    setTotalEvents(newEvents.length)
+    setEvents(newEvents)
+    waitEngineRef.current = new WaitEngine(newEvents)
+    eventsWithErrorsRef.current = new Set()
+    errorCountRef.current = 0
+    setErrorCount(0)
+    comboRef.current = 0
+    maxComboRef.current = 0
+    setBestCombo(0)
+    correctNoteCountRef.current = 0
+    setCorrectNoteCount(0)
+    resetExerciseStats()
+    setSectionMessage(null)
+
+    if (isSectionPracticeMode(practiceMode)) {
+      const freshSections = computeSections(newEvents, measuresPerSection, naturalBreaks)
+      setCurrentSectionIndex(0)
+      applySectionBounds(null)
+      goToEventIndex(freshSections[0]?.startEventIndex ?? 0)
+      applySectionBounds(freshSections[0] ?? null)
+    } else {
+      goToEventIndex(0)
+    }
+
+    const allPitches = newEvents.flatMap((event) => event.pitches)
+    if (allPitches.length > 0) {
+      setPitchRange({ low: Math.min(...allPitches), high: Math.max(...allPitches) })
+    }
+    scoreRef.current?.syncNotes([])
+  }
+
   if (loadError) {
     return (
       <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-6 px-6 text-center">
@@ -688,6 +754,16 @@ export function Practice({
             {supportsSectionNavigation && <option value="sectionFree">Sect. free</option>}
             {supportsSectionNavigation && <option value="sectionTraining">Sect. drill</option>}
           </select>
+          <select
+            value={handMode}
+            onChange={(e) => handleSelectHandMode(e.target.value as HandMode)}
+            aria-label="Hand"
+            className="w-16 shrink-0 rounded-md border border-gray-300 bg-white px-1 py-1.5 text-xs"
+          >
+            <option value="both">2 hands</option>
+            <option value="right">Right</option>
+            <option value="left">Left</option>
+          </select>
           {supportsSectionNavigation && isSectionMode ? (
             <>
               <button
@@ -731,6 +807,7 @@ export function Practice({
           ref={scoreRef}
           source={scoreFile}
           layoutMode={resolvedLayoutMode}
+          handMode={handMode}
           onReady={handleReady}
           onError={setLoadError}
         />
@@ -869,6 +946,18 @@ export function Practice({
             {supportsSectionNavigation && <option value="sectionTraining">Section training</option>}
           </select>
         </label>
+        <label className="flex items-center gap-2">
+          Hand
+          <select
+            value={handMode}
+            onChange={(e) => handleSelectHandMode(e.target.value as HandMode)}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1"
+          >
+            <option value="both">Both hands</option>
+            <option value="right">Right hand</option>
+            <option value="left">Left hand</option>
+          </select>
+        </label>
       </div>
 
       {supportsSectionNavigation && isSectionMode && (
@@ -935,6 +1024,7 @@ export function Practice({
         ref={scoreRef}
         source={scoreFile}
         layoutMode={resolvedLayoutMode}
+        handMode={handMode}
         onReady={handleReady}
         onError={setLoadError}
       />

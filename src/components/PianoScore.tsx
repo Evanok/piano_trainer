@@ -1,7 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import type { Note } from 'opensheetmusicdisplay'
-import { isTieContinuation, noteToMidi, playableInstrument } from '../engine/ScoreParser'
+import { noteToMidi, playableInstrument, requiredNotesUnderCursor } from '../engine/ScoreParser'
+import type { HandMode } from '../types/practice'
 
 const CORRECT_COLOR = '#22c55e'
 const NEUTRAL_COLOR = '#eab308'
@@ -36,6 +37,10 @@ export interface PianoScoreHandle {
   // its own isolated score" (no leftover notes from the previous section
   // still visible off to the side). Pass nulls to clear back to the whole piece.
   setSectionBounds: (startMeasure: number | null, endMeasure: number | null) => void
+  // Changes which hand's notes are required from this point on, without
+  // remounting/reparsing the score -- see the handModeRef comment below for
+  // why this must be a synchronous imperative call rather than only a prop.
+  setHandMode: (handMode: HandMode) => void
 }
 
 export type LayoutMode = 'page' | 'scroll'
@@ -43,20 +48,9 @@ export type LayoutMode = 'page' | 'scroll'
 interface PianoScoreProps {
   source: File
   layoutMode?: LayoutMode
+  handMode?: HandMode
   onReady?: (osmd: OpenSheetMusicDisplay) => void
   onError?: (message: string) => void
-}
-
-// A cursor position only counts as a real WaitEngine event if it has at least
-// one note that isn't a rest or a tied-note continuation (see ScoreParser's
-// extractExpectedEvents, which this must stay in sync with) -- including the
-// same playableInstrument() filter, so a non-piano staff (e.g. a vocal melody
-// line on a "piano/vocal" edition) never becomes part of the required chord
-// here either.
-function requiredNotesUnderCursor(osmd: OpenSheetMusicDisplay): Note[] {
-  return osmd.cursor
-    .NotesUnderCursor(playableInstrument(osmd))
-    .filter((note) => !note.isRest() && !isTieContinuation(note))
 }
 
 // A chord's notes all share one VexFlow StaveNote SVG group, so
@@ -176,7 +170,7 @@ function scrollCursorIntoView(osmd: OpenSheetMusicDisplay, container: HTMLElemen
 }
 
 export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function PianoScore(
-  { source, layoutMode = 'page', onReady, onError },
+  { source, layoutMode = 'page', handMode = 'both', onReady, onError },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -186,6 +180,14 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   // directly, so layoutMode is read through this ref instead.
   const layoutModeRef = useRef<LayoutMode>(layoutMode)
   layoutModeRef.current = layoutMode
+  // Same reasoning as layoutModeRef, but ALSO updated imperatively via
+  // setHandMode() below: a hand-mode switch must take effect on the very next
+  // cursor operation (goToEventIndex, called synchronously by Practice.tsx
+  // right after switching), which runs before React re-renders this
+  // component with the new prop -- reading only the prop-updated ref here
+  // would filter that one call by the stale hand mode.
+  const handModeRef = useRef<HandMode>(handMode)
+  handModeRef.current = handMode
   // Tracks every note's last-assigned color so it can be reapplied after any
   // full osmd.render() (zoom, or the rare fast-path-fallback) -- a fresh
   // render() regenerates the SVG from scratch (plain black noteheads), and
@@ -353,19 +355,19 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // before moving on.
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd).map((note) => [note, CORRECT_COLOR]),
+          requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, CORRECT_COLOR]),
         )
         osmd.cursor.next()
         // Skip rest-only and tie-continuation-only positions -- extractExpectedEvents
         // does the same, so the cursor must land on the same positions it counted as
         // real events, or the cursor and the WaitEngine's event index fall out of sync.
-        while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd).length === 0) {
+        while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd, handModeRef.current).length === 0) {
           osmd.cursor.next()
         }
         // The new position hasn't been attempted yet -- neutral, not alarming.
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd).map((note) => [note, NEUTRAL_COLOR]),
+          requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, NEUTRAL_COLOR]),
         )
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
@@ -384,7 +386,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // of vaguely reddening every other expected note here.
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd).map((note) => [
+          requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [
             note,
             heldPitches.includes(noteToMidi(note)) ? CORRECT_COLOR : NEUTRAL_COLOR,
           ]),
@@ -415,7 +417,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         osmd.cursor.reset()
         let count = 0
         while (!osmd.cursor.Iterator.EndReached) {
-          const notes = requiredNotesUnderCursor(osmd)
+          const notes = requiredNotesUnderCursor(osmd, handModeRef.current)
           if (notes.length > 0) {
             if (count === targetIndex) {
               break
@@ -426,7 +428,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         }
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd).map((note) => [note, NEUTRAL_COLOR]),
+          requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, NEUTRAL_COLOR]),
         )
         osmd.cursor.show()
         if (containerRef.current) {
@@ -478,6 +480,14 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
         }
+      },
+      setHandMode: (newHandMode: HandMode) => {
+        // Plain synchronous ref write -- Practice.tsx calls this immediately
+        // before its own goToEventIndex() (recoloring the whole piece from
+        // the new hand's required notes), which must see the new hand mode
+        // even though React hasn't re-rendered this component with the new
+        // prop yet.
+        handModeRef.current = newHandMode
       },
     }),
     [],

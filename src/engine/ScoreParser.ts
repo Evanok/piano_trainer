@@ -1,4 +1,5 @@
-import type { Instrument, Note, OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import type { Instrument, Note, OpenSheetMusicDisplay, Staff } from 'opensheetmusicdisplay'
+import type { HandMode } from '../types/practice'
 import type { ExpectedEvent } from '../types/score'
 
 // OSMD's Note.halfTone uses its own internal octave convention (offset by
@@ -64,15 +65,48 @@ export function playableInstrument(osmd: OpenSheetMusicDisplay): Instrument | un
   return pianoInstruments.length === 1 ? pianoInstruments[0] : undefined
 }
 
-export function extractExpectedEvents(osmd: OpenSheetMusicDisplay): ExpectedEvent[] {
+// A grand-staff piano part's staves are ordered top-to-bottom in the source
+// (Staves[0] is the treble/right-hand staff, Staves[1] the bass/left-hand
+// staff -- confirmed against the generated exercises themselves: Hanon and
+// the training generator always emit <staff>1</staff> on the G clef and
+// <staff>2</staff> on the F clef). A single-staff instrument -- an
+// unsplit-hands real score, or an already hand-scoped generated exercise --
+// has nothing to filter: returning undefined leaves every note required,
+// same as 'both', rather than silently zeroing out every event.
+function targetStaffForHand(instrument: Instrument | undefined, handMode: HandMode): Staff | undefined {
+  if (handMode === 'both' || !instrument) {
+    return undefined
+  }
+  const staves = instrument.Staves
+  if (staves.length < 2) {
+    return undefined
+  }
+  return handMode === 'right' ? staves[0] : staves[1]
+}
+
+// The single source of truth for "which notes under the cursor actually
+// require a keypress right now" -- extractExpectedEvents' initial walk and
+// PianoScore's live cursor-stepping (next()/goToEventIndex()/syncNotes())
+// both call this, so the two can never drift out of the rest/tie/hand
+// filtering that keeps their indices in sync (see extractExpectedEvents'
+// own comment on why that matters).
+export function requiredNotesUnderCursor(osmd: OpenSheetMusicDisplay, handMode: HandMode = 'both'): Note[] {
+  const instrument = playableInstrument(osmd)
+  const targetStaff = targetStaffForHand(instrument, handMode)
+  return osmd.cursor
+    .NotesUnderCursor(instrument)
+    .filter((note) => !note.isRest() && !isTieContinuation(note))
+    .filter((note) => !targetStaff || note.ParentStaff === targetStaff)
+}
+
+export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: HandMode = 'both'): ExpectedEvent[] {
   const events: ExpectedEvent[] = []
   const cursor = osmd.cursor
-  const instrument = playableInstrument(osmd)
   cursor.reset()
 
   let index = 0
   while (!cursor.Iterator.EndReached) {
-    const notes = cursor.NotesUnderCursor(instrument).filter((note) => !note.isRest() && !isTieContinuation(note))
+    const notes = requiredNotesUnderCursor(osmd, handMode)
     if (notes.length > 0) {
       const pitches = notes.map(noteToMidi)
       const measureNumber = cursor.Iterator.CurrentMeasureIndex + 1
