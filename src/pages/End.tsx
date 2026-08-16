@@ -7,6 +7,10 @@ interface EndProps {
   onHome: () => void
   onNextExercise?: () => void
   onChangeSettings?: () => void
+  /** Re-enters Practice with the same score, from the start. Score sessions only. */
+  onReplay?: () => void
+  /** Score sessions only -- there's no equivalent "catalog" for a generated exercise. */
+  onBackToCatalog?: () => void
 }
 
 function formatDuration(ms: number): string {
@@ -23,7 +27,7 @@ function formatResponse(ms: number): string {
   return (ms / 1000).toFixed(1) + ' s'
 }
 
-export function End({ stats, onHome, onNextExercise, onChangeSettings }: EndProps) {
+export function End({ stats, onHome, onNextExercise, onChangeSettings, onReplay, onBackToCatalog }: EndProps) {
   const grade = computeGrade(stats.successPercent)
   // recordPracticeDay() already ran when this session's Practice screen
   // mounted, so today already counts here -- no separate call needed.
@@ -137,11 +141,29 @@ export function End({ stats, onHome, onNextExercise, onChangeSettings }: EndProp
             Change settings
           </button>
         )}
+        {onReplay && (
+          <button
+            type="button"
+            onClick={onReplay}
+            className="rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700"
+          >
+            Practice again
+          </button>
+        )}
+        {onBackToCatalog && (
+          <button
+            type="button"
+            onClick={onBackToCatalog}
+            className="rounded-md border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-50"
+          >
+            Back to catalog
+          </button>
+        )}
         <button
           type="button"
           onClick={onHome}
           className={
-            onNextExercise
+            onNextExercise || onReplay
               ? 'rounded-md border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-50'
               : 'rounded-md bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700'
           }

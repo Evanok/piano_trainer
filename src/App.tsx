@@ -185,6 +185,25 @@ function App() {
     setScreen('home')
   }, [])
 
+  // Same cleanup as handleBackToHome, but lands directly in the catalog
+  // instead of the intent menu -- catalogSearch/catalogDifficulty/catalogPage
+  // are untouched, so browsing resumes where it was left off.
+  const handleBackToCatalog = useCallback(() => {
+    setScoreFile(null)
+    setPracticeBackingTrack(null)
+    setPracticeKeySignature(null)
+    setSessionStats(null)
+    setScreen('score-library')
+  }, [])
+
+  // scoreFile/practiceSourceKind/etc. are still exactly what they were for
+  // the session that just ended -- re-entering Practice with them unchanged
+  // is a plain replay, no re-fetch from the catalog needed.
+  const handleReplayScore = useCallback(() => {
+    setSessionStats(null)
+    setScreen('practice')
+  }, [])
+
   const handleNextExercise = useCallback(() => {
     setSessionStats(null)
     // A generated drill re-rolls; Hanon walks up the book instead, since
@@ -263,6 +282,7 @@ function App() {
         onNoteEvent={onNoteEvent}
         onComplete={handleComplete}
         onBack={handleBackToHome}
+        onBackToCatalog={practiceSourceKind === 'score' ? handleBackToCatalog : undefined}
         onExerciseSettings={practiceSourceKind === 'generated-training' ? handleChangeExerciseSettings : undefined}
       />
     )
@@ -276,6 +296,8 @@ function App() {
         onHome={handleBackToHome}
         onNextExercise={isExerciseSession ? handleNextExercise : undefined}
         onChangeSettings={isExerciseSession ? handleChangeExerciseSettings : undefined}
+        onReplay={!isExerciseSession ? handleReplayScore : undefined}
+        onBackToCatalog={!isExerciseSession ? handleBackToCatalog : undefined}
       />
     )
   }

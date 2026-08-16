@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, SettingsIcon, SkipToStartIcon } from '../components/icons'
+import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, LibraryIcon, SettingsIcon, SkipToStartIcon } from '../components/icons'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
@@ -99,6 +99,8 @@ interface PracticeProps {
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   onComplete: (stats: SessionStats) => void
   onBack: () => void
+  /** Score sessions only -- jumps straight to the catalog instead of Home. */
+  onBackToCatalog?: () => void
   onExerciseSettings?: () => void
 }
 
@@ -111,6 +113,7 @@ export function Practice({
   onNoteEvent,
   onComplete,
   onBack,
+  onBackToCatalog,
   onExerciseSettings,
 }: PracticeProps) {
   const isMobile = useIsMobile()
@@ -723,6 +726,16 @@ export function Practice({
           >
             <HomeIcon className="h-5 w-5" />
           </button>
+          {onBackToCatalog && (
+            <button
+              type="button"
+              onClick={onBackToCatalog}
+              aria-label="Back to catalog"
+              className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+            >
+              <LibraryIcon className="h-5 w-5" />
+            </button>
+          )}
           {sourceKind === 'generated-training' && onExerciseSettings && (
             <button
               type="button"
@@ -847,6 +860,11 @@ export function Practice({
           {sourceKind === 'generated-training' && onExerciseSettings && (
             <button type="button" onClick={onExerciseSettings} className="text-sm text-gray-500 hover:underline">
               Settings
+            </button>
+          )}
+          {onBackToCatalog && (
+            <button type="button" onClick={onBackToCatalog} className="text-sm text-gray-500 hover:underline">
+              Back to catalog
             </button>
           )}
           <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">

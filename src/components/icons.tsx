@@ -19,6 +19,25 @@ export function HomeIcon({ className }: IconProps) {
   )
 }
 
+export function LibraryIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M4 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4z" />
+      <path d="M17 8h3v12h-3" />
+      <path d="M8 8h5" />
+      <path d="M8 12h5" />
+    </svg>
+  )
+}
+
 export function SettingsIcon({ className }: IconProps) {
   return (
     <svg
