@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import type { Cursor, Note } from 'opensheetmusicdisplay'
-import { isTieContinuation, noteToMidi } from '../engine/ScoreParser'
+import type { Note } from 'opensheetmusicdisplay'
+import { isTieContinuation, noteToMidi, playableInstrument } from '../engine/ScoreParser'
 
 const CORRECT_COLOR = '#22c55e'
 const NEUTRAL_COLOR = '#eab308'
@@ -49,9 +49,14 @@ interface PianoScoreProps {
 
 // A cursor position only counts as a real WaitEngine event if it has at least
 // one note that isn't a rest or a tied-note continuation (see ScoreParser's
-// extractExpectedEvents, which this must stay in sync with).
-function requiredNotesUnderCursor(cursor: Cursor): Note[] {
-  return cursor.NotesUnderCursor().filter((note) => !note.isRest() && !isTieContinuation(note))
+// extractExpectedEvents, which this must stay in sync with) -- including the
+// same playableInstrument() filter, so a non-piano staff (e.g. a vocal melody
+// line on a "piano/vocal" edition) never becomes part of the required chord
+// here either.
+function requiredNotesUnderCursor(osmd: OpenSheetMusicDisplay): Note[] {
+  return osmd.cursor
+    .NotesUnderCursor(playableInstrument(osmd))
+    .filter((note) => !note.isRest() && !isTieContinuation(note))
 }
 
 // A chord's notes all share one VexFlow StaveNote SVG group, so
@@ -287,6 +292,21 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // be completed. Must be set before the first cursor walk, i.e. before
         // onReady (extractExpectedEvents) runs, not just before render().
         osmd.EngravingRules.CursorIgnoreRepetitions = true
+        // Same reasoning as playableInstrument (ScoreParser.ts): a "piano/vocal"
+        // edition's extra vocal staff isn't just excluded from required notes,
+        // it's hidden from the rendering entirely -- there's no reason to show
+        // a staff the player was never going to play from. updateGraphic()
+        // before this first render() because Instrument.Visible is read from
+        // the graphical model, not recomputed by render() on its own (same as
+        // setSectionBounds further down, which needs it after changing
+        // Min/MaxMeasureToDrawIndex for the same reason).
+        const instrument = playableInstrument(osmd)
+        if (instrument) {
+          for (const candidate of osmd.Sheet?.Instruments ?? []) {
+            candidate.Visible = candidate === instrument
+          }
+          osmd.updateGraphic()
+        }
         osmd.render()
         if (layoutMode === 'scroll' && containerRef.current) {
           fitScrollZoom(osmd, containerRef.current)
@@ -333,19 +353,19 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // before moving on.
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, CORRECT_COLOR]),
+          requiredNotesUnderCursor(osmd).map((note) => [note, CORRECT_COLOR]),
         )
         osmd.cursor.next()
         // Skip rest-only and tie-continuation-only positions -- extractExpectedEvents
         // does the same, so the cursor must land on the same positions it counted as
         // real events, or the cursor and the WaitEngine's event index fall out of sync.
-        while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd.cursor).length === 0) {
+        while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd).length === 0) {
           osmd.cursor.next()
         }
         // The new position hasn't been attempted yet -- neutral, not alarming.
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
+          requiredNotesUnderCursor(osmd).map((note) => [note, NEUTRAL_COLOR]),
         )
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
@@ -364,7 +384,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // of vaguely reddening every other expected note here.
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd.cursor).map((note) => [
+          requiredNotesUnderCursor(osmd).map((note) => [
             note,
             heldPitches.includes(noteToMidi(note)) ? CORRECT_COLOR : NEUTRAL_COLOR,
           ]),
@@ -395,7 +415,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         osmd.cursor.reset()
         let count = 0
         while (!osmd.cursor.Iterator.EndReached) {
-          const notes = requiredNotesUnderCursor(osmd.cursor)
+          const notes = requiredNotesUnderCursor(osmd)
           if (notes.length > 0) {
             if (count === targetIndex) {
               break
@@ -406,7 +426,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         }
         colorNotes(
           osmd,
-          requiredNotesUnderCursor(osmd.cursor).map((note) => [note, NEUTRAL_COLOR]),
+          requiredNotesUnderCursor(osmd).map((note) => [note, NEUTRAL_COLOR]),
         )
         osmd.cursor.show()
         if (containerRef.current) {

@@ -1,4 +1,4 @@
-import type { Note, OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import type { Instrument, Note, OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import type { ExpectedEvent } from '../types/score'
 
 // OSMD's Note.halfTone uses its own internal octave convention (offset by
@@ -39,14 +39,40 @@ export function extractNaturalBreakMeasures(osmd: OpenSheetMusicDisplay): Set<nu
   return breaks
 }
 
+// Some "piano/vocal" sheet music editions add a separate vocal melody staff
+// above the actual piano part, for a singer to follow -- left unfiltered, its
+// notes would silently join every expected chord alongside the real piano
+// notes, requiring the player to also play a note meant to be sung.
+//
+// Matched by NAME, not by Instrument.HasLyrics -- confirmed against a real
+// downloaded piano/vocal score that OSMD's HasLyrics is unreliable per
+// instrument (it reported true for the Piano part too, not just the Vocal
+// one, so filtering "instruments without lyrics" found zero candidates and
+// silently filtered nothing). Only narrows down to one instrument when
+// exactly one name match exists: for an ordinary single-instrument piano
+// score (the common case, including one that already spans two staves --
+// both belong to the same Instrument) named e.g. "Piano" this is a no-op;
+// for a score where nothing matches (unlabeled instrument, or a name in
+// another convention) or more than one part matches, there's no unambiguous
+// single "the piano part" to pick, so it falls back to every note under the
+// cursor, same as before this existed.
+const PIANO_INSTRUMENT_NAME_PATTERN = /piano|klavier|keyboard/i
+
+export function playableInstrument(osmd: OpenSheetMusicDisplay): Instrument | undefined {
+  const instruments = osmd.Sheet?.Instruments ?? []
+  const pianoInstruments = instruments.filter((instrument) => PIANO_INSTRUMENT_NAME_PATTERN.test(instrument.Name ?? ''))
+  return pianoInstruments.length === 1 ? pianoInstruments[0] : undefined
+}
+
 export function extractExpectedEvents(osmd: OpenSheetMusicDisplay): ExpectedEvent[] {
   const events: ExpectedEvent[] = []
   const cursor = osmd.cursor
+  const instrument = playableInstrument(osmd)
   cursor.reset()
 
   let index = 0
   while (!cursor.Iterator.EndReached) {
-    const notes = cursor.NotesUnderCursor().filter((note) => !note.isRest() && !isTieContinuation(note))
+    const notes = cursor.NotesUnderCursor(instrument).filter((note) => !note.isRest() && !isTieContinuation(note))
     if (notes.length > 0) {
       const pitches = notes.map(noteToMidi)
       const measureNumber = cursor.Iterator.CurrentMeasureIndex + 1
