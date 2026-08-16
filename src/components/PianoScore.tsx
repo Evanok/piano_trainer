@@ -405,14 +405,26 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // between the old and new cursor position. Only the target position
         // (below) gets the "current" yellow -- everything else should look
         // untouched, not all yellow.
+        //
+        // One batched colorNotes() call for the whole walk, not one call per
+        // cursor position: colorNotes triggers a full osmd.render() (plus a
+        // reapplyColors() pass over every previously-colored note) whenever
+        // even a single note can't be colored via the fast SVG path -- on a
+        // score with many such notes (seen for real: a piece whose measures
+        // hit OSMD's "SkyBottomLineCalculator: width not > 0" warning), that
+        // meant up to one full render() per cursor position, i.e. up to O(n)
+        // full-score renders each doing O(n) reapply work, freezing the tab
+        // for minutes on a piece with a four-figure event count. Collecting
+        // every assignment first keeps it to at most one render() total.
         osmd.cursor.reset()
+        const clearAssignments: Array<[Note, string]> = []
         while (!osmd.cursor.Iterator.EndReached) {
-          colorNotes(
-            osmd,
-            osmd.cursor.NotesUnderCursor().map((note) => [note, DEFAULT_COLOR]),
-          )
+          for (const note of osmd.cursor.NotesUnderCursor()) {
+            clearAssignments.push([note, DEFAULT_COLOR])
+          }
           osmd.cursor.next()
         }
+        colorNotes(osmd, clearAssignments)
 
         osmd.cursor.reset()
         let count = 0
