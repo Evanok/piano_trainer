@@ -12,6 +12,7 @@ import { midiToNoteName } from '../engine/noteNames'
 import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useBackingTrack } from '../hooks/useBackingTrack'
+import { useWakeLock } from '../hooks/useWakeLock'
 import type { ExpectedEvent } from '../types/score'
 import type { MidiNoteEvent } from '../types/midi'
 import type {
@@ -112,6 +113,12 @@ export function Practice({
   onExerciseSettings,
 }: PracticeProps) {
   const isMobile = useIsMobile()
+  // Practice.tsx only mounts while the practice screen is active, so the lock
+  // holds for the whole session and releases on its own when the component
+  // unmounts (leaving the screen) -- see useWakeLock for why a phone locked
+  // to sleep specifically during practice, since MIDI input generates no
+  // touch/scroll activity for the OS to notice.
+  useWakeLock(true)
   const [engineState, setEngineState] = useState<WaitEngineState | null>(null)
   const [errorCount, setErrorCount] = useState(0)
   const [currentCombo, setCurrentCombo] = useState(0)
