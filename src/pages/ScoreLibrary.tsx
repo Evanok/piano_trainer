@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
+import { StreakBadges } from '../components/StreakBadges'
 import { PencilIcon, TrashIcon } from '../components/icons'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streak'
 import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
+import { PAGE_BACKGROUND } from '../theme'
 
 const ALLOWED_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
 const CATALOG_PAGE_SIZE = 10
@@ -53,9 +55,9 @@ const DIFFICULTY_LABELS: Record<ScoreDifficulty, string> = {
 }
 
 const DIFFICULTY_BADGE_CLASSES: Record<ScoreDifficulty, string> = {
-  easy: 'bg-green-50 text-green-700',
-  medium: 'bg-amber-50 text-amber-700',
-  hard: 'bg-red-50 text-red-700',
+  easy: 'border border-emerald-200 bg-emerald-50 text-emerald-700',
+  medium: 'border border-amber-200 bg-amber-50 text-amber-700',
+  hard: 'border border-rose-200 bg-rose-50 text-rose-700',
 }
 
 function startOfLocalDay(date: Date): number {
@@ -286,315 +288,305 @@ export function ScoreLibrary({
   const isBusy = isSaving || openingId !== null
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-6 py-12">
-      <header className="flex flex-col items-center gap-3 text-center">
-        <div className="flex w-full items-center justify-between gap-4">
-          <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
-            Home
-          </button>
-          <h1 className="text-3xl font-semibold text-gray-900">Practice a score</h1>
-          <span className="w-10" />
-        </div>
-        {streak.totalDaysPracticed > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm text-gray-600">
-            <span>
-              {streak.currentStreak} day{streak.currentStreak === 1 ? '' : 's'} streak
-            </span>
-            <span>
-              Longest: {streak.longestStreak} day{streak.longestStreak === 1 ? '' : 's'}
-            </span>
-            <span>
-              {streak.totalDaysPracticed} day{streak.totalDaysPracticed === 1 ? '' : 's'} practiced total
-            </span>
+    <div className={`min-h-screen ${PAGE_BACKGROUND}`}>
+      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-12">
+        <header className="flex flex-col items-center gap-3 text-center">
+          <div className="flex w-full items-center justify-between gap-4">
+            <button type="button" onClick={onBack} className="text-sm font-medium text-indigo-600 hover:underline">
+              Home
+            </button>
+            <h1 className="text-3xl font-semibold text-gray-900">Practice a score</h1>
+            <span className="w-10" />
           </div>
-        )}
-      </header>
+          <StreakBadges streak={streak} className="justify-center" />
+        </header>
 
-      <section className="flex w-full flex-col items-center gap-3">
-        <label
-          className={`w-full rounded-lg border-2 border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-600 ${
-            isBusy ? 'cursor-progress opacity-60' : 'cursor-pointer hover:border-gray-400'
-          }`}
-        >
-          {isSaving ? 'Adding to the catalog...' : 'Choose a MusicXML score (.musicxml, .xml, .mxl)'}
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".musicxml,.xml,.mxl"
-            disabled={isBusy}
-            onChange={(event) => {
-              void handleFileChange(event)
-            }}
-            className="hidden"
-          />
-        </label>
-        {fileError && <p className="text-sm text-red-600">{fileError}</p>}
-        {unsavedFile && (
-          <button
-            type="button"
-            onClick={() => onFileLoaded(unsavedFile)}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+        <section className="flex w-full flex-col items-center gap-3">
+          <label
+            className={`w-full rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/70 px-6 py-8 text-center text-sm font-medium text-indigo-700 ${
+              isBusy ? 'cursor-progress opacity-60' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-100/70'
+            }`}
           >
-            Practice "{unsavedFile.name}" without saving it
-          </button>
-        )}
-      </section>
-
-      <section className="flex w-full flex-col items-center gap-2">
-        <p className="text-sm font-medium text-gray-700">MIDI keyboard</p>
-        <MidiDevice
-          devices={devices}
-          selectedDeviceId={selectedDeviceId}
-          onSelect={onSelectDevice}
-          isSupported={isSupported}
-          error={midiError}
-        />
-      </section>
-
-      <section className="flex w-full flex-col gap-3 border-t border-gray-200 pt-8">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-medium text-gray-900">Catalog</h2>
-          {catalog && catalog.total > 0 && (
-            <span className="text-xs text-gray-500">
-              {catalog.total} score{catalog.total === 1 ? '' : 's'}
-            </span>
+            {isSaving ? 'Adding to the catalog...' : 'Choose a MusicXML score (.musicxml, .xml, .mxl)'}
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".musicxml,.xml,.mxl"
+              disabled={isBusy}
+              onChange={(event) => {
+                void handleFileChange(event)
+              }}
+              className="hidden"
+            />
+          </label>
+          {fileError && <p className="text-sm text-red-600">{fileError}</p>}
+          {unsavedFile && (
+            <button
+              type="button"
+              onClick={() => onFileLoaded(unsavedFile)}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Practice "{unsavedFile.name}" without saving it
+            </button>
           )}
-        </div>
+        </section>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search saved scores..."
-            className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+        <section className="flex w-full flex-col items-center gap-2 rounded-xl border border-indigo-100 bg-white/70 px-4 py-4 shadow-sm">
+          <p className="text-sm font-medium text-gray-700">MIDI keyboard</p>
+          <MidiDevice
+            devices={devices}
+            selectedDeviceId={selectedDeviceId}
+            onSelect={onSelectDevice}
+            isSupported={isSupported}
+            error={midiError}
           />
-          <select
-            value={difficultyFilter}
-            onChange={(event) => handleSelectDifficultyFilter(event.target.value as ScoreDifficulty | '')}
-            aria-label="Filter by difficulty"
-            className="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
-          >
-            <option value="">All difficulties</option>
-            <option value="easy">Easy</option>
-            <option value="medium">Medium</option>
-            <option value="hard">Hard</option>
-          </select>
-        </div>
+        </section>
 
-        {catalogError && (
-          <div className="flex items-center justify-between gap-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span>{catalogError}</span>
-            <button
-              type="button"
-              onClick={() => setReloadToken((token) => token + 1)}
-              className="shrink-0 rounded border border-red-300 px-2 py-1 text-xs hover:bg-red-100"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {isCatalogLoading && !catalog && <p className="py-4 text-sm text-gray-500">Loading catalog...</p>}
-
-        {catalog && catalog.items.length === 0 && !isCatalogLoading && (
-          <p className="py-4 text-sm text-gray-500">
-            {search || difficultyFilter
-              ? `No score matches${search ? ` "${search}"` : ''}${
-                  difficultyFilter ? ` (${DIFFICULTY_LABELS[difficultyFilter]} difficulty)` : ''
-                }.`
-              : 'No score saved yet. Upload one above and it will show up here.'}
-          </p>
-        )}
-
-        {catalog && catalog.items.length > 0 && (
-          <ul className="flex flex-col divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
-            {catalog.items.map((entry) =>
-              editingId === entry.id ? (
-                <li key={entry.id} className="px-4 py-3">
-                  <form
-                    className="flex flex-col gap-2"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      void handleSaveEdit(entry)
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={editTitle}
-                      onChange={(event) => setEditTitle(event.target.value)}
-                      placeholder="Title"
-                      autoFocus
-                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      value={editComposer}
-                      onChange={(event) => setEditComposer(event.target.value)}
-                      placeholder="Composer (optional)"
-                      className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
-                    />
-                    <select
-                      value={editDifficulty}
-                      onChange={(event) => setEditDifficulty(event.target.value as ScoreDifficulty | '')}
-                      aria-label="Difficulty"
-                      className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
-                    >
-                      <option value="">Difficulty: not set</option>
-                      <option value="easy">Easy</option>
-                      <option value="medium">Medium</option>
-                      <option value="hard">Hard</option>
-                    </select>
-                    {editError && <p className="text-xs text-red-600">{editError}</p>}
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        disabled={isSavingEdit}
-                        onClick={() => setEditingId(null)}
-                        className="rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isSavingEdit}
-                        className="rounded-md bg-gray-900 px-3 py-1 text-xs text-white hover:bg-gray-800 disabled:opacity-60"
-                      >
-                        {isSavingEdit ? 'Saving...' : 'Save'}
-                      </button>
-                    </div>
-                  </form>
-                </li>
-              ) : (
-                <li key={entry.id} className="flex items-center gap-1 px-4 py-3 hover:bg-gray-50">
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => {
-                      void handleOpenEntry(entry)
-                    }}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-gray-900">{entry.title}</span>
-                        {entry.difficulty && (
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${DIFFICULTY_BADGE_CLASSES[entry.difficulty]}`}
-                          >
-                            {DIFFICULTY_LABELS[entry.difficulty]}
-                          </span>
-                        )}
-                      </span>
-                      {entry.composer && (
-                        <span className="block truncate text-xs text-gray-600">{entry.composer}</span>
-                      )}
-                      <span className="block truncate text-xs text-gray-400">
-                        {formatUploadedAt(entry.uploadedAt)} - {formatSize(entry.sizeBytes)}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-xs text-gray-400">
-                      {openingId === entry.id ? 'Opening...' : 'Practice'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => startEditing(entry)}
-                    aria-label={`Edit "${entry.title}"`}
-                    className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40"
-                  >
-                    <PencilIcon className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => {
-                      setDeletingEntry(entry)
-                      setDeleteError(null)
-                    }}
-                    aria-label={`Delete "${entry.title}"`}
-                    className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                </li>
-              ),
+        <section className="flex w-full flex-col gap-3 border-t border-indigo-100 pt-8">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-lg font-medium text-gray-900">Catalog</h2>
+            {catalog && catalog.total > 0 && (
+              <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700">
+                {catalog.total} score{catalog.total === 1 ? '' : 's'}
+              </span>
             )}
-          </ul>
-        )}
-
-        {catalog && catalog.pageCount > 1 && (
-          <div className="flex items-center justify-between gap-4 text-sm text-gray-600">
-            <button
-              type="button"
-              disabled={catalog.page <= 1 || isCatalogLoading}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              className="rounded-md border border-gray-300 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent"
-            >
-              Previous
-            </button>
-            <span>
-              Page {catalog.page} of {catalog.pageCount}
-            </span>
-            <button
-              type="button"
-              disabled={catalog.page >= catalog.pageCount || isCatalogLoading}
-              onClick={() => setPage((current) => current + 1)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent"
-            >
-              Next
-            </button>
           </div>
-        )}
-      </section>
 
-      {deletingEntry && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
-          onClick={() => {
-            if (!isDeleting) {
-              setDeletingEntry(null)
-            }
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-score-title"
-            onClick={(event) => event.stopPropagation()}
-            className="flex w-full max-w-sm flex-col gap-4 rounded-lg bg-white p-6 shadow-xl"
-          >
-            <h2 id="delete-score-title" className="text-lg font-semibold text-gray-900">
-              Delete this score?
-            </h2>
-            <p className="text-sm text-gray-600">
-              "{deletingEntry.title}" will be permanently removed from the catalog. This cannot be undone.
-            </p>
-            {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
-            <div className="flex justify-end gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search saved scores..."
+              className="min-w-0 flex-1 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-400 focus:outline-none"
+            />
+            <select
+              value={difficultyFilter}
+              onChange={(event) => handleSelectDifficultyFilter(event.target.value as ScoreDifficulty | '')}
+              aria-label="Filter by difficulty"
+              className="shrink-0 rounded-md border border-indigo-200 bg-white px-2 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+            >
+              <option value="">All difficulties</option>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+
+          {catalogError && (
+            <div className="flex items-center justify-between gap-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span>{catalogError}</span>
               <button
                 type="button"
-                disabled={isDeleting}
-                onClick={() => setDeletingEntry(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                onClick={() => setReloadToken((token) => token + 1)}
+                className="shrink-0 rounded border border-red-300 px-2 py-1 text-xs hover:bg-red-100"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  void handleConfirmDelete()
-                }}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete'}
+                Retry
               </button>
             </div>
+          )}
+
+          {isCatalogLoading && !catalog && <p className="py-4 text-sm text-gray-500">Loading catalog...</p>}
+
+          {catalog && catalog.items.length === 0 && !isCatalogLoading && (
+            <p className="py-4 text-sm text-gray-500">
+              {search || difficultyFilter
+                ? `No score matches${search ? ` "${search}"` : ''}${
+                    difficultyFilter ? ` (${DIFFICULTY_LABELS[difficultyFilter]} difficulty)` : ''
+                  }.`
+                : 'No score saved yet. Upload one above and it will show up here.'}
+            </p>
+          )}
+
+          {catalog && catalog.items.length > 0 && (
+            <ul className="flex flex-col divide-y divide-indigo-50 overflow-hidden rounded-xl border border-indigo-100 bg-white shadow-sm">
+              {catalog.items.map((entry) =>
+                editingId === entry.id ? (
+                  <li key={entry.id} className="px-4 py-3">
+                    <form
+                      className="flex flex-col gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void handleSaveEdit(entry)
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(event) => setEditTitle(event.target.value)}
+                        placeholder="Title"
+                        autoFocus
+                        className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                      />
+                      <input
+                        type="text"
+                        value={editComposer}
+                        onChange={(event) => setEditComposer(event.target.value)}
+                        placeholder="Composer (optional)"
+                        className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                      />
+                      <select
+                        value={editDifficulty}
+                        onChange={(event) => setEditDifficulty(event.target.value as ScoreDifficulty | '')}
+                        aria-label="Difficulty"
+                        className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                      >
+                        <option value="">Difficulty: not set</option>
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                      {editError && <p className="text-xs text-red-600">{editError}</p>}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={isSavingEdit}
+                          onClick={() => setEditingId(null)}
+                          className="rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSavingEdit}
+                          className="rounded-md bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700 disabled:opacity-60"
+                        >
+                          {isSavingEdit ? 'Saving...' : 'Save'}
+                        </button>
+                      </div>
+                    </form>
+                  </li>
+                ) : (
+                  <li key={entry.id} className="flex items-center gap-1 px-4 py-3 transition-colors hover:bg-indigo-50/60">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => {
+                        void handleOpenEntry(entry)
+                      }}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-gray-900">{entry.title}</span>
+                          {entry.difficulty && (
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${DIFFICULTY_BADGE_CLASSES[entry.difficulty]}`}
+                            >
+                              {DIFFICULTY_LABELS[entry.difficulty]}
+                            </span>
+                          )}
+                        </span>
+                        {entry.composer && (
+                          <span className="block truncate text-xs text-gray-600">{entry.composer}</span>
+                        )}
+                        <span className="block truncate text-xs text-gray-400">
+                          {formatUploadedAt(entry.uploadedAt)} - {formatSize(entry.sizeBytes)}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs font-medium text-indigo-600">
+                        {openingId === entry.id ? 'Opening...' : 'Practice'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => startEditing(entry)}
+                      aria-label={`Edit "${entry.title}"`}
+                      className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40"
+                    >
+                      <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => {
+                        setDeletingEntry(entry)
+                        setDeleteError(null)
+                      }}
+                      aria-label={`Delete "${entry.title}"`}
+                      className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </li>
+                ),
+              )}
+            </ul>
+          )}
+
+          {catalog && catalog.pageCount > 1 && (
+            <div className="flex items-center justify-between gap-4 text-sm text-gray-600">
+              <button
+                type="button"
+                disabled={catalog.page <= 1 || isCatalogLoading}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="rounded-md border border-indigo-200 bg-white px-3 py-1.5 text-indigo-700 hover:bg-indigo-50 disabled:opacity-40 disabled:hover:bg-white"
+              >
+                Previous
+              </button>
+              <span>
+                Page {catalog.page} of {catalog.pageCount}
+              </span>
+              <button
+                type="button"
+                disabled={catalog.page >= catalog.pageCount || isCatalogLoading}
+                onClick={() => setPage((current) => current + 1)}
+                className="rounded-md border border-indigo-200 bg-white px-3 py-1.5 text-indigo-700 hover:bg-indigo-50 disabled:opacity-40 disabled:hover:bg-white"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </section>
+
+        {deletingEntry && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
+            onClick={() => {
+              if (!isDeleting) {
+                setDeletingEntry(null)
+              }
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-score-title"
+              onClick={(event) => event.stopPropagation()}
+              className="flex w-full max-w-sm flex-col gap-4 rounded-lg bg-white p-6 shadow-xl"
+            >
+              <h2 id="delete-score-title" className="text-lg font-semibold text-gray-900">
+                Delete this score?
+              </h2>
+              <p className="text-sm text-gray-600">
+                "{deletingEntry.title}" will be permanently removed from the catalog. This cannot be undone.
+              </p>
+              {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setDeletingEntry(null)}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => {
+                    void handleConfirmDelete()
+                  }}
+                  className="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

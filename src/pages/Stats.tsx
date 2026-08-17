@@ -15,6 +15,7 @@ import {
   type WindowSummary,
 } from '../engine/statsAnalytics'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { PAGE_BACKGROUND, PAGE_CARD, STAT_TONES, type StatTone } from '../theme'
 import type { PracticeSessionRecord } from '../types/session'
 
 interface StatsProps {
@@ -64,11 +65,11 @@ function formatTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
+function StatCard({ label, value, tone }: { label: string; value: string | number; tone: StatTone }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <dt className="text-xs uppercase text-gray-500">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold text-gray-900">{value}</dd>
+    <div className={`rounded-xl border p-4 ${STAT_TONES[tone]}`}>
+      <dt className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</dt>
+      <dd className="mt-1 text-2xl font-bold">{value}</dd>
     </div>
   )
 }
@@ -125,8 +126,8 @@ function buildComparison(recent: WindowSummary, allTime: WindowSummary): Compari
 function PracticeChart({ days }: { days: { day: string; minutes: number }[] }) {
   const peak = Math.max(...days.map((entry) => entry.minutes), 1)
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-gray-900">Minutes practiced, last {days.length} days</h2>
+    <section className={`p-4 ${PAGE_CARD}`}>
+      <h2 className="text-sm font-semibold text-indigo-700">Minutes practiced, last {days.length} days</h2>
       <div className="mt-4 flex h-32 items-end gap-1">
         {days.map((entry) => (
           <div key={entry.day} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
@@ -136,7 +137,7 @@ function PracticeChart({ days }: { days: { day: string; minutes: number }[] }) {
               {entry.minutes === 0 ? '' : entry.minutes < 1 ? '<1' : Math.round(entry.minutes)}
             </span>
             <div
-              className={`w-full rounded-t ${entry.minutes > 0 ? 'bg-indigo-500' : 'bg-gray-100'}`}
+              className={`w-full rounded-t ${entry.minutes > 0 ? 'bg-indigo-400' : 'bg-indigo-100'}`}
               // A day with nothing on it still gets a sliver of bar, so the
               // baseline reads as a row of days rather than a gap in the chart.
               style={{ height: `${entry.minutes > 0 ? Math.max(6, (entry.minutes / peak) * 100) : 2}%` }}
@@ -154,14 +155,16 @@ function CountList({
   title,
   items,
   emptyLabel,
+  titleColor,
 }: {
   title: string
   items: { label: string; count: number }[]
   emptyLabel: string
+  titleColor: string
 }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+    <section className={`p-4 ${PAGE_CARD}`}>
+      <h2 className={`text-sm font-semibold ${titleColor}`}>{title}</h2>
       {items.length > 0 ? (
         <ol className="mt-3 flex flex-col gap-2 text-sm text-gray-700">
           {items.map((item) => (
@@ -191,7 +194,7 @@ function CompletionCell({ session }: { session: PracticeSessionRecord }) {
 /** One piece worked, nested under the sitting it belongs to. */
 function SessionRow({ session }: { session: PracticeSessionRecord }) {
   return (
-    <tr className="bg-gray-50/60 text-gray-600">
+    <tr className="bg-indigo-50/50 text-gray-600">
       <td className="py-1.5 pr-4" />
       <td className="whitespace-nowrap py-1.5 pr-4 text-xs">{formatTime(session.startedAt)}</td>
       <td className="whitespace-nowrap py-1.5 pr-4 text-xs">{formatSessionLength(session.durationMs)}</td>
@@ -322,147 +325,158 @@ export function Stats({ onBack }: StatsProps) {
     <div
       className={
         isMobile
-          ? 'flex h-screen w-full flex-col overflow-auto bg-gray-100 px-4 py-3'
-          : 'mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-8 py-10'
+          ? `flex h-screen w-full flex-col overflow-auto ${PAGE_BACKGROUND}`
+          : `min-h-screen ${PAGE_BACKGROUND}`
       }
     >
-      <header className="flex shrink-0 items-center justify-between gap-4">
-        <button type="button" onClick={onBack} className="text-sm text-gray-500 hover:underline">
-          Home
-        </button>
-        <h1 className={isMobile ? 'text-2xl font-semibold text-gray-900' : 'text-3xl font-semibold text-gray-900'}>
-          Stats
-        </h1>
-        <span className="w-24 text-right text-xs text-gray-400">
-          {syncState === 'syncing' ? 'syncing...' : syncState === 'synced' ? 'all devices' : 'this device only'}
-        </span>
-      </header>
+      <div
+        className={
+          isMobile
+            ? 'flex min-h-0 flex-1 flex-col px-4 py-3'
+            : 'mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-8 py-10'
+        }
+      >
+        <header className="flex shrink-0 items-center justify-between gap-4">
+          <button type="button" onClick={onBack} className="text-sm font-medium text-indigo-600 hover:underline">
+            Home
+          </button>
+          <h1 className={isMobile ? 'text-2xl font-semibold text-gray-900' : 'text-3xl font-semibold text-gray-900'}>
+            Stats
+          </h1>
+          <span className="w-24 text-right text-xs text-gray-400">
+            {syncState === 'syncing' ? 'syncing...' : syncState === 'synced' ? 'all devices' : 'this device only'}
+          </span>
+        </header>
 
-      <main className={isMobile ? 'mt-4 flex flex-col gap-4' : 'flex flex-col gap-6'}>
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <StatCard label="Sessions" value={view.allTime.blockCount} />
-          <StatCard label="Total time" value={formatClock(view.allTime.totalMs)} />
-          <StatCard label="Streak" value={view.streak.currentStreak} />
-          <StatCard label="Days practiced" value={view.streak.totalDaysPracticed} />
-          <StatCard label="Longest session" value={formatSessionLength(view.allTime.longestBlockMs)} />
-          <StatCard label="Best combo" value={view.combo} />
-        </dl>
+        <main className={isMobile ? 'mt-4 flex flex-col gap-4' : 'flex flex-col gap-6'}>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <StatCard label="Sessions" value={view.allTime.blockCount} tone="neutral" />
+            <StatCard label="Total time" value={formatClock(view.allTime.totalMs)} tone="time" />
+            <StatCard label="Streak" value={view.streak.currentStreak} tone="streak" />
+            <StatCard label="Days practiced" value={view.streak.totalDaysPracticed} tone="days" />
+            <StatCard label="Longest session" value={formatSessionLength(view.allTime.longestBlockMs)} tone="grade" />
+            <StatCard label="Best combo" value={view.combo} tone="good" />
+          </dl>
 
-        {view.allTime.blockCount === 0 ? (
-          <section className="rounded-lg border border-gray-200 bg-white p-6 text-center">
-            <h2 className="text-lg font-medium text-gray-900">No practice recorded yet</h2>
-            <p className="mt-2 text-sm text-gray-500">
-              Every exercise and every score you practice is recorded here, finished or not.
-            </p>
-          </section>
-        ) : (
-          <>
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-baseline justify-between gap-4">
-                <h2 className="text-sm font-semibold text-gray-900">Last {RECENT_WINDOW_DAYS} days vs all time</h2>
-                <span className="text-xs text-gray-500">
-                  best streak {view.streak.longestStreak} - grade {computeGrade(view.allTime.averageSuccessPercent)}
-                </span>
-              </div>
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-gray-500">
-                    <tr>
-                      <th className="py-2 pr-4 font-medium">Metric</th>
-                      <th className="py-2 pr-4 font-medium">{RECENT_WINDOW_DAYS} days</th>
-                      <th className="py-2 pr-4 font-medium">All time</th>
-                      <th className="py-2 font-medium">Change</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-gray-700">
-                    {comparison.map((row) => (
-                      <tr key={row.label}>
-                        <td className="whitespace-nowrap py-2 pr-4">{row.label}</td>
-                        <td className="whitespace-nowrap py-2 pr-4 font-medium text-gray-900">{row.recent}</td>
-                        <td className="whitespace-nowrap py-2 pr-4">{row.allTime}</td>
-                        <td className="whitespace-nowrap py-2">
-                          <DeltaChip change={row.change} />
-                        </td>
+          {view.allTime.blockCount === 0 ? (
+            <section className={`p-6 text-center ${PAGE_CARD}`}>
+              <h2 className="text-lg font-medium text-gray-900">No practice recorded yet</h2>
+              <p className="mt-2 text-sm text-gray-500">
+                Every exercise and every score you practice is recorded here, finished or not.
+              </p>
+            </section>
+          ) : (
+            <>
+              <section className={`p-4 ${PAGE_CARD}`}>
+                <div className="flex items-baseline justify-between gap-4">
+                  <h2 className="text-sm font-semibold text-gray-900">Last {RECENT_WINDOW_DAYS} days vs all time</h2>
+                  <span className="text-xs text-gray-500">
+                    best streak {view.streak.longestStreak} - grade {computeGrade(view.allTime.averageSuccessPercent)}
+                  </span>
+                </div>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="py-2 pr-4 font-medium">Metric</th>
+                        <th className="py-2 pr-4 font-medium">{RECENT_WINDOW_DAYS} days</th>
+                        <th className="py-2 pr-4 font-medium">All time</th>
+                        <th className="py-2 font-medium">Change</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-gray-700">
+                      {comparison.map((row) => (
+                        <tr key={row.label}>
+                          <td className="whitespace-nowrap py-2 pr-4">{row.label}</td>
+                          <td className="whitespace-nowrap py-2 pr-4 font-medium text-gray-900">{row.recent}</td>
+                          <td className="whitespace-nowrap py-2 pr-4">{row.allTime}</td>
+                          <td className="whitespace-nowrap py-2">
+                            <DeltaChip change={row.change} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
 
-            <PracticeChart days={view.chart} />
+              <PracticeChart days={view.chart} />
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              <CountList
-                title="Missed expected"
-                items={view.notes.missed.map((item) => ({ label: item.note, count: item.count }))}
-                emptyLabel="No missed notes"
-              />
-              <CountList
-                title="Wrong played"
-                items={view.notes.wrong.map((item) => ({ label: item.note, count: item.count }))}
-                emptyLabel="No wrong notes"
-              />
-              <CountList
-                title="Confusions"
-                items={view.notes.confusions.map((item) => ({
-                  label: `${item.expected} -> ${item.played}`,
-                  count: item.count,
-                }))}
-                emptyLabel="No repeated confusions"
-              />
-            </div>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <CountList
+                  title="Missed expected"
+                  items={view.notes.missed.map((item) => ({ label: item.note, count: item.count }))}
+                  emptyLabel="No missed notes"
+                  titleColor="text-rose-700"
+                />
+                <CountList
+                  title="Wrong played"
+                  items={view.notes.wrong.map((item) => ({ label: item.note, count: item.count }))}
+                  emptyLabel="No wrong notes"
+                  titleColor="text-amber-700"
+                />
+                <CountList
+                  title="Confusions"
+                  items={view.notes.confusions.map((item) => ({
+                    label: `${item.expected} -> ${item.played}`,
+                    count: item.count,
+                  }))}
+                  emptyLabel="No repeated confusions"
+                  titleColor="text-purple-700"
+                />
+              </div>
 
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-baseline justify-between gap-4">
-                <h2 className="text-sm font-semibold text-gray-900">Practice sessions</h2>
-                <span className="text-xs text-gray-500">
-                  {view.allTime.sessionCount} pieces worked - {view.allTime.completedCount} completed - avg response{' '}
-                  {formatResponse(view.allTime.averageResponseMs)}
-                </span>
-              </div>
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-gray-500">
-                    <tr>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">Date</th>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">Start</th>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">Duration</th>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">What</th>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">Mode</th>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">Progress</th>
-                      <th className="whitespace-nowrap py-2 pr-4 font-medium">Success</th>
-                      <th className="whitespace-nowrap py-2 font-medium">Errors</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-gray-700">
-                    {visibleBlocks.map((block) => (
-                      <Fragment key={block.id}>
-                        <BlockRow
-                          block={block}
-                          expanded={expandedBlocks.has(block.id)}
-                          onToggle={() => toggleBlock(block.id)}
-                        />
-                        {expandedBlocks.has(block.id) &&
-                          block.sessions.map((session) => <SessionRow key={session.id} session={session} />)}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {view.blocks.length > VISIBLE_BLOCK_ROWS && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllSessions((shown) => !shown)}
-                  className="mt-3 text-sm text-gray-500 hover:underline"
-                >
-                  {showAllSessions ? 'Show fewer' : `Show all ${view.blocks.length}`}
-                </button>
-              )}
-            </section>
-          </>
-        )}
-      </main>
+              <section className={`p-4 ${PAGE_CARD}`}>
+                <div className="flex items-baseline justify-between gap-4">
+                  <h2 className="text-sm font-semibold text-gray-900">Practice sessions</h2>
+                  <span className="text-xs text-gray-500">
+                    {view.allTime.sessionCount} pieces worked - {view.allTime.completedCount} completed - avg response{' '}
+                    {formatResponse(view.allTime.averageResponseMs)}
+                  </span>
+                </div>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">Date</th>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">Start</th>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">Duration</th>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">What</th>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">Mode</th>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">Progress</th>
+                        <th className="whitespace-nowrap py-2 pr-4 font-medium">Success</th>
+                        <th className="whitespace-nowrap py-2 font-medium">Errors</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-gray-700">
+                      {visibleBlocks.map((block) => (
+                        <Fragment key={block.id}>
+                          <BlockRow
+                            block={block}
+                            expanded={expandedBlocks.has(block.id)}
+                            onToggle={() => toggleBlock(block.id)}
+                          />
+                          {expandedBlocks.has(block.id) &&
+                            block.sessions.map((session) => <SessionRow key={session.id} session={session} />)}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {view.blocks.length > VISIBLE_BLOCK_ROWS && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSessions((shown) => !shown)}
+                    className="mt-3 text-sm text-gray-500 hover:underline"
+                  >
+                    {showAllSessions ? 'Show fewer' : `Show all ${view.blocks.length}`}
+                  </button>
+                )}
+              </section>
+            </>
+          )}
+        </main>
+      </div>
     </div>
   )
 }

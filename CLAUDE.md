@@ -129,6 +129,12 @@ Remounting `PianoScore` (source or layoutMode change) calls `containerRef.curren
 
 `computeGrade(successPercent)` maps the existing first-try-accuracy stat to a S/A/B/C/D/F letter grade (S requires a flawless 100% run), shown on the End screen.
 
+`StreakBadges.tsx` renders the streak as pastel pills (Home, ScoreLibrary and ExerciseSetup each used to carry their own plain-gray copy of that line) and renders nothing at all until there is a practice day, so a first-run screen doesn't announce three zeros.
+
+**`src/theme.ts` holds the shared visual decisions** -- `PAGE_BACKGROUND` (the pastel wash, applied to a full-width wrapper, never to the content column), `PAGE_CARD`, `PRIMARY_BUTTON`/`SECONDARY_BUTTON` (one primary per screen), and `STAT_TONES`. Every screen except Practice uses them. `STAT_TONES` keys a pastel family to a *kind of number* rather than to a screen, so a stat keeps its color everywhere it appears (a streak is orange on Home, in the catalog header, on the End screen and in Stats); Home's tiles follow the same idea per intent (amber = exercise, indigo = scores, emerald = stats). Take an accent from those maps rather than inventing a new hue.
+
+**Practice deliberately opts out**: a score needs a calm near-white background to read notes against, and `ScoreHud` is the only accent that screen should carry.
+
 `streak.ts` has no storage of its own -- `getStreakStats()` is `computeStreak(getSessions())` over the session log (see below), since a session is recorded the moment practice starts and therefore already marks the day. `computeStreak` gives current streak (alive if the last practiced day is today or yesterday -- survives until a full day is missed), longest streak, and total days. Day-string diffs use `Date.UTC` on the parsed `YYYY-MM-DD` components rather than subtracting real (local, DST-affected) `Date` instants, so a whole-day gap always computes as exactly 1 regardless of timezone/DST.
 
 ### Session log and stats (`types/session.ts`, `engine/sessionLog.ts`, `engine/sessionStore.ts`, `engine/statsAnalytics.ts`, `server/statsStore.ts`, `pages/Stats.tsx`)
