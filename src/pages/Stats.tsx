@@ -10,8 +10,8 @@ import {
   groupPracticeBlocks,
   percentChange,
   summarizeAllTime,
-  summarizeNotes,
   summarizeRecent,
+  summarizeScores,
   type PracticeBlock,
   type WindowSummary,
 } from '../engine/statsAnalytics'
@@ -23,7 +23,6 @@ interface StatsProps {
   onBack: () => void
 }
 
-const MAX_LIST_ITEMS = 5
 const RECENT_WINDOW_DAYS = 7
 const CHART_DAYS = 14
 const VISIBLE_BLOCK_ROWS = 12
@@ -99,8 +98,8 @@ function buildComparison(recent: WindowSummary, allTime: WindowSummary): Compari
   return [
     {
       label: 'Practice sessions per week',
-      recent: recent.blocksPerWeek.toFixed(1),
-      allTime: allTime.blocksPerWeek.toFixed(1),
+      recent: Math.round(recent.blocksPerWeek).toString(),
+      allTime: Math.round(allTime.blocksPerWeek).toString(),
       change: percentChange(recent.blocksPerWeek, allTime.blocksPerWeek),
     },
     {
@@ -148,36 +147,6 @@ function PracticeChart({ days }: { days: { day: string; minutes: number }[] }) {
           </div>
         ))}
       </div>
-    </section>
-  )
-}
-
-function CountList({
-  title,
-  items,
-  emptyLabel,
-  titleColor,
-}: {
-  title: string
-  items: { label: string; count: number }[]
-  emptyLabel: string
-  titleColor: string
-}) {
-  return (
-    <section className={`p-4 ${PAGE_CARD}`}>
-      <h2 className={`text-sm font-semibold ${titleColor}`}>{title}</h2>
-      {items.length > 0 ? (
-        <ol className="mt-3 flex flex-col gap-2 text-sm text-gray-700">
-          {items.map((item) => (
-            <li key={item.label} className="flex items-center justify-between gap-3">
-              <span>{item.label}</span>
-              <span className="font-medium text-gray-900">x{item.count}</span>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="mt-3 text-sm text-gray-500">{emptyLabel}</p>
-      )}
     </section>
   )
 }
@@ -317,9 +286,9 @@ export function Stats({ onBack }: StatsProps) {
       recent: summarizeRecent(counted, RECENT_WINDOW_DAYS, now),
       streak: computeStreak(counted, now),
       chart: dailyMinutes(counted, CHART_DAYS, now),
-      notes: summarizeNotes(counted, MAX_LIST_ITEMS),
       combo: bestCombo(counted),
       blocks: groupPracticeBlocks(counted),
+      scores: summarizeScores(counted),
     }
   }, [sessions])
 
@@ -407,30 +376,6 @@ export function Stats({ onBack }: StatsProps) {
 
               <PracticeChart days={view.chart} />
 
-              <div className="grid gap-4 lg:grid-cols-3">
-                <CountList
-                  title="Missed expected"
-                  items={view.notes.missed.map((item) => ({ label: item.note, count: item.count }))}
-                  emptyLabel="No missed notes"
-                  titleColor="text-rose-700"
-                />
-                <CountList
-                  title="Wrong played"
-                  items={view.notes.wrong.map((item) => ({ label: item.note, count: item.count }))}
-                  emptyLabel="No wrong notes"
-                  titleColor="text-amber-700"
-                />
-                <CountList
-                  title="Confusions"
-                  items={view.notes.confusions.map((item) => ({
-                    label: `${item.expected} -> ${item.played}`,
-                    count: item.count,
-                  }))}
-                  emptyLabel="No repeated confusions"
-                  titleColor="text-purple-700"
-                />
-              </div>
-
               <section className={`p-4 ${PAGE_CARD}`}>
                 <div className="flex items-baseline justify-between gap-4">
                   <h2 className="text-sm font-semibold text-gray-900">Practice sessions</h2>
@@ -478,6 +423,36 @@ export function Stats({ onBack }: StatsProps) {
                   </button>
                 )}
               </section>
+
+              {view.scores.length > 0 && (
+                <section className={`p-4 ${PAGE_CARD}`}>
+                  <h2 className="text-sm font-semibold text-gray-900">Scores you've played</h2>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="text-xs uppercase text-gray-500">
+                        <tr>
+                          <th className="py-2 pr-4 font-medium">Title</th>
+                          <th className="whitespace-nowrap py-2 pr-4 font-medium">Times played</th>
+                          <th className="whitespace-nowrap py-2 pr-4 font-medium">Best accuracy</th>
+                          <th className="whitespace-nowrap py-2 font-medium">Last played</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 text-gray-700">
+                        {view.scores.map((score) => (
+                          <tr key={score.key}>
+                            <td className="max-w-72 truncate py-2 pr-4 font-medium text-gray-900" title={score.title}>
+                              {score.title}
+                            </td>
+                            <td className="whitespace-nowrap py-2 pr-4">{score.sessionCount}</td>
+                            <td className="whitespace-nowrap py-2 pr-4">{score.bestSuccessPercent}%</td>
+                            <td className="whitespace-nowrap py-2">{formatDay(score.lastPlayedAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
             </>
           )}
         </main>
