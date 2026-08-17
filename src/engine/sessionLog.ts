@@ -17,6 +17,34 @@ import type { ExerciseRequest } from '../types/training.ts'
 /** Kept on the device; the server holds more (see server/statsStore.ts). */
 export const MAX_STORED_SESSIONS = 500
 
+/**
+ * Id for a new session record: 128 random bits, hex. Only has to be unique
+ * across devices, since it is the key the two logs merge on.
+ *
+ * Deliberately NOT crypto.randomUUID(): that one is spec'd [SecureContext], and
+ * this app's production deployment is plain HTTP on an IP address
+ * (http://51.159.55.29:5173, no reverse proxy, no TLS), where it is simply
+ * absent -- it threw "crypto.randomUUID is not a function" on the practice
+ * screen in production while working fine in development, because localhost
+ * counts as a secure context and dev never saw it. crypto.getRandomValues has no
+ * such restriction; Math.random is the last-resort fallback, weaker but still
+ * fine for a local id that guards nothing.
+ *
+ * Anything else added here must hold to the same rule: no secure-context-only
+ * API without a guarded fallback.
+ */
+export function createSessionId(): string {
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256)
+    }
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
 /** Below this, an unfinished session reads as a false start rather than practice. */
 export const MIN_COUNTED_SESSION_MS = 60000
 

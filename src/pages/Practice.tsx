@@ -6,6 +6,7 @@ import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
 import { computeSections, type Section } from '../engine/sections'
+import { createSessionId } from '../engine/sessionLog'
 import { saveSession } from '../engine/sessionStore'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
@@ -229,7 +230,7 @@ export function Practice({
   // startedAtRef: handleReady runs again on a PianoScore remount (a layout or
   // hand-mode change) and resets that one, but the session the player is in the
   // middle of is still the same session.
-  const sessionIdRef = useRef(crypto.randomUUID())
+  const sessionIdRef = useRef(createSessionId())
   const sessionStartedAtRef = useRef(new Date().toISOString())
   const sessionCompletedRef = useRef(false)
   const supportsSectionNavigation = sourceKind !== 'generated-training'

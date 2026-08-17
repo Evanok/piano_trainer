@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   countedSessions,
+  createSessionId,
   exerciseSessionTitle,
   isCountedSession,
   mergeSessionLogs,
@@ -170,5 +171,41 @@ describe('isCountedSession', () => {
     const dropped = session({ id: 'dropped', correctNoteCount: 0, errorCount: 0, completed: false })
 
     expect(countedSessions([kept, dropped]).map((entry) => entry.id)).toEqual(['kept'])
+  })
+})
+
+describe('createSessionId', () => {
+  it('produces distinct 32-character hex ids', () => {
+    const ids = Array.from({ length: 200 }, createSessionId)
+
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const id of ids) {
+      expect(id).toMatch(/^[0-9a-f]{32}$/)
+    }
+  })
+
+  it('works without crypto.randomUUID, which production does not have', () => {
+    // Production is plain HTTP, so [SecureContext] APIs are missing there while
+    // present on localhost -- exactly how this shipped broken once.
+    const original = globalThis.crypto
+    try {
+      Object.defineProperty(globalThis, 'crypto', {
+        value: { getRandomValues: original.getRandomValues.bind(original) },
+        configurable: true,
+      })
+      expect(createSessionId()).toMatch(/^[0-9a-f]{32}$/)
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true })
+    }
+  })
+
+  it('falls back when the whole Crypto API is unavailable', () => {
+    const original = globalThis.crypto
+    try {
+      Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true })
+      expect(createSessionId()).toMatch(/^[0-9a-f]{32}$/)
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true })
+    }
   })
 })
