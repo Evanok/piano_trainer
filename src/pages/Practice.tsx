@@ -707,6 +707,16 @@ export function Practice({
     // React re-renders PianoScore with the new handMode prop.
     scoreRef.current?.setHandMode(newHandMode)
     clearDecayTimer()
+    // The section crop currently applied would otherwise confine this walk to
+    // that one section's measures, so the fresh event list (and the WaitEngine
+    // built from it) would cover the section instead of the piece -- the same
+    // "always walk with no crop active" rule setSectionBounds documents. Only
+    // touched in a section mode: clearing bounds costs a full render, and there
+    // is nothing to clear outside those modes.
+    const inSectionMode = isSectionPracticeMode(practiceMode)
+    if (inSectionMode) {
+      applySectionBounds(null)
+    }
     const newEvents = extractExpectedEvents(osmd, newHandMode)
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
@@ -723,10 +733,9 @@ export function Practice({
     resetNoteStats()
     setSectionMessage(null)
 
-    if (isSectionPracticeMode(practiceMode)) {
+    if (inSectionMode) {
       const freshSections = computeSections(newEvents, measuresPerSection, naturalBreaks)
       setCurrentSectionIndex(0)
-      applySectionBounds(null)
       goToEventIndex(freshSections[0]?.startEventIndex ?? 0)
       applySectionBounds(freshSections[0] ?? null)
     } else {

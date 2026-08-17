@@ -65,23 +65,62 @@ export function playableInstrument(osmd: OpenSheetMusicDisplay): Instrument | un
   return pianoInstruments.length === 1 ? pianoInstruments[0] : undefined
 }
 
-// A grand-staff piano part's staves are ordered top-to-bottom in the source
-// (Staves[0] is the treble/right-hand staff, Staves[1] the bass/left-hand
-// staff -- confirmed against the generated exercises themselves: Hanon and
-// the training generator always emit <staff>1</staff> on the G clef and
-// <staff>2</staff> on the F clef). A single-staff instrument -- an
-// unsplit-hands real score, or an already hand-scoped generated exercise --
-// has nothing to filter: returning undefined leaves every note required,
-// same as 'both', rather than silently zeroing out every event.
-function targetStaffForHand(instrument: Instrument | undefined, handMode: HandMode): Staff | undefined {
-  if (handMode === 'both' || !instrument) {
+/**
+ * Every instrument whose notes count as the player's own -- the piano-named
+ * ones, or all of them when no name matches (an unlabeled part, or a naming
+ * convention this doesn't know). Unlike playableInstrument above, several is a
+ * normal answer: a score can split the hands into two piano parts, and both are
+ * the player's.
+ */
+function playableInstruments(osmd: OpenSheetMusicDisplay): Instrument[] {
+  const instruments = osmd.Sheet?.Instruments ?? []
+  const pianoInstruments = instruments.filter((instrument) => PIANO_INSTRUMENT_NAME_PATTERN.test(instrument.Name ?? ''))
+  return pianoInstruments.length > 0 ? pianoInstruments : instruments
+}
+
+/**
+ * Picks the staff a hand mode requires, out of the score's playable staves in
+ * top-to-bottom order (top = right hand, bottom = left hand).
+ *
+ * Generic over the staff type so the selection rules can be unit-tested without
+ * a loaded OSMD instance -- see ScoreParser.test.ts.
+ *
+ * Two real-world layouts both have to work here, and only the first one used to:
+ *  - ONE part with two staves (`<staves>2</staves>`, `<staff>1|2</staff>` per
+ *    note) -- the ordinary grand staff, and what the generated exercises emit.
+ *  - TWO single-staff parts, e.g. "Piano, Right Hand" and "Piano, Left Hand"
+ *    (seen in a real downloaded score, which carries no `<staff>` element at
+ *    all). Looking for two staves *inside one instrument* found none here, so
+ *    hand mode silently required both hands forever.
+ *
+ * A part named "... left hand" pins itself to the left, in case a file ever
+ * lists the hands bottom-first; otherwise score order alone decides.
+ *
+ * Anything other than exactly two playable staves (a single-staff score, an
+ * organ's three, a four-hands arrangement) has no unambiguous "the two hands",
+ * so it yields undefined: every note stays required, same as 'both', rather
+ * than guessing and silently zeroing out events.
+ */
+export function selectHandStaff<S>(
+  parts: Array<{ name: string | null; staves: S[] }>,
+  handMode: HandMode,
+): S | undefined {
+  if (handMode === 'both') {
     return undefined
   }
-  const staves = instrument.Staves
-  if (staves.length < 2) {
+  const named = parts.flatMap((part) => part.staves.map((staff) => ({ staff, name: part.name ?? '' })))
+  if (named.length !== 2) {
     return undefined
   }
-  return handMode === 'right' ? staves[0] : staves[1]
+  const ordered = /left.?hand/i.test(named[0].name) && !/left.?hand/i.test(named[1].name) ? [named[1], named[0]] : named
+  return (handMode === 'right' ? ordered[0] : ordered[1]).staff
+}
+
+function targetStaffForHand(osmd: OpenSheetMusicDisplay, handMode: HandMode): Staff | undefined {
+  return selectHandStaff(
+    playableInstruments(osmd).map((instrument) => ({ name: instrument.Name ?? null, staves: instrument.Staves })),
+    handMode,
+  )
 }
 
 // The single source of truth for "which notes under the cursor actually
@@ -92,7 +131,7 @@ function targetStaffForHand(instrument: Instrument | undefined, handMode: HandMo
 // own comment on why that matters).
 export function requiredNotesUnderCursor(osmd: OpenSheetMusicDisplay, handMode: HandMode = 'both'): Note[] {
   const instrument = playableInstrument(osmd)
-  const targetStaff = targetStaffForHand(instrument, handMode)
+  const targetStaff = targetStaffForHand(osmd, handMode)
   return osmd.cursor
     .NotesUnderCursor(instrument)
     .filter((note) => !note.isRest() && !isTieContinuation(note))
