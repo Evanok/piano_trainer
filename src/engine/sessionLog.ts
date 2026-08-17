@@ -17,6 +17,38 @@ import type { ExerciseRequest } from '../types/training.ts'
 /** Kept on the device; the server holds more (see server/statsStore.ts). */
 export const MAX_STORED_SESSIONS = 500
 
+/** Below this, an unfinished session reads as a false start rather than practice. */
+export const MIN_COUNTED_SESSION_MS = 60000
+
+/**
+ * Whether a session counts as practice for everything the player is shown --
+ * the stats screen, and the streak with it.
+ *
+ * Sessions are recorded from the moment the practice screen opens (so that
+ * quitting early still counts, and so a killed tab still leaves a record), which
+ * means the log necessarily also holds screens that were merely opened. Those
+ * must not inflate session counts, weekly minutes or averages, and above all
+ * must not earn a streak day for walking past the app.
+ *
+ * A finished session always counts, however short: a generated 8-measure drill
+ * played cleanly in 45 seconds is real practice, and hiding it for being brief
+ * would lose information. Only an *unfinished* sub-minute visit is dropped.
+ *
+ * This filters at display time and never deletes anything, so the threshold can
+ * be revised later without having lost the sessions it once excluded.
+ */
+export function isCountedSession(session: PracticeSessionRecord): boolean {
+  const playedSomething = session.correctNoteCount > 0 || session.errorCount > 0
+  if (!playedSomething) {
+    return false
+  }
+  return session.completed || session.durationMs >= MIN_COUNTED_SESSION_MS
+}
+
+export function countedSessions(sessions: PracticeSessionRecord[]): PracticeSessionRecord[] {
+  return sessions.filter(isCountedSession)
+}
+
 /**
  * Newest first, by start time. The id breaks ties: two sessions can share a
  * millisecond (one device replaying immediately, or two devices syncing), and

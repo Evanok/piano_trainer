@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { syncSessions } from '../api/stats'
 import { computeGrade } from '../engine/grade'
+import { countedSessions } from '../engine/sessionLog'
 import { getSessions, replaceSessions } from '../engine/sessionStore'
 import {
   bestCombo,
@@ -304,17 +305,21 @@ export function Stats({ onBack }: StatsProps) {
     }
   }, [])
 
+  // `sessions` stays the full log (that is what gets synced back); everything
+  // shown here is derived from the practice-worthy ones only, in one place, so
+  // the table, the chart, the streak and every average agree on what counts.
   const view = useMemo(() => {
     const now = new Date()
-    const allTime = summarizeAllTime(sessions, now)
+    const counted = countedSessions(sessions)
+    const allTime = summarizeAllTime(counted, now)
     return {
       allTime,
-      recent: summarizeRecent(sessions, RECENT_WINDOW_DAYS, now),
-      streak: computeStreak(sessions, now),
-      chart: dailyMinutes(sessions, CHART_DAYS, now),
-      notes: summarizeNotes(sessions, MAX_LIST_ITEMS),
-      combo: bestCombo(sessions),
-      blocks: groupPracticeBlocks(sessions),
+      recent: summarizeRecent(counted, RECENT_WINDOW_DAYS, now),
+      streak: computeStreak(counted, now),
+      chart: dailyMinutes(counted, CHART_DAYS, now),
+      notes: summarizeNotes(counted, MAX_LIST_ITEMS),
+      combo: bestCombo(counted),
+      blocks: groupPracticeBlocks(counted),
     }
   }, [sessions])
 

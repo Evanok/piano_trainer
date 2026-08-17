@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { exerciseSessionTitle, mergeSessionLogs, sortSessions, upsertSession } from './sessionLog'
+import {
+  countedSessions,
+  exerciseSessionTitle,
+  isCountedSession,
+  mergeSessionLogs,
+  sortSessions,
+  upsertSession,
+} from './sessionLog'
 import type { PracticeSessionRecord } from '../types/session'
 
 function session(overrides: Partial<PracticeSessionRecord> = {}): PracticeSessionRecord {
@@ -129,5 +136,39 @@ describe('exerciseSessionTitle', () => {
         'G major',
       ),
     ).toBe('Triads - G major - right hand (medium)')
+  })
+})
+
+describe('isCountedSession', () => {
+  it('drops a screen that was opened without a single key pressed', () => {
+    expect(
+      isCountedSession(session({ correctNoteCount: 0, errorCount: 0, durationMs: 600000, completed: false })),
+    ).toBe(false)
+  })
+
+  it('drops an unfinished visit shorter than a minute', () => {
+    expect(isCountedSession(session({ correctNoteCount: 4, durationMs: 20000, completed: false }))).toBe(false)
+  })
+
+  it('keeps a finished session however short', () => {
+    // A generated 8-measure drill played cleanly in 45 seconds is real practice.
+    expect(isCountedSession(session({ correctNoteCount: 32, durationMs: 45000, completed: true }))).toBe(true)
+  })
+
+  it('keeps an unfinished session past the minute mark', () => {
+    expect(isCountedSession(session({ correctNoteCount: 12, durationMs: 90000, completed: false }))).toBe(true)
+  })
+
+  it('counts wrong notes as having played something', () => {
+    expect(
+      isCountedSession(session({ correctNoteCount: 0, errorCount: 7, durationMs: 120000, completed: false })),
+    ).toBe(true)
+  })
+
+  it('filters a log without touching its order', () => {
+    const kept = session({ id: 'kept', correctNoteCount: 5, durationMs: 300000 })
+    const dropped = session({ id: 'dropped', correctNoteCount: 0, errorCount: 0, completed: false })
+
+    expect(countedSessions([kept, dropped]).map((entry) => entry.id)).toEqual(['kept'])
   })
 })
