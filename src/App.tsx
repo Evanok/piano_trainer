@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Home } from './pages/Home'
+import { Login } from './pages/Login'
 import { ExerciseSetup } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
@@ -7,6 +8,7 @@ import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { createHanonExercise } from './engine/hanonGenerator'
+import { clearToken, fetchAuthStatus, subscribeAuthRequired } from './api/auth'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
 import type {
@@ -49,7 +51,16 @@ const DEFAULT_HANON_SETTINGS: HanonSettings = {
   length: 'full',
 }
 
+/**
+ * 'checking' only lasts one request. 'locked' shows the login screen; anything
+ * else (no password configured, valid token, or an unreachable server) is
+ * 'open' -- the API being down must not keep the player from practising, same
+ * degradation the catalog already has.
+ */
+type AuthGate = 'checking' | 'locked' | 'open'
+
 function App() {
+  const [authGate, setAuthGate] = useState<AuthGate>('checking')
   const [screen, setScreen] = useState<Screen>('home')
   // Tracks the screen we already have a browser-history entry for. Lets the
   // effect below tell "screen changed via a fresh navigation" apart from
@@ -89,6 +100,28 @@ function App() {
   const [sessionSource, setSessionSource] = useState<SessionSource | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
+
+  // Asked once on mount, and again after a successful login.
+  const refreshAuthGate = useCallback(async () => {
+    try {
+      const status = await fetchAuthStatus()
+      if (status.required && !status.authenticated) {
+        // A stored token the server no longer accepts (password changed) would
+        // otherwise keep failing every request silently.
+        clearToken()
+        setAuthGate('locked')
+        return
+      }
+      setAuthGate('open')
+    } catch {
+      setAuthGate('open')
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshAuthGate()
+    return subscribeAuthRequired(() => setAuthGate('locked'))
+  }, [refreshAuthGate])
 
   // Establishes the base history entry for the app's current screen (so the
   // very first back-press has something defined to land on) and listens for
@@ -262,6 +295,14 @@ function App() {
     setSessionStats(null)
     setScreen('exercise-setup')
   }, [])
+
+  if (authGate === 'checking') {
+    return <div className="min-h-screen" />
+  }
+
+  if (authGate === 'locked') {
+    return <Login onAuthenticated={() => void refreshAuthGate()} />
+  }
 
   if (screen === 'exercise-setup') {
     return (

@@ -1,3 +1,4 @@
+import { AuthRequiredError, authHeaders, notifyAuthRequired } from './auth'
 import type { PracticeSessionRecord } from '../types/session'
 
 /**
@@ -9,10 +10,14 @@ import type { PracticeSessionRecord } from '../types/session'
 export async function syncSessions(sessions: PracticeSessionRecord[]): Promise<PracticeSessionRecord[]> {
   const response = await fetch('/api/stats/sync', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ sessions }),
   })
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyAuthRequired()
+      throw new AuthRequiredError()
+    }
     throw new Error(`${response.status} ${response.statusText}`)
   }
   const body = (await response.json()) as { sessions?: PracticeSessionRecord[] }

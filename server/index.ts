@@ -4,13 +4,15 @@
 //
 //   npm run build && npm start
 //
-// Environment: PORT (default 5173), PIANO_TRAINER_DATA_DIR (default ./data).
+// Environment: PORT (default 5173), PIANO_TRAINER_DATA_DIR (default ./data),
+// PIANO_TRAINER_PASSWORD (no password gate when unset -- see server/auth.ts).
 
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import path from 'node:path'
 import { createCatalogApi } from './catalogApi.ts'
 import { migrateCatalog, resolveDataDir } from './catalogStore.ts'
+import { configuredPassword } from './auth.ts'
 
 // Piano Trainer is exposed directly on this port; there is no Nginx proxy.
 const PORT = Number(process.env.PORT ?? 5173)
@@ -80,4 +82,12 @@ createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`Piano Trainer listening on http://localhost:${PORT}`)
   console.log(`Catalog data directory: ${dataDir}`)
+  // Loud, because an open server on a public port means anyone can read the
+  // practice history and delete catalog entries. Unset stays permitted so an
+  // existing deployment upgrades without locking its owner out.
+  console.log(
+    configuredPassword()
+      ? 'Password gate: enabled (PIANO_TRAINER_PASSWORD is set)'
+      : 'WARNING: no PIANO_TRAINER_PASSWORD set -- the API is open to anyone who can reach this port.',
+  )
 })

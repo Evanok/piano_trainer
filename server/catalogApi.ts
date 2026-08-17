@@ -15,6 +15,7 @@ import {
   updateEntry,
 } from './catalogStore.ts'
 import { readSessions, syncSessions } from './statsStore.ts'
+import { AUTH_HEADER, configuredPassword, createLoginThrottle, isValidToken, tokenForPassword } from './auth.ts'
 
 /** Connect-style middleware, so the same handler runs in dev (mounted on the
  *  Vite dev server) and in production (server/index.ts). */
@@ -180,6 +181,33 @@ async function handleStatsSync(req: IncomingMessage, res: ServerResponse, dataDi
   sendJson(res, 200, { sessions: syncSessions(dataDir, (payload as { sessions: unknown[] }).sessions) })
 }
 
+// A password and nothing else.
+const MAX_LOGIN_BYTES = 1024
+
+async function handleLogin(req: IncomingMessage, res: ServerResponse, throttle: ReturnType<typeof createLoginThrottle>): Promise<void> {
+  const password = configuredPassword()
+  if (!password) {
+    throw new HttpError(409, 'This server has no password configured.')
+  }
+  if (throttle.isBlocked(Date.now())) {
+    throw new HttpError(429, 'Too many failed attempts. Wait a minute and try again.')
+  }
+  const body = await readBody(req, MAX_LOGIN_BYTES)
+  let payload: unknown
+  try {
+    payload = JSON.parse(body.toString('utf8'))
+  } catch {
+    throw new HttpError(400, 'Request body must be valid JSON.')
+  }
+  const submitted = (payload as { password?: unknown } | null)?.password
+  if (typeof submitted !== 'string' || submitted !== password) {
+    throttle.registerFailure(Date.now())
+    throw new HttpError(401, 'Wrong password.')
+  }
+  throttle.reset()
+  sendJson(res, 200, { token: tokenForPassword(password) })
+}
+
 function handleDownload(res: ServerResponse, dataDir: string, id: string): void {
   const entry = findEntry(dataDir, id)
   if (!entry) {
@@ -199,6 +227,7 @@ function handleDownload(res: ServerResponse, dataDir: string, id: string): void 
 }
 
 export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApiHandler {
+  const loginThrottle = createLoginThrottle()
   return (req, res, next) => {
     // The origin is irrelevant, URL just needs an absolute base to parse
     // against; only the path and the query string are ever used.
@@ -211,6 +240,26 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
     const run = async (): Promise<void> => {
       const downloadMatch = /^\/api\/scores\/([^/]+)\/file$/.exec(url.pathname)
       const entryMatch = /^\/api\/scores\/([^/]+)$/.exec(url.pathname)
+      const password = configuredPassword()
+      const token = req.headers[AUTH_HEADER]
+      const authenticated = password === null || isValidToken(typeof token === 'string' ? token : undefined, password)
+
+      // The only two open endpoints: what the front-end needs to know whether
+      // to show a login screen, and the login itself.
+      if (url.pathname === '/api/auth' && req.method === 'GET') {
+        sendJson(res, 200, { required: password !== null, authenticated })
+        return
+      }
+      if (url.pathname === '/api/login' && req.method === 'POST') {
+        await handleLogin(req, res, loginThrottle)
+        return
+      }
+      // Everything else, reads included -- see server/auth.ts for why the gate
+      // lives here and not in the UI.
+      if (!authenticated) {
+        throw new HttpError(401, 'Authentication required.')
+      }
+
       if (url.pathname === '/api/stats' && req.method === 'GET') {
         sendJson(res, 200, { sessions: readSessions(dataDir) })
       } else if (url.pathname === '/api/stats/sync' && req.method === 'POST') {

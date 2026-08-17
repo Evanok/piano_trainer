@@ -41,18 +41,24 @@ The Exercise page generates a short training exercise without uploading a score.
 
 ## Deployment
 
-Piano Trainer is served **directly on port 5173**. There is no Nginx or reverse
-proxy in this deployment. Its public address is:
+Piano Trainer is served **directly on port 5173** of the VPS it is deployed to.
+There is no Nginx or reverse proxy in this deployment, and no TLS: the address is
+`http://<vps-host>:5173/`. Set `PIANO_TRAINER_PUBLIC_URL` if you want
+`deploy.sh` to print the real one.
 
-```
-http://51.159.55.29:5173/
-```
+Because the port is public and there is no proxy in front of it, set
+`PIANO_TRAINER_PASSWORD` on the production server. Without it the whole API is
+open to anyone who can reach the port: the practice history can be read, scores
+can be uploaded or deleted, and stats can be overwritten. The password is asked
+once per device. It travels unencrypted over plain HTTP, so it guards against
+passers-by and bots, not against someone able to sniff the network.
 
 Use the repository's deployment script. It manages the two PM2 processes and
 prevents them from fighting over port 5173:
 
 ```bash
-# On the VPS: install exact dependencies, build, then expose the app publicly.
+# On the VPS: set the API password, then install, build and expose the app.
+export PIANO_TRAINER_PASSWORD='something-long'
 ./deploy.sh prod start
 
 # Stop the public production server.

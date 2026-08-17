@@ -54,6 +54,15 @@ start_dev() {
 }
 
 start_prod() {
+  # The port is public and there is no proxy in front of it, so an unset
+  # password means anyone who reaches it can read the practice history and
+  # delete catalog entries. Warned about rather than enforced, so an existing
+  # deployment can still be started while its owner picks a password.
+  if [[ -z "${PIANO_TRAINER_PASSWORD:-}" ]]; then
+    echo "WARNING: PIANO_TRAINER_PASSWORD is not set -- the API will be open to anyone who can reach port $APP_PORT." >&2
+    echo "         Set it before starting: export PIANO_TRAINER_PASSWORD='...'" >&2
+  fi
+
   # Deploy the checked-out branch as-is. A pull is deliberately not implicit:
   # it could overwrite or fail on local work on the VPS.
   npm ci
@@ -62,6 +71,8 @@ start_prod() {
   # Both modes use port 5173, so release it before starting the public server.
   stop_process "$DEV_PROCESS"
 
+  # --update-env re-reads this shell's environment on a restart, which is how
+  # PIANO_TRAINER_PASSWORD reaches an already-known process.
   if is_known_to_pm2 "$PROD_PROCESS"; then
     PORT="$APP_PORT" pm2 restart "$PROD_PROCESS" --update-env
   else
@@ -69,7 +80,8 @@ start_prod() {
   fi
   pm2 save
 
-  echo "Production server: http://51.159.55.29:$APP_PORT/"
+  # The public host lives in the environment, not in this (public) repository.
+  echo "Production server: ${PIANO_TRAINER_PUBLIC_URL:-http://<vps-host>:$APP_PORT/}"
 }
 
 case "$MODE:$ACTION" in

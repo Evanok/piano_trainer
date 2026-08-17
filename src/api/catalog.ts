@@ -1,3 +1,4 @@
+import { AuthRequiredError, authHeaders, notifyAuthRequired } from './auth'
 import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
 
 export interface CatalogQueryParams {
@@ -6,6 +7,16 @@ export interface CatalogQueryParams {
   page: number
   pageSize?: number
   signal?: AbortSignal
+}
+
+/** Every non-ok response goes through here, so a 401 always surfaces as the
+ *  typed error the app reacts to by asking for the password again. */
+async function failed(response: Response): Promise<never> {
+  if (response.status === 401) {
+    notifyAuthRequired()
+    throw new AuthRequiredError()
+  }
+  throw new Error(await readError(response))
 }
 
 // The server answers errors as { error: string }; fall back to the status line
@@ -36,9 +47,9 @@ export async function fetchCatalogPage({
   if (pageSize !== undefined) {
     params.set('limit', String(pageSize))
   }
-  const response = await fetch(`/api/scores?${params.toString()}`, { signal })
+  const response = await fetch(`/api/scores?${params.toString()}`, { signal, headers: authHeaders() })
   if (!response.ok) {
-    throw new Error(await readError(response))
+    await failed(response)
   }
   return (await response.json()) as CatalogPage
 }
@@ -52,30 +63,33 @@ export interface CatalogEntryUpdate {
 export async function updateScoreEntry(id: string, update: CatalogEntryUpdate): Promise<CatalogEntry> {
   const response = await fetch(`/api/scores/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeaders() },
     body: JSON.stringify(update),
   })
   if (!response.ok) {
-    throw new Error(await readError(response))
+    await failed(response)
   }
   return (await response.json()) as CatalogEntry
 }
 
 export async function deleteScoreEntry(id: string): Promise<void> {
-  const response = await fetch(`/api/scores/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const response = await fetch(`/api/scores/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
   if (!response.ok) {
-    throw new Error(await readError(response))
+    await failed(response)
   }
 }
 
 export async function uploadScore(file: File): Promise<CatalogEntry> {
   const response = await fetch(`/api/scores?filename=${encodeURIComponent(file.name)}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/octet-stream' },
+    headers: { 'content-type': 'application/octet-stream', ...authHeaders() },
     body: file,
   })
   if (!response.ok) {
-    throw new Error(await readError(response))
+    await failed(response)
   }
   return (await response.json()) as CatalogEntry
 }
@@ -86,9 +100,9 @@ export async function uploadScore(file: File): Promise<CatalogEntry> {
  * catalog score has to reach PianoScore exactly as a freshly picked file would.
  */
 export async function downloadScoreFile(entry: CatalogEntry): Promise<File> {
-  const response = await fetch(`/api/scores/${encodeURIComponent(entry.id)}/file`)
+  const response = await fetch(`/api/scores/${encodeURIComponent(entry.id)}/file`, { headers: authHeaders() })
   if (!response.ok) {
-    throw new Error(await readError(response))
+    await failed(response)
   }
   return new File([await response.blob()], entry.filename)
 }

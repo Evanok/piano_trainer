@@ -22,13 +22,13 @@ export const MAX_STORED_SESSIONS = 500
  * across devices, since it is the key the two logs merge on.
  *
  * Deliberately NOT crypto.randomUUID(): that one is spec'd [SecureContext], and
- * this app's production deployment is plain HTTP on an IP address
- * (http://51.159.55.29:5173, no reverse proxy, no TLS), where it is simply
- * absent -- it threw "crypto.randomUUID is not a function" on the practice
- * screen in production while working fine in development, because localhost
- * counts as a secure context and dev never saw it. crypto.getRandomValues has no
- * such restriction; Math.random is the last-resort fallback, weaker but still
- * fine for a local id that guards nothing.
+ * this app's production deployment is plain HTTP on a bare IP and port (no
+ * reverse proxy, no TLS -- see README), where it is simply absent. It threw
+ * "crypto.randomUUID is not a function" on the practice screen in production
+ * while working fine in development, because localhost counts as a secure
+ * context and dev therefore never saw it. crypto.getRandomValues has no such
+ * restriction; Math.random is the last-resort fallback, weaker but still fine
+ * for a local id that guards nothing.
  *
  * Anything else added here must hold to the same rule: no secure-context-only
  * API without a guarded fallback.
