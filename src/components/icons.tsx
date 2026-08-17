@@ -38,6 +38,43 @@ export function LibraryIcon({ className }: IconProps) {
   )
 }
 
+export function NotesIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M9 18V5l10-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="16" cy="16" r="3" />
+    </svg>
+  )
+}
+
+export function ChartIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M4 20h16" />
+      <path d="M7 20v-6" />
+      <path d="M12 20V8" />
+      <path d="M17 20v-9" />
+    </svg>
+  )
+}
+
 export function SettingsIcon({ className }: IconProps) {
   return (
     <svg

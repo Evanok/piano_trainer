@@ -1,4 +1,4 @@
-import type { HandMode } from './practice'
+import type { HandMode } from './practice.ts'
 
 export type TrainingHandMode = HandMode
 export type TrainingAccidentalMode = 'none' | 'key' | 'chromatic'

@@ -217,21 +217,31 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   const hasLoadedRef = useRef(false)
 
   // Colors every given note via the fast path, remembering each choice so it
-  // survives a future full render(). Falls back to Note.NoteheadColor + a
-  // single batched render() only for the rare note the fast path can't reach.
+  // survives a future full render() (see reapplyColors).
+  //
+  // A note the fast path can't reach only gets its Note.NoteheadColor set, and
+  // deliberately does NOT trigger a render() to force it through. That fallback
+  // used to be here and was actively harmful on a real score (a 216-measure
+  // piano piece whose measures make OSMD log "SkyBottomLineCalculator: width
+  // not > 0"): a single hand-mode switch or jump ran several full renders of the
+  // whole piece, freezing the tab for ~30s, and OSMD's own
+  // NoteheadColor-during-render didn't even apply the color afterwards, so the
+  // yellow "cursor" vanished entirely. Skipping the render means such a note is
+  // merely left uncolored until the next render that happens for another reason
+  // (zoom, section crop) picks its NoteheadColor up -- a cosmetic miss on a note
+  // OSMD didn't lay out properly, instead of a frozen tab and no cursor at all.
   const colorNotes = (osmd: OpenSheetMusicDisplay, assignments: Array<[Note, string]>) => {
-    let needsRender = false
     for (const [note, color] of assignments) {
-      noteColorsRef.current.set(note, color)
+      // The map is "notes currently colored away from default", which is also
+      // exactly the set a later clear has to walk (see goToEventIndex).
+      if (color === DEFAULT_COLOR) {
+        noteColorsRef.current.delete(note)
+      } else {
+        noteColorsRef.current.set(note, color)
+      }
       if (!tryColorNoteFast(osmd, note, color)) {
         note.NoteheadColor = color
-        needsRender = true
       }
-    }
-    if (needsRender) {
-      osmd.render()
-      osmd.cursor.show()
-      reapplyColors(osmd)
     }
   }
 
@@ -400,30 +410,20 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         }
         // A jump (in either direction) can leave positions colored by earlier
         // attempts (errors, partial chord progress, completed-and-green) that
-        // would otherwise stay stuck forever -- clear every position in the
-        // whole piece back to plain, uncolored notes, not just the ones
-        // between the old and new cursor position. Only the target position
-        // (below) gets the "current" yellow -- everything else should look
-        // untouched, not all yellow.
+        // would otherwise stay stuck forever, including positions the jump
+        // skipped over entirely -- so every colored note in the piece goes back
+        // to plain, and only the target position (below) gets the "current"
+        // yellow.
         //
-        // One batched colorNotes() call for the whole walk, not one call per
-        // cursor position: colorNotes triggers a full osmd.render() (plus a
-        // reapplyColors() pass over every previously-colored note) whenever
-        // even a single note can't be colored via the fast SVG path -- on a
-        // score with many such notes (seen for real: a piece whose measures
-        // hit OSMD's "SkyBottomLineCalculator: width not > 0" warning), that
-        // meant up to one full render() per cursor position, i.e. up to O(n)
-        // full-score renders each doing O(n) reapply work, freezing the tab
-        // for minutes on a piece with a four-figure event count. Collecting
-        // every assignment first keeps it to at most one render() total.
-        osmd.cursor.reset()
-        const clearAssignments: Array<[Note, string]> = []
-        while (!osmd.cursor.Iterator.EndReached) {
-          for (const note of osmd.cursor.NotesUnderCursor()) {
-            clearAssignments.push([note, DEFAULT_COLOR])
-          }
-          osmd.cursor.next()
-        }
+        // Read straight off noteColorsRef, which already tracks exactly the
+        // notes that carry a color, rather than walking the cursor over the
+        // whole piece to collect every note in it: the walk was O(all notes)
+        // where this is O(colored notes), and it also fed thousands of
+        // never-colored notes through colorNotes on every single jump.
+        const clearAssignments: Array<[Note, string]> = Array.from(noteColorsRef.current.keys()).map((note) => [
+          note,
+          DEFAULT_COLOR,
+        ])
         colorNotes(osmd, clearAssignments)
 
         osmd.cursor.reset()
