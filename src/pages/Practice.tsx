@@ -482,9 +482,14 @@ export function Practice({
         return
       }
       // Page free is a plain read-along viewer with no wait-gating and no
-      // cursor -- MIDI input is deliberately not tracked at all in this mode,
-      // so nothing gets colored and no note stats are collected for it.
+      // cursor -- correctness is never checked, so nothing gets colored and
+      // no wrong/missed-note stats are collected. A note was genuinely played
+      // though, and still has to be counted as such (not just detected) --
+      // isCountedSession only keeps a session that has correctNoteCount or
+      // errorCount above zero, and this mode never touches errorCount.
       if (practiceModeRef.current === 'page') {
+        correctNoteCountRef.current += 1
+        setCorrectNoteCount(correctNoteCountRef.current)
         return
       }
       const engine = waitEngineRef.current
