@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getStreakStats } from '../engine/streakStore'
+import { getStreakStats } from '../engine/streak'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 interface HomeProps {

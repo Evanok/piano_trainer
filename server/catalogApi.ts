@@ -14,6 +14,7 @@ import {
   scoreFilePath,
   updateEntry,
 } from './catalogStore.ts'
+import { readSessions, syncSessions } from './statsStore.ts'
 
 /** Connect-style middleware, so the same handler runs in dev (mounted on the
  *  Vite dev server) and in production (server/index.ts). */
@@ -158,6 +159,27 @@ function handleDelete(res: ServerResponse, dataDir: string, id: string): void {
   res.writeHead(204).end()
 }
 
+// A whole practice history, not one score file: a few hundred bytes per
+// session, so this is generous for the per-device cap (MAX_STORED_SESSIONS)
+// while still being nowhere near MAX_SCORE_BYTES.
+const MAX_STATS_BYTES = 8 * 1024 * 1024
+
+async function handleStatsSync(req: IncomingMessage, res: ServerResponse, dataDir: string): Promise<void> {
+  const body = await readBody(req, MAX_STATS_BYTES)
+  let payload: unknown
+  try {
+    payload = JSON.parse(body.toString('utf8'))
+  } catch {
+    throw new HttpError(400, 'Request body must be valid JSON.')
+  }
+  if (typeof payload !== 'object' || payload === null || !Array.isArray((payload as { sessions?: unknown }).sessions)) {
+    throw new HttpError(400, 'Request body must be a JSON object with a sessions array.')
+  }
+  // Answers with the merged history, so one round-trip both pushes what this
+  // device recorded and pulls back everything the others did.
+  sendJson(res, 200, { sessions: syncSessions(dataDir, (payload as { sessions: unknown[] }).sessions) })
+}
+
 function handleDownload(res: ServerResponse, dataDir: string, id: string): void {
   const entry = findEntry(dataDir, id)
   if (!entry) {
@@ -189,7 +211,11 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
     const run = async (): Promise<void> => {
       const downloadMatch = /^\/api\/scores\/([^/]+)\/file$/.exec(url.pathname)
       const entryMatch = /^\/api\/scores\/([^/]+)$/.exec(url.pathname)
-      if (url.pathname === '/api/scores' && req.method === 'GET') {
+      if (url.pathname === '/api/stats' && req.method === 'GET') {
+        sendJson(res, 200, { sessions: readSessions(dataDir) })
+      } else if (url.pathname === '/api/stats/sync' && req.method === 'POST') {
+        await handleStatsSync(req, res, dataDir)
+      } else if (url.pathname === '/api/scores' && req.method === 'GET') {
         handleList(res, dataDir, url)
       } else if (url.pathname === '/api/scores' && req.method === 'POST') {
         await handleUpload(req, res, dataDir, url)

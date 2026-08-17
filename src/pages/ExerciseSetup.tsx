@@ -4,7 +4,7 @@ import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
 import { hanonMidiRange, isHanonRangePlayable } from '../engine/hanonGenerator'
 import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
 import { midiToNoteName } from '../engine/noteNames'
-import { getStreakStats } from '../engine/streakStore'
+import { getStreakStats } from '../engine/streak'
 import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {

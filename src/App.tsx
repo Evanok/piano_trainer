@@ -15,8 +15,9 @@ import type {
   PracticeKeySignature,
   PracticeSourceKind,
 } from './types/practice'
-import type { SessionStats } from './types/session'
-import type { ScoreDifficulty } from './types/catalog'
+import { exerciseSessionTitle } from './engine/sessionLog'
+import type { SessionSource, SessionStats } from './types/session'
+import type { CatalogEntry, ScoreDifficulty } from './types/catalog'
 import type {
   ExerciseKind,
   ExerciseRequest,
@@ -82,6 +83,10 @@ function App() {
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
   const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
+  // Describes what the next practice session is of. Built here rather than in
+  // Practice because only App knows where the file came from -- a catalog entry,
+  // a one-off upload, or a generator it just ran.
+  const [sessionSource, setSessionSource] = useState<SessionSource | null>(null)
 
   const { devices, selectedDeviceId, selectDevice, isSupported, error, onNoteEvent } = useMidi()
 
@@ -129,12 +134,14 @@ function App() {
   const handleFileLoaded = useCallback(
     (
       file: File,
+      source: SessionSource,
       sourceKind: PracticeSourceKind = 'score',
       assistMode?: KeyboardAssistMode,
       backingTrack: PracticeBackingTrack | null = null,
       keySignature: PracticeKeySignature | null = null,
     ) => {
       setScoreFile(file)
+      setSessionSource(source)
       setPracticeSourceKind(sourceKind)
       setKeyboardAssistMode(assistMode ?? (sourceKind === 'generated-training' ? 'none' : 'learning'))
       setPracticeBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
@@ -142,6 +149,20 @@ function App() {
       setScreen('practice')
     },
     [],
+  )
+
+  // A score picked from the library carries its catalog entry; a one-off upload
+  // that failed to save has none, so its file name is the only name it has.
+  const handleScoreLoaded = useCallback(
+    (file: File, entry?: CatalogEntry) => {
+      handleFileLoaded(file, {
+        kind: 'score',
+        title: entry?.title ?? file.name,
+        scoreName: file.name,
+        catalogId: entry?.id ?? null,
+      })
+    },
+    [handleFileLoaded],
   )
 
   const startExercise = useCallback(
@@ -164,10 +185,22 @@ function App() {
       }
       setExerciseKeyboardAssistMode(assistMode)
       setExerciseBackingTrackEnabled(backingTrackEnabled)
-      handleFileLoaded(exercise.file, 'generated-training', assistMode, backingTrack, {
-        keyName: exercise.keyName,
-        accidentalsLabel: exercise.accidentalsLabel,
-      })
+      handleFileLoaded(
+        exercise.file,
+        {
+          kind: 'exercise',
+          title: exerciseSessionTitle(request, exercise.keyName),
+          exercise: request,
+          keyName: exercise.keyName,
+        },
+        'generated-training',
+        assistMode,
+        backingTrack,
+        {
+          keyName: exercise.keyName,
+          accidentalsLabel: exercise.accidentalsLabel,
+        },
+      )
     },
     [handleFileLoaded],
   )
@@ -257,7 +290,7 @@ function App() {
         onSelectDevice={selectDevice}
         isSupported={isSupported}
         midiError={error}
-        onFileLoaded={handleFileLoaded}
+        onFileLoaded={handleScoreLoaded}
         onBack={handleBackToHome}
         initialSearch={catalogSearch}
         initialDifficulty={catalogDifficulty}
@@ -271,11 +304,12 @@ function App() {
     return <Stats onBack={handleBackToHome} />
   }
 
-  if (screen === 'practice' && scoreFile) {
+  if (screen === 'practice' && scoreFile && sessionSource) {
     return (
       <Practice
         scoreFile={scoreFile}
         sourceKind={practiceSourceKind}
+        sessionSource={sessionSource}
         keyboardAssistMode={keyboardAssistMode}
         backingTrack={practiceBackingTrack}
         keySignature={practiceKeySignature}

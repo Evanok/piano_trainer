@@ -5,11 +5,10 @@ import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../component
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
-import { recordExerciseSession } from '../engine/exerciseStatsStore'
 import { computeSections, type Section } from '../engine/sections'
+import { saveSession } from '../engine/sessionStore'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
-import { recordPracticeDay } from '../engine/streakStore'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useBackingTrack } from '../hooks/useBackingTrack'
 import { useWakeLock } from '../hooks/useWakeLock'
@@ -23,10 +22,19 @@ import type {
   PracticeMode,
   PracticeSourceKind,
 } from '../types/practice'
-import type { ExerciseSessionStats, SessionStats } from '../types/session'
+import type { ExerciseSessionStats, PracticeSessionRecord, SessionSource, SessionStats } from '../types/session'
 
 const DEFAULT_MEASURES_PER_SECTION = 8
 const MAX_EXERCISE_STAT_ROWS = 3
+
+/**
+ * How often the in-progress session is rewritten to the log. A session is
+ * recorded from its first second (not only when it ends) so leaving counts as
+ * practice; this heartbeat is what keeps its duration honest when the app is
+ * killed outright -- on a phone, closing the tab or switching away never runs a
+ * React cleanup, so "save on unmount" alone would lose the session's length.
+ */
+const SESSION_HEARTBEAT_MS = 15000
 
 function nowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
@@ -92,6 +100,8 @@ function summarizeExerciseStats(
 interface PracticeProps {
   scoreFile: File
   sourceKind: PracticeSourceKind
+  /** What is being practiced, stored verbatim in the session record. */
+  sessionSource: SessionSource
   keyboardAssistMode: KeyboardAssistMode
   backingTrack: PracticeBackingTrack | null
   keySignature: PracticeKeySignature | null
@@ -106,6 +116,7 @@ interface PracticeProps {
 export function Practice({
   scoreFile,
   sourceKind,
+  sessionSource,
   keyboardAssistMode,
   backingTrack,
   keySignature,
@@ -210,6 +221,17 @@ export function Practice({
   sectionsRef.current = sections
   const currentSectionIndexRef = useRef(currentSectionIndex)
   currentSectionIndexRef.current = currentSectionIndex
+  const handModeRef = useRef(handMode)
+  handModeRef.current = handMode
+  const sessionSourceRef = useRef(sessionSource)
+  sessionSourceRef.current = sessionSource
+  // One record per visit to this screen. Its own start time, separate from
+  // startedAtRef: handleReady runs again on a PianoScore remount (a layout or
+  // hand-mode change) and resets that one, but the session the player is in the
+  // middle of is still the same session.
+  const sessionIdRef = useRef(crypto.randomUUID())
+  const sessionStartedAtRef = useRef(new Date().toISOString())
+  const sessionCompletedRef = useRef(false)
   const supportsSectionNavigation = sourceKind !== 'generated-training'
   const isSectionMode = isSectionPracticeMode(practiceMode)
   const resolvedLayoutMode: LayoutMode = practiceMode === 'page' ? 'page' : 'scroll'
@@ -232,7 +254,7 @@ export function Practice({
     }, 3000)
   }
 
-  const resetExerciseStats = () => {
+  const resetNoteStats = () => {
     eventStartedAtRef.current = nowMs()
     responseTimesRef.current = []
     missedNoteCountsRef.current = new Map()
@@ -240,11 +262,10 @@ export function Practice({
     confusionCountsRef.current = new Map()
   }
 
-  const recordExerciseError = (expectedPitchesForEvent: number[], playedPitch: number) => {
-    if (sourceKindRef.current !== 'generated-training') {
-      return
-    }
-
+  // Collected for real scores as well as generated exercises: the End screen
+  // still only shows them for exercises (see finishSession), but the session log
+  // keeps them either way so per-note stats can grow to cover scores later.
+  const recordNoteError = (expectedPitchesForEvent: number[], playedPitch: number) => {
     expectedPitchesForEvent.forEach((pitch) => incrementCount(missedNoteCountsRef.current, pitch))
     incrementCount(wrongNoteCountsRef.current, playedPitch)
 
@@ -255,22 +276,58 @@ export function Practice({
     confusionCountsRef.current.set(key, { expected, played, count: (existing?.count ?? 0) + 1 })
   }
 
-  const recordExerciseResponse = () => {
-    if (sourceKindRef.current !== 'generated-training') {
-      return
-    }
+  const recordNoteResponse = () => {
     responseTimesRef.current.push(Math.max(0, nowMs() - eventStartedAtRef.current))
   }
 
-  const buildExerciseStats = () =>
-    sourceKindRef.current === 'generated-training'
-      ? summarizeExerciseStats(
-          responseTimesRef.current,
-          missedNoteCountsRef.current,
-          wrongNoteCountsRef.current,
-          confusionCountsRef.current,
-        )
-      : undefined
+  const buildNoteStats = (): ExerciseSessionStats =>
+    summarizeExerciseStats(
+      responseTimesRef.current,
+      missedNoteCountsRef.current,
+      wrongNoteCountsRef.current,
+      confusionCountsRef.current,
+    )
+
+  /**
+   * A snapshot of the session as it stands right now. Written repeatedly (start,
+   * heartbeat, end) under one stable id, so the log always holds the session's
+   * latest known state rather than only its final one.
+   */
+  const buildSessionRecord = (completed: boolean): PracticeSessionRecord => {
+    const endedAt = Date.now()
+    const eventsPlayed = waitEngineRef.current?.state.currentIndex ?? 0
+    const reached = completed ? totalEventsRef.current : eventsPlayed
+    return {
+      id: sessionIdRef.current,
+      startedAt: sessionStartedAtRef.current,
+      endedAt: new Date(endedAt).toISOString(),
+      durationMs: endedAt - Date.parse(sessionStartedAtRef.current),
+      completed,
+      practiceMode: practiceModeRef.current,
+      handMode: handModeRef.current,
+      source: sessionSourceRef.current,
+      totalEvents: totalEventsRef.current,
+      eventsPlayed,
+      errorCount: errorCountRef.current,
+      correctNoteCount: correctNoteCountRef.current,
+      // Over the events actually reached, so an abandoned session reports the
+      // accuracy of what was played instead of being punished for the rest.
+      successPercent: reached === 0 ? 0 : Math.round((100 * (reached - eventsWithErrorsRef.current.size)) / reached),
+      maxCombo: maxComboRef.current,
+      notes: buildNoteStats(),
+    }
+  }
+
+  const persistSession = (completed: boolean) => {
+    // Once a session is on record as completed, no later snapshot may downgrade
+    // it -- the heartbeat and the unmount that follows the End screen both still
+    // run after finishSession.
+    if (sessionCompletedRef.current) {
+      return
+    }
+    sessionCompletedRef.current = completed
+    saveSession(buildSessionRecord(completed))
+  }
 
   // A wrong keypress within the chord tolerance window is reported but
   // doesn't erase already-held correct notes (see WaitEngine.noteOn) -- the
@@ -299,6 +356,22 @@ export function Practice({
         clearTimeout(sectionMessageTimeoutRef.current)
       }
     }
+  }, [])
+
+  // The session's whole lifecycle in the log: recorded as soon as practice
+  // starts (so quitting early still counts as practice, and as a practice day
+  // for the streak), refreshed while it runs, and refreshed once more on the way
+  // out. A tab killed outright runs none of this, which is exactly why the
+  // heartbeat exists -- the record left behind is then only as stale as the last
+  // beat, instead of claiming a zero-length session.
+  useEffect(() => {
+    persistSession(false)
+    const heartbeat = setInterval(() => persistSession(false), SESSION_HEARTBEAT_MS)
+    return () => {
+      clearInterval(heartbeat)
+      persistSession(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const goToEventIndex = (targetIndex: number) => {
@@ -343,16 +416,17 @@ export function Practice({
   // actually done, so both build and report the same SessionStats shape.
   const finishSession = () => {
     const total = totalEventsRef.current
-    const exercise = buildExerciseStats()
+    persistSession(true)
     const stats: SessionStats = {
       durationMs: Date.now() - startedAtRef.current,
       errorCount: errorCountRef.current,
       totalEvents: total,
       successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
       maxCombo: maxComboRef.current,
-      ...(exercise ? { exercise } : {}),
+      // The End screen's response-time breakdown stays exercise-only: on a real
+      // score those timings are mostly sight-reading pauses, not reaction times.
+      ...(sourceKindRef.current === 'generated-training' ? { exercise: buildNoteStats() } : {}),
     }
-    recordExerciseSession(scoreFile.name, stats)
     onComplete(stats)
   }
 
@@ -427,7 +501,7 @@ export function Practice({
         if (activeSection) {
           sectionErrorCountRef.current += 1
         }
-        recordExerciseError(expectedPitchesBeforeNote, event.pitch)
+        recordNoteError(expectedPitchesBeforeNote, event.pitch)
         scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
@@ -441,7 +515,7 @@ export function Practice({
         setCorrectNoteCount(correctNoteCountRef.current)
         const newIndex = engine.state.currentIndex
         if (newIndex > previousIndexRef.current) {
-          recordExerciseResponse()
+          recordNoteResponse()
           clearDecayTimer()
           setWrongPitches([])
           if (!eventsWithErrorsRef.current.has(indexBeforeNote)) {
@@ -505,7 +579,7 @@ export function Practice({
     comboRef.current = 0
     maxComboRef.current = 0
     correctNoteCountRef.current = 0
-    resetExerciseStats()
+    resetNoteStats()
     sectionErrorCountRef.current = 0
     setCurrentCombo(0)
     setBestCombo(0)
@@ -513,7 +587,6 @@ export function Practice({
     setCurrentSectionIndex(0)
     setSectionMessage(null)
     startedAtRef.current = Date.now()
-    recordPracticeDay()
     setWrongNoteFeedback(null)
     setEngineState(waitEngineRef.current.state)
     setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
@@ -647,7 +720,7 @@ export function Practice({
     setBestCombo(0)
     correctNoteCountRef.current = 0
     setCorrectNoteCount(0)
-    resetExerciseStats()
+    resetNoteStats()
     setSectionMessage(null)
 
     if (isSectionPracticeMode(practiceMode)) {

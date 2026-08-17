@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
 import { PencilIcon, TrashIcon } from '../components/icons'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
-import { getStreakStats } from '../engine/streakStore'
+import { getStreakStats } from '../engine/streak'
 import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
 
@@ -18,7 +18,9 @@ interface ScoreLibraryProps {
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
-  onFileLoaded: (scoreFile: File) => void
+  /** The catalog entry is passed along when there is one, so the session log can
+   *  record which score was practiced rather than just its file name. */
+  onFileLoaded: (scoreFile: File, entry?: CatalogEntry) => void
   onBack: () => void
   // Owned by App (survives this component unmounting when navigating away
   // and back, e.g. via the browser's back button into Practice and back)
@@ -210,8 +212,7 @@ export function ScoreLibrary({
     setUnsavedFile(null)
     setIsSaving(true)
     try {
-      await uploadScore(file)
-      onFileLoaded(file)
+      onFileLoaded(file, await uploadScore(file))
     } catch (error: unknown) {
       setIsSaving(false)
       setFileError(`Could not add this score to the catalog: ${errorMessage(error)}`)
@@ -223,7 +224,7 @@ export function ScoreLibrary({
     setOpeningId(entry.id)
     setCatalogError(null)
     try {
-      onFileLoaded(await downloadScoreFile(entry))
+      onFileLoaded(await downloadScoreFile(entry), entry)
     } catch (error: unknown) {
       setOpeningId(null)
       setCatalogError(`Could not open "${entry.title}": ${errorMessage(error)}`)

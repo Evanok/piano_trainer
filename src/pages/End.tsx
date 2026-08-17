@@ -1,5 +1,5 @@
 import { computeGrade } from '../engine/grade'
-import { getStreakStats } from '../engine/streakStore'
+import { getStreakStats } from '../engine/streak'
 import type { SessionStats } from '../types/session'
 
 interface EndProps {
