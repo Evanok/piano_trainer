@@ -161,6 +161,22 @@ export function TrashIcon({ className }: IconProps) {
   )
 }
 
+export function PlayIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M7 5v14l12-7z" />
+    </svg>
+  )
+}
+
+export function StopIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+    </svg>
+  )
+}
+
 // "Skip to start" (media-player convention: a bar + a filled triangle) --
 // deliberately distinct from the plain chevrons used for prev/next section,
 // since jumping straight back to section 1 is a different action from

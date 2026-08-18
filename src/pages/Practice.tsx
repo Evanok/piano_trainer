@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { ChevronLeftIcon, ChevronRightIcon, HomeIcon, LibraryIcon, SettingsIcon, SkipToStartIcon } from '../components/icons'
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  HomeIcon,
+  LibraryIcon,
+  PlayIcon,
+  SettingsIcon,
+  SkipToStartIcon,
+  StopIcon,
+} from '../components/icons'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
+import { extractTimedNotes } from '../engine/scorePlayback'
+import { ScoreSynth } from '../engine/scoreSynth'
 import { computeSections, type Section } from '../engine/sections'
 import { createSessionId } from '../engine/sessionLog'
 import { saveSession } from '../engine/sessionStore'
@@ -149,6 +160,7 @@ export function Practice({
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   // What drives navigation through the piece -- see PracticeMode. Computed
   // once at mount only: re-forcing a default whenever isMobile flips (resize,
   // rotation) would reintroduce the "state fights the user's choice" problem
@@ -210,6 +222,10 @@ export function Practice({
   const confusionCountsRef = useRef<Map<string, { expected: string; played: string; count: number }>>(new Map())
   const startedAtRef = useRef(Date.now())
   const decayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Lazily created on first Play press -- constructing an AudioContext
+  // eagerly on mount would risk it starting in a suspended state on some
+  // browsers before any user gesture has happened.
+  const synthRef = useRef<ScoreSynth | null>(null)
   const sectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // errors within the CURRENT attempt of the current section (not the whole
   // session) -- resets every time a section (re)starts, see goToEventIndex.
@@ -361,8 +377,32 @@ export function Practice({
       if (sectionMessageTimeoutRef.current !== null) {
         clearTimeout(sectionMessageTimeoutRef.current)
       }
+      synthRef.current?.stop()
     }
   }, [])
+
+  // "Hear the tune" preview, unrelated to Wait Mode's gating: plays every note
+  // of the whole piece (both hands, ignoring hand mode/section crop) via a
+  // plain Web Audio synth, independent of the live practice cursor -- see
+  // extractTimedNotes for why it walks its own OSMD iterator instead of the
+  // shared osmd.cursor.
+  const handleTogglePreviewPlayback = () => {
+    if (!synthRef.current) {
+      synthRef.current = new ScoreSynth()
+    }
+    const synth = synthRef.current
+    if (isPreviewPlaying) {
+      synth.stop()
+      setIsPreviewPlaying(false)
+      return
+    }
+    const osmd = osmdRef.current
+    if (!osmd) {
+      return
+    }
+    synth.play(extractTimedNotes(osmd), () => setIsPreviewPlaying(false))
+    setIsPreviewPlaying(true)
+  }
 
   // The session's whole lifecycle in the log: recorded as soon as practice
   // starts (so quitting early still counts as practice, and as a practice day
@@ -572,6 +612,11 @@ export function Practice({
 
   const handleReady = (osmd: OpenSheetMusicDisplay) => {
     clearDecayTimer()
+    // A remount (layout/hand-mode switch, or moving to a new exercise) can
+    // load a different file entirely -- any in-progress preview is now
+    // playing back notes that no longer match what's on screen.
+    synthRef.current?.stop()
+    setIsPreviewPlaying(false)
     osmdRef.current = osmd
     const newEvents = extractExpectedEvents(osmd, handMode)
     totalEventsRef.current = newEvents.length
@@ -866,6 +911,16 @@ export function Practice({
               {backingTrackButtonLabel}
             </button>
           )}
+          <button
+            type="button"
+            onClick={handleTogglePreviewPlayback}
+            aria-label={isPreviewPlaying ? 'Stop playback' : 'Play score'}
+            className={
+              isPreviewPlaying ? 'rounded-md p-2 text-red-600 hover:bg-red-50' : 'rounded-md p-2 text-gray-600 hover:bg-gray-100'
+            }
+          >
+            {isPreviewPlaying ? <StopIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5" />}
+          </button>
           <select
             value={practiceMode}
             onChange={(e) => handleSelectPracticeMode(e.target.value as PracticeMode)}
@@ -1039,6 +1094,18 @@ export function Practice({
             onChange={(e) => handleZoomChange(Number(e.target.value))}
           />
         </label>
+        <button
+          type="button"
+          onClick={handleTogglePreviewPlayback}
+          className={
+            isPreviewPlaying
+              ? 'flex items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1 text-sm text-red-700 hover:bg-red-100'
+              : 'flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50'
+          }
+        >
+          {isPreviewPlaying ? <StopIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
+          {isPreviewPlaying ? 'Stop' : 'Play'}
+        </button>
         {sourceKind === 'generated-training' ? (
           <>
             <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
