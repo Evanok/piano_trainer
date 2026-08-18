@@ -10,7 +10,12 @@ export type HandMode = 'right' | 'left' | 'both'
 
 /**
  * What drives navigation through the piece:
- * - `page`/`scroll`: the whole piece, wait-gated, in the matching PianoScore layout.
+ * - `page`: the whole piece, in the paginated layout, with NO wait-gating and
+ *   no cursor/highlight at all -- the player just reads/plays through the
+ *   printed score freely at their own pace, turning pages themselves. MIDI
+ *   input is not tracked in this mode, so wrong-note stats are not collected
+ *   for it -- a deliberate trade-off for a genuinely free read-along mode.
+ * - `scroll`: the whole piece, wait-gated, in the scrolling layout.
  * - `sectionFree`: section-by-section, wait-gated, but never rewinds on error --
  *   always advances once the section's last note is played.
  * - `sectionTraining`: section-by-section, rewinds to the start of the same

@@ -235,6 +235,11 @@ export function Practice({
   const sessionCompletedRef = useRef(false)
   const supportsSectionNavigation = sourceKind !== 'generated-training'
   const isSectionMode = isSectionPracticeMode(practiceMode)
+  // Page free has no wait-gating and no cursor at all -- see PracticeMode's
+  // doc comment. Every cursor-position control (back to start, go to measure,
+  // the measure/event counter) is meaningless without a cursor to move, and
+  // MIDI input is simply not tracked (see the onNoteEvent effect below).
+  const isFreePageMode = practiceMode === 'page'
   const resolvedLayoutMode: LayoutMode = practiceMode === 'page' ? 'page' : 'scroll'
 
   const clearDecayTimer = () => {
@@ -476,6 +481,17 @@ export function Practice({
       if (event.type !== 'noteon') {
         return
       }
+      // Page free is a plain read-along viewer with no wait-gating and no
+      // cursor -- correctness is never checked, so nothing gets colored and
+      // no wrong/missed-note stats are collected. A note was genuinely played
+      // though, and still has to be counted as such (not just detected) --
+      // isCountedSession only keeps a session that has correctNoteCount or
+      // errorCount above zero, and this mode never touches errorCount.
+      if (practiceModeRef.current === 'page') {
+        correctNoteCountRef.current += 1
+        setCorrectNoteCount(correctNoteCountRef.current)
+        return
+      }
       const engine = waitEngineRef.current
       if (!engine) {
         return
@@ -593,14 +609,17 @@ export function Practice({
     setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
     setDebugLog([])
-    setExpectedPitches(waitEngineRef.current.currentExpectedPitches)
+    // Page free never highlights anything -- see isFreePageMode.
+    setExpectedPitches(practiceMode === 'page' ? [] : waitEngineRef.current.currentExpectedPitches)
     setHeldPitches([])
     setWrongPitches([])
     const allPitches = newEvents.flatMap((event) => event.pitches)
     if (allPitches.length > 0) {
       setPitchRange({ low: Math.min(...allPitches), high: Math.max(...allPitches) })
     }
-    scoreRef.current?.syncNotes([])
+    if (practiceMode !== 'page') {
+      scoreRef.current?.syncNotes([])
+    }
   }
 
   const handleZoomChange = (value: number) => {
@@ -896,14 +915,16 @@ export function Practice({
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={handleBackToStart}
-              aria-label="Back to start"
-              className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-            >
-              <SkipToStartIcon className="h-5 w-5" />
-            </button>
+            !isFreePageMode && (
+              <button
+                type="button"
+                onClick={handleBackToStart}
+                aria-label="Back to start"
+                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+              >
+                <SkipToStartIcon className="h-5 w-5" />
+              </button>
+            )
           )}
         </div>
 
@@ -971,38 +992,42 @@ export function Practice({
       />
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600">
-        <span>
-          Measure {currentMeasure} -- Event {displayedIndex} / {totalEvents}
-        </span>
-        <button
-          type="button"
-          onClick={handleBackToStart}
-          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
-        >
-          Back to start
-        </button>
-        <label className="flex items-center gap-2">
-          Go to measure
-          <input
-            type="number"
-            min={1}
-            value={measureInputValue}
-            onChange={(e) => setMeasureInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleJumpToMeasure()
-              }
-            }}
-            className="w-16 rounded-md border border-gray-300 bg-white px-2 py-1"
-          />
-          <button
-            type="button"
-            onClick={handleJumpToMeasure}
-            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
-          >
-            Go
-          </button>
-        </label>
+        {!isFreePageMode && (
+          <>
+            <span>
+              Measure {currentMeasure} -- Event {displayedIndex} / {totalEvents}
+            </span>
+            <button
+              type="button"
+              onClick={handleBackToStart}
+              className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+            >
+              Back to start
+            </button>
+            <label className="flex items-center gap-2">
+              Go to measure
+              <input
+                type="number"
+                min={1}
+                value={measureInputValue}
+                onChange={(e) => setMeasureInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleJumpToMeasure()
+                  }
+                }}
+                className="w-16 rounded-md border border-gray-300 bg-white px-2 py-1"
+              />
+              <button
+                type="button"
+                onClick={handleJumpToMeasure}
+                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-sm hover:bg-gray-50"
+              >
+                Go
+              </button>
+            </label>
+          </>
+        )}
         <label className="flex items-center gap-2">
           Zoom
           <input

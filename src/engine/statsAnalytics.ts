@@ -1,4 +1,4 @@
-import type { ExerciseConfusionStat, ExerciseNoteStat, PracticeSessionRecord } from '../types/session'
+import type { PracticeSessionRecord } from '../types/session'
 
 /**
  * Every aggregate the stats screen shows, computed from the session log alone.
@@ -324,46 +324,49 @@ export function dailyMinutes(sessions: PracticeSessionRecord[], days: number, no
   return result
 }
 
-export interface NoteSummary {
-  missed: ExerciseNoteStat[]
-  wrong: ExerciseNoteStat[]
-  confusions: ExerciseConfusionStat[]
+export interface ScoreProgress {
+  /** catalogId when the score came from the library, else its scoreName --
+   * see SessionSource, the same identity used to tell two sheets apart. */
+  key: string
+  /** From the most recently played session on this sheet, in case the
+   * catalog title was edited after an earlier session was recorded. */
+  title: string
+  sessionCount: number
+  bestSuccessPercent: number
+  lastPlayedAt: string
 }
 
-function topCounts(counts: Map<string, number>, limit: number): ExerciseNoteStat[] {
-  return Array.from(counts.entries())
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([note, count]) => ({ note, count }))
-}
-
-/** The notes that go wrong most often, summed over the given sessions. */
-export function summarizeNotes(sessions: PracticeSessionRecord[], limit: number): NoteSummary {
-  const missed = new Map<string, number>()
-  const wrong = new Map<string, number>()
-  const confusions = new Map<string, ExerciseConfusionStat>()
-
+/**
+ * Every real score (not a generated exercise) with at least one session,
+ * each with the best first-try accuracy ever reached on it -- a sheet never
+ * attempted has no session to group, so it never appears here.
+ */
+export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgress[] {
+  const byKey = new Map<string, ScoreProgress>()
   for (const session of sessions) {
-    for (const item of session.notes.missedNotes) {
-      missed.set(item.note, (missed.get(item.note) ?? 0) + item.count)
+    if (session.source.kind !== 'score') {
+      continue
     }
-    for (const item of session.notes.wrongNotes) {
-      wrong.set(item.note, (wrong.get(item.note) ?? 0) + item.count)
+    const key = session.source.catalogId ?? session.source.scoreName
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, {
+        key,
+        title: session.source.title,
+        sessionCount: 1,
+        bestSuccessPercent: session.successPercent,
+        lastPlayedAt: session.startedAt,
+      })
+      continue
     }
-    for (const item of session.notes.confusions) {
-      const key = `${item.expected} -> ${item.played}`
-      const existing = confusions.get(key)
-      confusions.set(key, { expected: item.expected, played: item.played, count: (existing?.count ?? 0) + item.count })
+    existing.sessionCount += 1
+    existing.bestSuccessPercent = Math.max(existing.bestSuccessPercent, session.successPercent)
+    if (session.startedAt > existing.lastPlayedAt) {
+      existing.lastPlayedAt = session.startedAt
+      existing.title = session.source.title
     }
   }
-
-  return {
-    missed: topCounts(missed, limit),
-    wrong: topCounts(wrong, limit),
-    confusions: Array.from(confusions.values())
-      .sort((a, b) => b.count - a.count || a.expected.localeCompare(b.expected) || a.played.localeCompare(b.played))
-      .slice(0, limit),
-  }
+  return Array.from(byKey.values()).sort((a, b) => b.lastPlayedAt.localeCompare(a.lastPlayedAt))
 }
 
 export function bestCombo(sessions: PracticeSessionRecord[]): number {

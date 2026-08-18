@@ -7,8 +7,8 @@ import {
   percentChange,
   sessionsInLastDays,
   summarizeAllTime,
-  summarizeNotes,
   summarizeRecent,
+  summarizeScores,
 } from './statsAnalytics'
 import type { ExerciseSessionStats, PracticeSessionRecord } from '../types/session'
 
@@ -257,51 +257,56 @@ describe('dailyMinutes', () => {
   })
 })
 
-describe('summarizeNotes', () => {
-  it('sums note counts across sessions, worst first', () => {
+describe('summarizeScores', () => {
+  it('groups sessions of the same score and keeps the best accuracy', () => {
     const sessions = [
-      session(daysAgo(0), {
-        notes: notes({
-          missedNotes: [{ note: 'C4', count: 2 }],
-          wrongNotes: [{ note: 'D4', count: 1 }],
-          confusions: [{ expected: 'C4', played: 'D4', count: 2 }],
-        }),
-      }),
-      session(daysAgo(1), {
-        notes: notes({
-          missedNotes: [
-            { note: 'C4', count: 3 },
-            { note: 'F4', count: 4 },
-          ],
-          wrongNotes: [],
-          confusions: [{ expected: 'C4', played: 'D4', count: 1 }],
-        }),
-      }),
+      session(daysAgo(2), { successPercent: 60 }),
+      session(daysAgo(0), { successPercent: 85 }),
     ]
 
-    const summary = summarizeNotes(sessions, 5)
+    const scores = summarizeScores(sessions)
 
-    expect(summary.missed).toEqual([
-      { note: 'C4', count: 5 },
-      { note: 'F4', count: 4 },
-    ])
-    expect(summary.wrong).toEqual([{ note: 'D4', count: 1 }])
-    expect(summary.confusions).toEqual([{ expected: 'C4', played: 'D4', count: 3 }])
+    expect(scores).toHaveLength(1)
+    expect(scores[0].sessionCount).toBe(2)
+    expect(scores[0].bestSuccessPercent).toBe(85)
+    expect(scores[0].lastPlayedAt).toBe(daysAgo(0).toISOString())
   })
 
-  it('keeps only the worst `limit` entries', () => {
+  it('keeps two scores separate when their catalog id or file name differs', () => {
     const sessions = [
+      session(daysAgo(1), {
+        source: { kind: 'score', title: 'Clair de Lune', scoreName: 'clair.mxl', catalogId: null },
+        successPercent: 70,
+      }),
       session(daysAgo(0), {
-        notes: notes({
-          missedNotes: [
-            { note: 'C4', count: 1 },
-            { note: 'D4', count: 5 },
-            { note: 'E4', count: 3 },
-          ],
-        }),
+        source: { kind: 'score', title: 'Für Elise', scoreName: 'elise.mxl', catalogId: 'abc' },
+        successPercent: 95,
       }),
     ]
 
-    expect(summarizeNotes(sessions, 2).missed.map((item) => item.note)).toEqual(['D4', 'E4'])
+    expect(summarizeScores(sessions).map((score) => score.title)).toEqual(['Für Elise', 'Clair de Lune'])
+  })
+
+  it('ignores generated exercises and never invents a sheet with no session', () => {
+    const sessions = [
+      session(daysAgo(0), {
+        source: { kind: 'exercise', title: 'Random exercise', exercise: {} as never, keyName: null },
+      }),
+    ]
+
+    expect(summarizeScores(sessions)).toEqual([])
+  })
+
+  it('uses the most recently played session title, in case the catalog title was edited since', () => {
+    const sessions = [
+      session(daysAgo(1), {
+        source: { kind: 'score', title: 'Old Title', scoreName: 'piece.mxl', catalogId: 'xyz' },
+      }),
+      session(daysAgo(0), {
+        source: { kind: 'score', title: 'New Title', scoreName: 'piece.mxl', catalogId: 'xyz' },
+      }),
+    ]
+
+    expect(summarizeScores(sessions)[0].title).toBe('New Title')
   })
 })
