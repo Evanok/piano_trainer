@@ -4,6 +4,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   HomeIcon,
+  KeyboardIcon,
   LibraryIcon,
   PlayIcon,
   SettingsIcon,
@@ -160,6 +161,7 @@ export function Practice({
   const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
+  const [mobileKeyboardVisible, setMobileKeyboardVisible] = useState(true)
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   // What drives navigation through the piece -- see PracticeMode. Computed
   // once at mount only: re-forcing a default whenever isMobile flips (resize,
@@ -833,7 +835,7 @@ export function Practice({
   const showGeneratedAssistKeyboard =
     sourceKind === 'generated-training' &&
     (keyboardAssistMode === 'learning' || (keyboardAssistMode === 'mistakes-only' && wrongPitches.length > 0))
-  const showMobileKeyboard = sourceKind !== 'generated-training' || showGeneratedAssistKeyboard
+  const showMobileKeyboard = sourceKind !== 'generated-training' ? mobileKeyboardVisible : showGeneratedAssistKeyboard
   const showDesktopKeyboard = sourceKind === 'generated-training' ? showGeneratedAssistKeyboard : showKeyboard
   const keyboardAssistLabel =
     keyboardAssistMode === 'none' ? 'No help' : keyboardAssistMode === 'mistakes-only' ? 'Mistakes only' : 'Learning'
@@ -942,6 +944,20 @@ export function Practice({
             <option value="right">Right</option>
             <option value="left">Left</option>
           </select>
+          {sourceKind !== 'generated-training' && (
+            <button
+              type="button"
+              onClick={() => setMobileKeyboardVisible((value) => !value)}
+              aria-label={mobileKeyboardVisible ? 'Hide keyboard' : 'Show keyboard'}
+              className={
+                mobileKeyboardVisible
+                  ? 'rounded-md bg-gray-900 p-2 text-white'
+                  : 'rounded-md p-2 text-gray-600 hover:bg-gray-100'
+              }
+            >
+              <KeyboardIcon className="h-5 w-5" />
+            </button>
+          )}
           {supportsSectionNavigation && isSectionMode ? (
             <>
               <button
@@ -992,8 +1008,8 @@ export function Practice({
           onError={setLoadError}
         />
 
-        {/* Always on for regular scores (no toggle button fits in the compact
-            header). Generated exercises follow the setup assistance mode: hidden,
+        {/* Regular scores default to on, toggled via the header keyboard icon.
+            Generated exercises instead follow the setup assistance mode: hidden,
             visible only after mistakes, or always visible for learning. */}
         {showMobileKeyboard && (
           <div className="shrink-0 border-t border-gray-200 bg-white p-1.5">

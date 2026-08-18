@@ -189,3 +189,20 @@ export function SkipToStartIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function KeyboardIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12" />
+    </svg>
+  )
+}
