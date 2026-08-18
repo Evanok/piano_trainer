@@ -37,6 +37,42 @@ group.
 
 A piano practice web app ("Wait Mode", Simply-Piano-style): load a MusicXML/`.mxl` score, connect a MIDI keyboard, and the score only advances when the correct note(s)/chord are played -- no tempo pressure, no audio playback. Founding brief and full feature roadmap: see memory/project context from prior sessions (not duplicated here since it evolves independently of the code).
 
+## Tech Stack
+
+_Versions verified against `package.json` on 2026-08-18._
+
+**Language & runtime**
+- TypeScript ~6.0, React 19.2, Node (pure ESM -- `"type": "module"`), npm
+
+**Frontend**
+- React 19.2 + react-dom, **no router** -- `App.tsx` owns a screen enum (see Navigation and source kinds)
+- Tailwind CSS v4 via `@tailwindcss/vite` (no PostCSS config, no separate tailwind config file)
+- No component library, no state-management library -- plain `useState`/hooks
+
+**Score rendering & parsing**
+- `opensheetmusicdisplay` 2.1 (OSMD) -- MusicXML engraving, cursor, and the note data the pipeline reads
+- `jszip` 3.10 -- unzip compressed `.mxl` containers into raw MusicXML
+- Exercises are **generated MusicXML strings** in-app (`engine/*Generator.ts`), no external music-theory lib
+
+**MIDI**
+- Web MIDI API directly from the browser -- **no MIDI library**
+
+**Backend**
+- `node:http` **only -- no Express, no Fastify**; `server/index.ts` run through `tsx` 4.20
+- In dev the same catalog API is mounted into the Vite dev server, so `npm run dev` is a single process
+- Auth: own password gate using `node:crypto` (see API password gate), no auth library
+
+**Storage**
+- **No database.** Flat files on disk: `data/catalog.json`, `data/stats.json`, uploaded scores as `data/scores/<uuid>.mxl`
+- Writes go through `server/catalogStore.ts` / `server/statsStore.ts` (`fs.mkdir` + `fs.writeFile`)
+
+**Tooling**
+- Vite 8.1 + `@vitejs/plugin-react` 6 (build + dev server)
+- Vitest 4.1 (`npm test`), `tsc -b` for typecheck, oxlint 1.71 for lint
+
+**Deployment**
+- PM2 via `./deploy.sh`, serving `dist/` + the API directly on TCP 5173. No nginx, no reverse proxy.
+
 ## Architecture
 
 ### Data flow
