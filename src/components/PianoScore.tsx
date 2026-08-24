@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
+import { OpenSheetMusicDisplay, PointF2D } from 'opensheetmusicdisplay'
 import type { Note } from 'opensheetmusicdisplay'
 import { noteToMidi, playableInstrument, requiredNotesUnderCursor } from '../engine/ScoreParser'
 import type { HandMode } from '../types/practice'
@@ -7,6 +7,11 @@ import type { HandMode } from '../types/practice'
 const CORRECT_COLOR = '#22c55e'
 const NEUTRAL_COLOR = '#eab308'
 const DEFAULT_COLOR = '#000000'
+
+// OSMD's graphical model is laid out in its own abstract units, rendered at
+// 10px per unit before the zoom multiplier. Needed to turn a pointer position
+// back into something the graphical sheet's own hit-testing understands.
+const OSMD_PIXELS_PER_UNIT = 10
 
 // Scroll mode: how many measures should fit across the container's width --
 // the zoom level is derived from this, not the other way around, so the
@@ -30,6 +35,13 @@ export interface PianoScoreHandle {
   reset: () => void
   syncNotes: (heldPitches: number[]) => void
   getCurrentMeasure: () => number
+  // Which measure (1-based, matching ExpectedEvent.measureNumber) is drawn at
+  // a given viewport pixel position, so the staff itself can act as a
+  // move-the-cursor-here control (mobile's long press on the score). Resolves
+  // to the NEAREST measure rather than a strict hit test, so a press landing
+  // in the white space above/below the staves still answers instead of
+  // silently doing nothing.
+  measureAtClientPoint: (clientX: number, clientY: number) => number | null
   setZoom: (value: number) => void
   goToEventIndex: (targetIndex: number) => void
   // Restricts rendering to [startMeasure, endMeasure] (1-based, inclusive,
@@ -403,6 +415,39 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         )
       },
       getCurrentMeasure: () => (osmdRef.current?.cursor.Iterator.CurrentMeasureIndex ?? 0) + 1,
+      measureAtClientPoint: (clientX: number, clientY: number) => {
+        const osmd = osmdRef.current
+        const svg = containerRef.current?.querySelector('svg')
+        if (!osmd || !hasLoadedRef.current || !svg) {
+          return null
+        }
+        // Origin is the rendered SVG's own top-left, read live from
+        // getBoundingClientRect() rather than the container's
+        // offsetLeft/offsetTop (what OSMD's own demo code uses): the rect
+        // already accounts for the container's padding, scroll mode's
+        // horizontal scrollLeft, and the marginTop applyStableVerticalOffset
+        // puts on the SVG -- all three shift the sheet relative to the
+        // container and would otherwise each skew the lookup.
+        const rect = svg.getBoundingClientRect()
+        const unit = OSMD_PIXELS_PER_UNIT * osmd.Zoom
+        if (!(unit > 0)) {
+          return null
+        }
+        const point = new PointF2D((clientX - rect.left) / unit, (clientY - rect.top) / unit)
+        const sourceMeasure = osmd.GraphicSheet?.GetNearestStaffEntry(point)?.parentMeasure?.parentSourceMeasure
+        if (!sourceMeasure) {
+          return null
+        }
+        // The measure's sequential position in the source list + 1, NOT
+        // SourceMeasure.MeasureNumber (the number printed on the page, which a
+        // pickup measure or an explicit numbering offset makes differ). Every
+        // other measure number in the app counts this same way:
+        // ExpectedEvent.measureNumber (CurrentMeasureIndex + 1),
+        // extractNaturalBreakMeasures, getCurrentMeasure, and the indices
+        // setSectionBounds hands to Min/MaxMeasureToDrawIndex.
+        const index = (osmd.Sheet?.SourceMeasures ?? []).indexOf(sourceMeasure)
+        return index < 0 ? null : index + 1
+      },
       goToEventIndex: (targetIndex: number) => {
         const osmd = osmdRef.current
         if (!osmd || !hasLoadedRef.current) {
@@ -477,8 +522,28 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (layoutModeRef.current === 'scroll' && stableScrollZoomRef.current !== null) {
           osmd.Zoom = stableScrollZoomRef.current
         }
+        // updateGraphic() re-inits the cursor, and OSMD's Cursor.init() resets
+        // its iterator to the start of the drawn range (it also rewrites
+        // Sheet.SelectionStart to MinMeasureToDrawIndex's measure). That is
+        // invisible when the caller lands on a section's FIRST event, since the
+        // two coincide -- which is why every section change did the right thing
+        // -- but silently wrong for any position inside a section: the
+        // WaitEngine sat on measure 23 while the OSMD cursor sat back on
+        // measure 17, so the next correct note went green and advanced there
+        // instead. Re-walking after the crop is not the fix either: with a crop
+        // active, Sheet.SelectionStart means cursor.reset() starts at the
+        // section rather than the piece, so goToEventIndex's counting stops
+        // lining up with WaitEngine's indices at all (this is the same reason
+        // the walk itself must always run uncropped). So the iterator object is
+        // carried across the render and put back -- it holds source-model
+        // positions, which updateGraphic() rebuilds around rather than
+        // replacing.
+        const savedIterator = osmd.cursor.iterator
         osmd.updateGraphic()
         osmd.render()
+        if (savedIterator) {
+          osmd.cursor.iterator = savedIterator
+        }
         if (layoutModeRef.current === 'scroll' && containerRef.current) {
           applyStableVerticalOffset(containerRef.current, stableScrollHeightRef.current)
         }

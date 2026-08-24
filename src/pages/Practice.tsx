@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { TouchEvent as ReactTouchEvent } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import {
   ChevronLeftIcon,
@@ -52,6 +53,14 @@ const SESSION_HEARTBEAT_MS = 15000
 function nowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
+
+// Mobile's press-and-hold-on-the-staff cursor jump. Deliberately a long
+// press rather than a tap: scroll mode's staff is horizontally draggable and
+// a tap-to-jump would fire on every accidental brush of the screen
+// mid-practice. Any finger movement past the tolerance cancels the pending
+// press, so a scroll gesture can never turn into a jump.
+const LONG_PRESS_MS = 500
+const LONG_PRESS_MOVE_TOLERANCE_PX = 12
 
 function isSectionPracticeMode(mode: PracticeMode): boolean {
   return mode === 'sectionFree' || mode === 'sectionTraining'
@@ -229,6 +238,8 @@ export function Practice({
   // browsers before any user gesture has happened.
   const synthRef = useRef<ScoreSynth | null>(null)
   const sectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null)
   // errors within the CURRENT attempt of the current section (not the whole
   // session) -- resets every time a section (re)starts, see goToEventIndex.
   const sectionErrorCountRef = useRef(0)
@@ -376,6 +387,7 @@ export function Practice({
   useEffect(() => {
     return () => {
       clearDecayTimer()
+      cancelLongPress()
       if (sectionMessageTimeoutRef.current !== null) {
         clearTimeout(sectionMessageTimeoutRef.current)
       }
@@ -676,15 +688,97 @@ export function Practice({
 
   const handleBackToStart = () => goToEventIndex(0)
 
-  const handleJumpToMeasure = () => {
+  // Every measure-addressed cursor jump goes through here -- desktop's "Go to
+  // measure" box and mobile's long press on the staff -- so the two can never
+  // disagree about what a jump means. Two things it has to get right in a
+  // section mode, neither of which the earlier jump-to-measure did: the crop
+  // follows the target measure into whichever section contains it (a jump
+  // outside the drawn range otherwise left the cursor on measures that aren't
+  // on screen), and the cursor walk itself runs with NO crop active, per the
+  // rule handleSectionCompleted documents. Returns whether a jump actually
+  // happened, so a caller can skip its own feedback for a measure that holds
+  // no playable event.
+  const jumpToMeasure = (measureNumber: number): boolean => {
     const engine = waitEngineRef.current
-    const measureNumber = Number(measureInputValue)
     if (!engine || !Number.isFinite(measureNumber) || measureNumber < 1) {
-      return
+      return false
     }
     const eventIndex = engine.findEventIndexForMeasure(measureNumber)
-    if (eventIndex !== null) {
+    if (eventIndex === null) {
+      return false
+    }
+    // Outside a section mode, and on the explicit "Whole piece" choice inside
+    // one, no crop is active and none should become active -- cropping here
+    // would cost a full render to narrow the score the player just chose to
+    // see in full.
+    if (!isSectionMode || currentSectionIndex >= sections.length) {
       goToEventIndex(eventIndex)
+      return true
+    }
+    const target = sections.find(
+      (section) => eventIndex >= section.startEventIndex && eventIndex < section.endEventIndex,
+    )
+    setCurrentSectionIndex(target ? target.index : sections.length)
+    applySectionBounds(null)
+    goToEventIndex(eventIndex)
+    applySectionBounds(target ?? null)
+    return true
+  }
+
+  const handleJumpToMeasure = () => {
+    jumpToMeasure(Number(measureInputValue))
+  }
+
+  const cancelLongPress = () => {
+    if (longPressTimeoutRef.current !== null) {
+      clearTimeout(longPressTimeoutRef.current)
+      longPressTimeoutRef.current = null
+    }
+    longPressStartRef.current = null
+  }
+
+  // Mobile's replacement for the desktop "Go to measure" box, which has no
+  // room in the one-row phone header: press and hold anywhere on the score and
+  // the cursor moves to the measure under the finger. Page free is excluded --
+  // it has no cursor at all (see isFreePageMode).
+  const handleScoreTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    cancelLongPress()
+    if (isFreePageMode || event.touches.length !== 1) {
+      return
+    }
+    // Read off the touch now, not inside the timeout: the position is what
+    // was pressed, and by the time it fires the touch list is gone.
+    const { clientX, clientY } = event.touches[0]
+    longPressStartRef.current = { x: clientX, y: clientY }
+    longPressTimeoutRef.current = setTimeout(() => {
+      longPressTimeoutRef.current = null
+      longPressStartRef.current = null
+      const measureNumber = scoreRef.current?.measureAtClientPoint(clientX, clientY) ?? null
+      if (measureNumber === null || !jumpToMeasure(measureNumber)) {
+        return
+      }
+      // Production is plain HTTP, so treat every extra navigator API as
+      // possibly absent rather than trusting a localhost run -- same guard
+      // useWakeLock makes for the same reason.
+      if ('vibrate' in navigator) {
+        navigator.vibrate(20)
+      }
+      showSectionMessage(`Moved to measure ${measureNumber}`)
+    }, LONG_PRESS_MS)
+  }
+
+  const handleScoreTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const start = longPressStartRef.current
+    if (!start) {
+      return
+    }
+    const touch = event.touches[0]
+    if (
+      !touch ||
+      Math.abs(touch.clientX - start.x) > LONG_PRESS_MOVE_TOLERANCE_PX ||
+      Math.abs(touch.clientY - start.y) > LONG_PRESS_MOVE_TOLERANCE_PX
+    ) {
+      cancelLongPress()
     }
   }
 
@@ -999,14 +1093,39 @@ export function Practice({
           )}
         </div>
 
-        <PianoScore
-          ref={scoreRef}
-          source={scoreFile}
-          layoutMode={resolvedLayoutMode}
-          handMode={handMode}
-          onReady={handleReady}
-          onError={setLoadError}
-        />
+        {/* Long-press-to-move-the-cursor target (see handleScoreTouchStart).
+            The wrapper is what carries the touch handlers rather than
+            PianoScore itself, so the score component stays free of gesture
+            handling; select-none plus the callout/context-menu suppression
+            below keep Android from opening its own text-selection popup on
+            top of the press. */}
+        <div
+          className="relative flex min-h-0 flex-1 select-none flex-col"
+          style={{ WebkitTouchCallout: 'none' }}
+          onTouchStart={handleScoreTouchStart}
+          onTouchMove={handleScoreTouchMove}
+          onTouchEnd={cancelLongPress}
+          onTouchCancel={cancelLongPress}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <PianoScore
+            ref={scoreRef}
+            source={scoreFile}
+            layoutMode={resolvedLayoutMode}
+            handMode={handMode}
+            onReady={handleReady}
+            onError={setLoadError}
+          />
+          {/* Mobile had no home for sectionMessage at all, so a section
+              repeat/advance was silent here. Floated over the score rather
+              than given a row of its own: a landscape phone has no vertical
+              room to spare, and the message is transient either way. */}
+          {sectionMessage && (
+            <p className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-md bg-indigo-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+              {sectionMessage}
+            </p>
+          )}
+        </div>
 
         {/* Regular scores default to on, toggled via the header keyboard icon.
             Generated exercises instead follow the setup assistance mode: hidden,
