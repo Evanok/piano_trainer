@@ -136,12 +136,13 @@ export interface CatalogEntryUpdate {
   title?: string
   composer?: string | null
   difficulty?: ScoreDifficulty | null
+  favorite?: boolean
 }
 
 /**
- * Applies a user edit (title/composer/difficulty only -- everything else
- * about an entry is derived from the uploaded file, not editable). A field
- * left out of `update` is untouched; `composer: null`/`difficulty: null`
+ * Applies a user edit (title/composer/difficulty/favorite only -- everything
+ * else about an entry is derived from the uploaded file, not editable). A
+ * field left out of `update` is untouched; `composer: null`/`difficulty: null`
  * explicitly clears it. Returns null when the id doesn't resolve to an
  * entry, same as findEntry.
  */
@@ -162,6 +163,9 @@ export function updateEntry(dataDir: string, id: string, update: CatalogEntryUpd
   }
   if (update.difficulty !== undefined) {
     entry.difficulty = update.difficulty
+  }
+  if (update.favorite !== undefined) {
+    entry.favorite = update.favorite
   }
   writeCatalog(dataDir, entries)
   return entry
@@ -226,6 +230,8 @@ export async function addScore(dataDir: string, filename: string, data: Uint8Arr
     // Nothing in a MusicXML file states how hard it is to play -- always
     // starts unset, the player assigns it manually via updateEntry.
     difficulty: null,
+    // Same idea: the player stars the pieces they are working on right now.
+    favorite: false,
     filename: safeFilename,
     sizeBytes: data.byteLength,
     uploadedAt: new Date().toISOString(),

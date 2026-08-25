@@ -82,6 +82,11 @@ describe('addScore', () => {
     const entry = await addScore(dataDir, 'first.mxl', Buffer.from(SCORE_WITHOUT_METADATA))
     expect(entry.difficulty).toBeNull()
   })
+
+  it('starts out not a favorite', async () => {
+    const entry = await addScore(dataDir, 'first.mxl', Buffer.from(SCORE_WITHOUT_METADATA))
+    expect(entry.favorite).toBe(false)
+  })
 })
 
 describe('titleFromFilename', () => {
@@ -175,6 +180,18 @@ describe('updateEntry', () => {
     const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITH_METADATA))
     const updated = updateEntry(dataDir, entry.id, { composer: null })
     expect(updated).toMatchObject({ title: 'Album for the Young', composer: null })
+  })
+
+  it('stars and un-stars an entry', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    expect(updateEntry(dataDir, entry.id, { favorite: true })).toMatchObject({ favorite: true })
+    expect(updateEntry(dataDir, entry.id, { favorite: false })).toMatchObject({ favorite: false })
+  })
+
+  it('leaves the favorite untouched when other fields are edited without it', async () => {
+    const entry = await addScore(dataDir, 'first.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    updateEntry(dataDir, entry.id, { favorite: true })
+    expect(updateEntry(dataDir, entry.id, { difficulty: 'hard' })).toMatchObject({ favorite: true, difficulty: 'hard' })
   })
 
   it('sets and clears the difficulty', async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
-import { PencilIcon, TrashIcon } from '../components/icons'
+import { PencilIcon, StarIcon, TrashIcon } from '../components/icons'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streak'
 import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
@@ -30,8 +30,14 @@ interface ScoreLibraryProps {
   // of silently resetting to page 1 every time.
   initialSearch: string
   initialDifficulty: ScoreDifficulty | ''
+  initialFavoritesOnly: boolean
   initialPage: number
-  onBrowseStateChange: (search: string, difficulty: ScoreDifficulty | '', page: number) => void
+  onBrowseStateChange: (
+    search: string,
+    difficulty: ScoreDifficulty | '',
+    favoritesOnly: boolean,
+    page: number,
+  ) => void
 }
 
 function errorMessage(error: unknown): string {
@@ -92,6 +98,7 @@ export function ScoreLibrary({
   onBack,
   initialSearch,
   initialDifficulty,
+  initialFavoritesOnly,
   initialPage,
   onBrowseStateChange,
 }: ScoreLibraryProps) {
@@ -109,12 +116,16 @@ export function ScoreLibrary({
   const [searchInput, setSearchInput] = useState(initialSearch)
   const [search, setSearch] = useState(initialSearch)
   const [difficultyFilter, setDifficultyFilter] = useState<ScoreDifficulty | ''>(initialDifficulty)
+  const [favoritesOnly, setFavoritesOnly] = useState(initialFavoritesOnly)
   const [page, setPage] = useState(initialPage)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalog, setCatalog] = useState<CatalogPage | null>(null)
   const [isCatalogLoading, setIsCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
+  // The entry whose star is mid-request, so the same score can't be toggled
+  // twice before the server has answered.
+  const [togglingFavoriteId, setTogglingFavoriteId] = useState<string | null>(null)
 
   // Editing is inline in the list row, so only one entry's fields need to be
   // held in state at a time (rather than one draft per row).
@@ -157,13 +168,18 @@ export function ScoreLibrary({
   // a score) and back later resumes on the same page/search/filter instead
   // of resetting -- this component fully unmounts on every screen switch.
   useEffect(() => {
-    onBrowseStateChange(search, difficultyFilter, page)
+    onBrowseStateChange(search, difficultyFilter, favoritesOnly, page)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, difficultyFilter, page])
+  }, [search, difficultyFilter, favoritesOnly, page])
 
   const handleSelectDifficultyFilter = (value: ScoreDifficulty | '') => {
     setDifficultyFilter(value)
     // A new filter invalidates the current page number, same as a new search.
+    setPage(1)
+  }
+
+  const handleToggleFavoritesOnly = () => {
+    setFavoritesOnly((current) => !current)
     setPage(1)
   }
 
@@ -173,6 +189,7 @@ export function ScoreLibrary({
     fetchCatalogPage({
       search,
       difficulty: difficultyFilter || undefined,
+      favoritesOnly,
       page,
       pageSize: CATALOG_PAGE_SIZE,
       signal: controller.signal,
@@ -194,7 +211,7 @@ export function ScoreLibrary({
         }
       })
     return () => controller.abort()
-  }, [search, difficultyFilter, page, reloadToken])
+  }, [search, difficultyFilter, favoritesOnly, page, reloadToken])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -230,6 +247,40 @@ export function ScoreLibrary({
     } catch (error: unknown) {
       setOpeningId(null)
       setCatalogError(`Could not open "${entry.title}": ${errorMessage(error)}`)
+    }
+  }
+
+  const handleToggleFavorite = async (entry: CatalogEntry) => {
+    const favorite = !entry.favorite
+    setTogglingFavoriteId(entry.id)
+    setCatalogError(null)
+    // Starring is a one-click action taken while browsing, so the star flips
+    // straight away instead of waiting for a refetch; a failed request puts
+    // the list back the way it was.
+    setCatalog((current) =>
+      current
+        ? { ...current, items: current.items.map((item) => (item.id === entry.id ? { ...item, favorite } : item)) }
+        : current,
+    )
+    try {
+      await updateScoreEntry(entry.id, { favorite })
+      // Under the favorites filter an un-starred entry no longer belongs on
+      // the page at all, so let the server rebuild it (and the total with it).
+      if (favoritesOnly) {
+        setReloadToken((token) => token + 1)
+      }
+    } catch (error: unknown) {
+      setCatalog((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((item) => (item.id === entry.id ? { ...item, favorite: entry.favorite } : item)),
+            }
+          : current,
+      )
+      setCatalogError(`Could not update the favorite for "${entry.title}": ${errorMessage(error)}`)
+    } finally {
+      setTogglingFavoriteId(null)
     }
   }
 
@@ -371,6 +422,20 @@ export function ScoreLibrary({
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
             </select>
+            <button
+              type="button"
+              onClick={handleToggleFavoritesOnly}
+              aria-pressed={favoritesOnly}
+              title={favoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
+              aria-label="Show favorites only"
+              className={`shrink-0 rounded-md border px-2 py-2 ${
+                favoritesOnly
+                  ? 'border-amber-300 bg-amber-50 text-amber-500'
+                  : 'border-indigo-200 bg-white text-gray-400 hover:text-amber-500'
+              }`}
+            >
+              <StarIcon className="h-5 w-5" filled={favoritesOnly} />
+            </button>
           </div>
 
           {catalogError && (
@@ -390,8 +455,8 @@ export function ScoreLibrary({
 
           {catalog && catalog.items.length === 0 && !isCatalogLoading && (
             <p className="py-4 text-sm text-gray-500">
-              {search || difficultyFilter
-                ? `No score matches${search ? ` "${search}"` : ''}${
+              {search || difficultyFilter || favoritesOnly
+                ? `No ${favoritesOnly ? 'favorite ' : ''}score matches${search ? ` "${search}"` : ''}${
                     difficultyFilter ? ` (${DIFFICULTY_LABELS[difficultyFilter]} difficulty)` : ''
                   }.`
                 : 'No score saved yet. Upload one above and it will show up here.'}
@@ -487,6 +552,20 @@ export function ScoreLibrary({
                       <span className="shrink-0 text-xs font-medium text-indigo-600">
                         {openingId === entry.id ? 'Opening...' : 'Practice'}
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy || togglingFavoriteId === entry.id}
+                      onClick={() => {
+                        void handleToggleFavorite(entry)
+                      }}
+                      aria-pressed={entry.favorite === true}
+                      aria-label={entry.favorite ? `Remove "${entry.title}" from favorites` : `Add "${entry.title}" to favorites`}
+                      className={`shrink-0 rounded p-1.5 hover:bg-amber-50 disabled:opacity-40 ${
+                        entry.favorite ? 'text-amber-500' : 'text-gray-300 hover:text-amber-500'
+                      }`}
+                    >
+                      <StarIcon className="h-4 w-4" filled={entry.favorite === true} />
                     </button>
                     <button
                       type="button"

@@ -141,6 +141,24 @@ export function PencilIcon({ className }: IconProps) {
   )
 }
 
+/** Outlined by default, solid when `filled` -- the same icon does duty as
+ *  "not a favorite" and "favorite", so the two never drift apart in shape. */
+export function StarIcon({ className, filled = false }: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m12 3.5 2.7 5.5 6 .9-4.35 4.25 1.03 6-5.38-2.83L6.62 20.15l1.03-6L3.3 9.9l6-.9Z" />
+    </svg>
+  )
+}
+
 export function TrashIcon({ className }: IconProps) {
   return (
     <svg

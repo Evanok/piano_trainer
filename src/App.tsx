@@ -78,12 +78,17 @@ function App() {
   // catalog always resumed reset to page 1.
   const [catalogSearch, setCatalogSearch] = useState('')
   const [catalogDifficulty, setCatalogDifficulty] = useState<ScoreDifficulty | ''>('')
+  const [catalogFavoritesOnly, setCatalogFavoritesOnly] = useState(false)
   const [catalogPage, setCatalogPage] = useState(1)
-  const handleCatalogBrowseChange = useCallback((search: string, difficulty: ScoreDifficulty | '', page: number) => {
-    setCatalogSearch(search)
-    setCatalogDifficulty(difficulty)
-    setCatalogPage(page)
-  }, [])
+  const handleCatalogBrowseChange = useCallback(
+    (search: string, difficulty: ScoreDifficulty | '', favoritesOnly: boolean, page: number) => {
+      setCatalogSearch(search)
+      setCatalogDifficulty(difficulty)
+      setCatalogFavoritesOnly(favoritesOnly)
+      setCatalogPage(page)
+    },
+    [],
+  )
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
@@ -252,8 +257,9 @@ function App() {
   }, [])
 
   // Same cleanup as handleBackToHome, but lands directly in the catalog
-  // instead of the intent menu -- catalogSearch/catalogDifficulty/catalogPage
-  // are untouched, so browsing resumes where it was left off.
+  // instead of the intent menu -- the catalogSearch/catalogDifficulty/
+  // catalogFavoritesOnly/catalogPage state is untouched, so browsing resumes
+  // where it was left off.
   const handleBackToCatalog = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
@@ -335,6 +341,7 @@ function App() {
         onBack={handleBackToHome}
         initialSearch={catalogSearch}
         initialDifficulty={catalogDifficulty}
+        initialFavoritesOnly={catalogFavoritesOnly}
         initialPage={catalogPage}
         onBrowseStateChange={handleCatalogBrowseChange}
       />

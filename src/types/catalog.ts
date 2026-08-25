@@ -17,6 +17,9 @@ export interface CatalogEntry {
   uploadedAt: string
   /** Optional so entries saved before this field existed decode without it -- treat missing the same as null (not set). */
   difficulty?: ScoreDifficulty | null
+  /** User-assigned too: the handful of pieces currently being worked on.
+   *  Optional for the same reason as difficulty -- missing means not a favorite. */
+  favorite?: boolean
 }
 
 export interface CatalogPage {

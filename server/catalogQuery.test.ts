@@ -123,4 +123,34 @@ describe('queryCatalog', () => {
     ]
     expect(queryCatalog(entries, { search: 'clair', difficulty: 'easy' }).items.map((item) => item.id)).toEqual(['a'])
   })
+
+  it('keeps only the starred entries under the favorites filter', () => {
+    const entries = [
+      { ...entry('a', 'Worked On', '2026-01-01T10:00:00.000Z'), favorite: true },
+      { ...entry('b', 'Not Starred', '2026-01-02T10:00:00.000Z'), favorite: false },
+      // Saved before the field existed: missing means not a favorite.
+      entry('c', 'Legacy', '2026-01-03T10:00:00.000Z'),
+    ]
+    expect(queryCatalog(entries, { favoritesOnly: true }).items.map((item) => item.id)).toEqual(['a'])
+    expect(queryCatalog(entries, { favoritesOnly: true }).total).toBe(1)
+  })
+
+  it('leaves the listing untouched when the favorites filter is off', () => {
+    const entries = [
+      { ...entry('a', 'Worked On', '2026-01-01T10:00:00.000Z'), favorite: true },
+      entry('b', 'Other', '2026-01-02T10:00:00.000Z'),
+    ]
+    expect(queryCatalog(entries, { favoritesOnly: false }).total).toBe(2)
+    expect(queryCatalog(entries).total).toBe(2)
+  })
+
+  it('combines the favorites filter with a search term and a difficulty', () => {
+    const entries = [
+      { ...entry('a', 'Clair de Lune', '2026-01-01T10:00:00.000Z', 'a.mxl', null, 'easy'), favorite: true },
+      { ...entry('b', 'Clair Matin', '2026-01-02T10:00:00.000Z', 'b.mxl', null, 'easy'), favorite: false },
+      { ...entry('c', 'Clair Soir', '2026-01-03T10:00:00.000Z', 'c.mxl', null, 'hard'), favorite: true },
+    ]
+    const result = queryCatalog(entries, { search: 'clair', difficulty: 'easy', favoritesOnly: true })
+    expect(result.items.map((item) => item.id)).toEqual(['a'])
+  })
 })

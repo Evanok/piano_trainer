@@ -10,6 +10,9 @@ export interface CatalogQuery {
   /** Exact match, not a search term -- an entry with no difficulty set never
    *  matches any of the three values, it only shows up with no filter applied. */
   difficulty?: ScoreDifficulty
+  /** When true, keep only the starred entries; false and undefined both mean
+   *  "no filter" (there is deliberately no "non-favorites only" option). */
+  favoritesOnly?: boolean
   page?: number
   pageSize?: number
 }
@@ -29,6 +32,7 @@ function clampPageSize(pageSize: number | undefined): number {
 /**
  * Pure search + pagination over the whole catalog: every term must match
  * (AND), case-insensitively, against the title, the composer or the file name;
+ * the difficulty and favorite filters then narrow that down (AND again), and
  * results come back most recently uploaded first.
  */
 export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}): CatalogPage {
@@ -37,7 +41,8 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
     .split(/\s+/)
     .filter(Boolean)
   const bySearch = terms.length > 0 ? entries.filter((entry) => matchesSearch(entry, terms)) : [...entries]
-  const matched = query.difficulty ? bySearch.filter((entry) => entry.difficulty === query.difficulty) : bySearch
+  const byDifficulty = query.difficulty ? bySearch.filter((entry) => entry.difficulty === query.difficulty) : bySearch
+  const matched = query.favoritesOnly ? byDifficulty.filter((entry) => entry.favorite === true) : byDifficulty
 
   // ISO-8601 strings compare lexicographically in chronological order, so no
   // Date parsing is needed. Two uploads can land in the same millisecond, so

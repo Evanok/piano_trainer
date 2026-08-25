@@ -4,6 +4,7 @@ import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalo
 export interface CatalogQueryParams {
   search: string
   difficulty?: ScoreDifficulty
+  favoritesOnly?: boolean
   page: number
   pageSize?: number
   signal?: AbortSignal
@@ -36,6 +37,7 @@ async function readError(response: Response): Promise<string> {
 export async function fetchCatalogPage({
   search,
   difficulty,
+  favoritesOnly,
   page,
   pageSize,
   signal,
@@ -43,6 +45,9 @@ export async function fetchCatalogPage({
   const params = new URLSearchParams({ q: search, page: String(page) })
   if (difficulty !== undefined) {
     params.set('difficulty', difficulty)
+  }
+  if (favoritesOnly) {
+    params.set('favorite', '1')
   }
   if (pageSize !== undefined) {
     params.set('limit', String(pageSize))
@@ -58,6 +63,7 @@ export interface CatalogEntryUpdate {
   title?: string
   composer?: string | null
   difficulty?: ScoreDifficulty | null
+  favorite?: boolean
 }
 
 export async function updateScoreEntry(id: string, update: CatalogEntryUpdate): Promise<CatalogEntry> {
