@@ -79,6 +79,9 @@ function handleList(res: ServerResponse, dataDir: string, url: URL): void {
     queryCatalog(readCatalog(dataDir), {
       search: url.searchParams.get('q') ?? '',
       difficulty: parseDifficulty(url.searchParams.get('difficulty')),
+      // Only ?favorite=1 turns the filter on; anything else (absent, 0, junk)
+      // means "no filter", same leniency as the other listing parameters.
+      favoritesOnly: url.searchParams.get('favorite') === '1',
       page: parsePositiveInt(url.searchParams.get('page')),
       pageSize: parsePositiveInt(url.searchParams.get('limit')),
     }),
@@ -121,9 +124,15 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     title: rawTitle,
     composer: rawComposer,
     difficulty: rawDifficulty,
-  } = payload as { title?: unknown; composer?: unknown; difficulty?: unknown }
+    favorite: rawFavorite,
+  } = payload as { title?: unknown; composer?: unknown; difficulty?: unknown; favorite?: unknown }
 
-  const update: { title?: string; composer?: string | null; difficulty?: ScoreDifficulty | null } = {}
+  const update: {
+    title?: string
+    composer?: string | null
+    difficulty?: ScoreDifficulty | null
+    favorite?: boolean
+  } = {}
   if (rawTitle !== undefined) {
     if (typeof rawTitle !== 'string' || !rawTitle.trim()) {
       throw new HttpError(400, 'Title cannot be empty.')
@@ -142,8 +151,19 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     }
     update.difficulty = rawDifficulty as ScoreDifficulty | null
   }
-  if (update.title === undefined && update.composer === undefined && update.difficulty === undefined) {
-    throw new HttpError(400, 'Nothing to update: provide title, composer and/or difficulty.')
+  if (rawFavorite !== undefined) {
+    if (typeof rawFavorite !== 'boolean') {
+      throw new HttpError(400, 'Favorite must be a boolean.')
+    }
+    update.favorite = rawFavorite
+  }
+  if (
+    update.title === undefined &&
+    update.composer === undefined &&
+    update.difficulty === undefined &&
+    update.favorite === undefined
+  ) {
+    throw new HttpError(400, 'Nothing to update: provide title, composer, difficulty and/or favorite.')
   }
 
   const entry = updateEntry(dataDir, id, update)
