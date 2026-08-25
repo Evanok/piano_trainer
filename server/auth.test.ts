@@ -1,14 +1,29 @@
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { configuredPassword, createLoginThrottle, isValidToken, tokenForPassword } from './auth.ts'
+import {
+  configuredGuestPassword,
+  configuredPassword,
+  createLoginThrottle,
+  guestToken,
+  isValidToken,
+  resolveRole,
+  tokenForPassword,
+} from './auth.ts'
 
 const originalPassword = process.env.PIANO_TRAINER_PASSWORD
+const originalGuestPassword = process.env.PIANO_TRAINER_GUEST_PASSWORD
+
+function restore(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name]
+  } else {
+    process.env[name] = value
+  }
+}
 
 afterEach(() => {
-  if (originalPassword === undefined) {
-    delete process.env.PIANO_TRAINER_PASSWORD
-  } else {
-    process.env.PIANO_TRAINER_PASSWORD = originalPassword
-  }
+  restore('PIANO_TRAINER_PASSWORD', originalPassword)
+  restore('PIANO_TRAINER_GUEST_PASSWORD', originalGuestPassword)
 })
 
 describe('configuredPassword', () => {
@@ -28,6 +43,24 @@ describe('configuredPassword', () => {
   })
 })
 
+describe('configuredGuestPassword', () => {
+  it('is null when unset, which simply means no guest link exists', () => {
+    delete process.env.PIANO_TRAINER_GUEST_PASSWORD
+    expect(configuredGuestPassword()).toBeNull()
+  })
+
+  it('reads the configured guest password', () => {
+    process.env.PIANO_TRAINER_GUEST_PASSWORD = 'come-in'
+    expect(configuredGuestPassword()).toBe('come-in')
+  })
+
+  it('ignores a guest password identical to the owner one, which would hand out full access', () => {
+    process.env.PIANO_TRAINER_PASSWORD = 'hunter2'
+    process.env.PIANO_TRAINER_GUEST_PASSWORD = 'hunter2'
+    expect(configuredGuestPassword()).toBeNull()
+  })
+})
+
 describe('tokenForPassword', () => {
   it('is stable, so a server restart does not log every device out', () => {
     expect(tokenForPassword('hunter2')).toBe(tokenForPassword('hunter2'))
@@ -40,6 +73,54 @@ describe('tokenForPassword', () => {
 
   it('differs per password', () => {
     expect(tokenForPassword('hunter2')).not.toBe(tokenForPassword('hunter3'))
+  })
+
+  it('differs per role, so the same password can never yield an owner token on the guest path', () => {
+    expect(tokenForPassword('hunter2', 'guest')).not.toBe(tokenForPassword('hunter2', 'owner'))
+  })
+
+  it('leaves the owner derivation untouched, so tokens stored before guest links keep working', () => {
+    expect(tokenForPassword('hunter2')).toBe(
+      createHash('sha256').update('piano-trainer:hunter2').digest('hex'),
+    )
+  })
+})
+
+describe('resolveRole', () => {
+  it('calls everyone the owner when no password is configured', () => {
+    delete process.env.PIANO_TRAINER_PASSWORD
+    expect(resolveRole(undefined)).toBe('owner')
+  })
+
+  it('recognises the owner and the guest by their own tokens', () => {
+    process.env.PIANO_TRAINER_PASSWORD = 'hunter2'
+    process.env.PIANO_TRAINER_GUEST_PASSWORD = 'come-in'
+    expect(resolveRole(tokenForPassword('hunter2', 'owner'))).toBe('owner')
+    expect(resolveRole(tokenForPassword('come-in', 'guest'))).toBe('guest')
+  })
+
+  it('rejects an unknown token, and a guest token when no guest password is set', () => {
+    process.env.PIANO_TRAINER_PASSWORD = 'hunter2'
+    delete process.env.PIANO_TRAINER_GUEST_PASSWORD
+    expect(resolveRole('nonsense')).toBeNull()
+    expect(resolveRole(tokenForPassword('come-in', 'guest'))).toBeNull()
+  })
+
+  it('never promotes a guest token to owner, even for the owner password', () => {
+    process.env.PIANO_TRAINER_PASSWORD = 'hunter2'
+    process.env.PIANO_TRAINER_GUEST_PASSWORD = 'come-in'
+    expect(resolveRole(tokenForPassword('hunter2', 'guest'))).toBeNull()
+  })
+})
+
+describe('guestToken', () => {
+  it('is null without a guest password and matches the derivation with one', () => {
+    process.env.PIANO_TRAINER_PASSWORD = 'hunter2'
+    delete process.env.PIANO_TRAINER_GUEST_PASSWORD
+    expect(guestToken()).toBeNull()
+
+    process.env.PIANO_TRAINER_GUEST_PASSWORD = 'come-in'
+    expect(guestToken()).toBe(tokenForPassword('come-in', 'guest'))
   })
 })
 

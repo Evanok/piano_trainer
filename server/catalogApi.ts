@@ -15,7 +15,16 @@ import {
   updateEntry,
 } from './catalogStore.ts'
 import { readSessions, syncSessions } from './statsStore.ts'
-import { AUTH_HEADER, configuredPassword, createLoginThrottle, isValidToken, tokenForPassword } from './auth.ts'
+import {
+  AUTH_HEADER,
+  configuredGuestPassword,
+  configuredPassword,
+  createLoginThrottle,
+  guestToken,
+  resolveRole,
+  tokenForPassword,
+} from './auth.ts'
+import type { ApiRole } from '../src/types/auth.ts'
 
 /** Connect-style middleware, so the same handler runs in dev (mounted on the
  *  Vite dev server) and in production (server/index.ts). */
@@ -220,12 +229,23 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, throttle: 
     throw new HttpError(400, 'Request body must be valid JSON.')
   }
   const submitted = (payload as { password?: unknown } | null)?.password
-  if (typeof submitted !== 'string' || submitted !== password) {
+  const guestPassword = configuredGuestPassword()
+  // The guest password is accepted here too, so the read-only access also
+  // works by typing it in rather than only through the share link.
+  const matched: { password: string; role: ApiRole } | null =
+    typeof submitted !== 'string'
+      ? null
+      : submitted === password
+        ? { password, role: 'owner' }
+        : guestPassword !== null && submitted === guestPassword
+          ? { password: guestPassword, role: 'guest' }
+          : null
+  if (matched === null) {
     throttle.registerFailure(Date.now())
     throw new HttpError(401, 'Wrong password.')
   }
   throttle.reset()
-  sendJson(res, 200, { token: tokenForPassword(password) })
+  sendJson(res, 200, { token: tokenForPassword(matched.password, matched.role), role: matched.role })
 }
 
 function handleDownload(res: ServerResponse, dataDir: string, id: string): void {
@@ -246,6 +266,22 @@ function handleDownload(res: ServerResponse, dataDir: string, id: string): void 
   createReadStream(file).pipe(res)
 }
 
+/**
+ * Everything a guest link may do: browse the catalog, open a score, read the
+ * practice history. Deliberately an allowlist rather than a list of forbidden
+ * writes, so a new endpoint is closed to guests until someone decides otherwise.
+ */
+export function isAllowedForGuest(method: string | undefined, pathname: string): boolean {
+  if (method !== 'GET') {
+    return false
+  }
+  return (
+    pathname === '/api/scores' ||
+    pathname === '/api/stats' ||
+    /^\/api\/scores\/[^/]+\/file$/.test(pathname)
+  )
+}
+
 export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApiHandler {
   const loginThrottle = createLoginThrottle()
   return (req, res, next) => {
@@ -262,12 +298,19 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
       const entryMatch = /^\/api\/scores\/([^/]+)$/.exec(url.pathname)
       const password = configuredPassword()
       const token = req.headers[AUTH_HEADER]
-      const authenticated = password === null || isValidToken(typeof token === 'string' ? token : undefined, password)
+      const role = resolveRole(typeof token === 'string' ? token : undefined)
 
       // The only two open endpoints: what the front-end needs to know whether
       // to show a login screen, and the login itself.
       if (url.pathname === '/api/auth' && req.method === 'GET') {
-        sendJson(res, 200, { required: password !== null, authenticated })
+        sendJson(res, 200, {
+          required: password !== null,
+          authenticated: role !== null,
+          role,
+          // The guest token is the whole secret of the share link, so it only
+          // ever goes back to the owner (who is the one who shares it).
+          guestToken: role === 'owner' ? guestToken() : null,
+        })
         return
       }
       if (url.pathname === '/api/login' && req.method === 'POST') {
@@ -276,8 +319,15 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
       }
       // Everything else, reads included -- see server/auth.ts for why the gate
       // lives here and not in the UI.
-      if (!authenticated) {
+      if (role === null) {
         throw new HttpError(401, 'Authentication required.')
+      }
+      // 403, deliberately not 401: the front-end treats a 401 as "this token is
+      // no longer any good", drops it and shows the login screen, which would
+      // throw a guest out on their first blocked request instead of just
+      // refusing that one call.
+      if (role === 'guest' && !isAllowedForGuest(req.method, url.pathname)) {
+        throw new HttpError(403, 'This link is read-only.')
       }
 
       if (url.pathname === '/api/stats' && req.method === 'GET') {

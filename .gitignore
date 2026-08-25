@@ -25,3 +25,7 @@ dist-ssr
 
 # Catalog data (uploaded scores + their index)
 /data
+
+# Deployment secrets (passwords for the API gate and the guest link).
+# The .example template is committed, the real file never is.
+/piano-trainer.env

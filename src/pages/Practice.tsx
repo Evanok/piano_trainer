@@ -12,6 +12,7 @@ import {
   SkipToStartIcon,
   StopIcon,
 } from '../components/icons'
+import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
@@ -354,6 +355,12 @@ export function Practice({
   }
 
   const persistSession = (completed: boolean) => {
+    // A guest is looking at the owner's history, not building one: recording
+    // their play would mix into what the stats screen shows them (the server
+    // refuses their sync anyway, so it could never reach anyone else).
+    if (isGuest()) {
+      return
+    }
     // Once a session is on record as completed, no later snapshot may downgrade
     // it -- the heartbeat and the unmount that follows the End screen both still
     // run after finishSession.

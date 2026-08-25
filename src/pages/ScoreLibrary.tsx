@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { PencilIcon, StarIcon, TrashIcon } from '../components/icons'
+import { isGuest } from '../api/auth'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streak'
 import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
@@ -102,6 +103,11 @@ export function ScoreLibrary({
   initialPage,
   onBrowseStateChange,
 }: ScoreLibraryProps) {
+  // Read-only share link: the catalog is browsable and playable, but nothing
+  // here may be added, edited, starred or deleted. The server refuses those
+  // calls anyway (see server/auth.ts); hiding the controls is so a guest is
+  // never offered a button that can only fail.
+  const guest = isGuest()
   const [fileError, setFileError] = useState<string | null>(null)
   // Set only when saving to the catalog failed: the score is still perfectly
   // playable, so we offer to practice it without keeping it server-side rather
@@ -352,35 +358,37 @@ export function ScoreLibrary({
           <StreakBadges streak={streak} className="justify-center" />
         </header>
 
-        <section className="flex w-full flex-col items-center gap-3">
-          <label
-            className={`w-full rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/70 px-6 py-8 text-center text-sm font-medium text-indigo-700 ${
-              isBusy ? 'cursor-progress opacity-60' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-100/70'
-            }`}
-          >
-            {isSaving ? 'Adding to the catalog...' : 'Choose a MusicXML score (.musicxml, .xml, .mxl)'}
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".musicxml,.xml,.mxl"
-              disabled={isBusy}
-              onChange={(event) => {
-                void handleFileChange(event)
-              }}
-              className="hidden"
-            />
-          </label>
-          {fileError && <p className="text-sm text-red-600">{fileError}</p>}
-          {unsavedFile && (
-            <button
-              type="button"
-              onClick={() => onFileLoaded(unsavedFile)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+        {!guest && (
+          <section className="flex w-full flex-col items-center gap-3">
+            <label
+              className={`w-full rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/70 px-6 py-8 text-center text-sm font-medium text-indigo-700 ${
+                isBusy ? 'cursor-progress opacity-60' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-100/70'
+              }`}
             >
-              Practice "{unsavedFile.name}" without saving it
-            </button>
-          )}
-        </section>
+              {isSaving ? 'Adding to the catalog...' : 'Choose a MusicXML score (.musicxml, .xml, .mxl)'}
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".musicxml,.xml,.mxl"
+                disabled={isBusy}
+                onChange={(event) => {
+                  void handleFileChange(event)
+                }}
+                className="hidden"
+              />
+            </label>
+            {fileError && <p className="text-sm text-red-600">{fileError}</p>}
+            {unsavedFile && (
+              <button
+                type="button"
+                onClick={() => onFileLoaded(unsavedFile)}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Practice "{unsavedFile.name}" without saving it
+              </button>
+            )}
+          </section>
+        )}
 
         <section className="flex w-full flex-col items-center gap-2 rounded-xl border border-indigo-100 bg-white/70 px-4 py-4 shadow-sm">
           <p className="text-sm font-medium text-gray-700">MIDI keyboard</p>
@@ -459,7 +467,9 @@ export function ScoreLibrary({
                 ? `No ${favoritesOnly ? 'favorite ' : ''}score matches${search ? ` "${search}"` : ''}${
                     difficultyFilter ? ` (${DIFFICULTY_LABELS[difficultyFilter]} difficulty)` : ''
                   }.`
-                : 'No score saved yet. Upload one above and it will show up here.'}
+                : guest
+                  ? 'No score in the catalog yet.'
+                  : 'No score saved yet. Upload one above and it will show up here.'}
             </p>
           )}
 
@@ -553,41 +563,45 @@ export function ScoreLibrary({
                         {openingId === entry.id ? 'Opening...' : 'Practice'}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      disabled={isBusy || togglingFavoriteId === entry.id}
-                      onClick={() => {
-                        void handleToggleFavorite(entry)
-                      }}
-                      aria-pressed={entry.favorite === true}
-                      aria-label={entry.favorite ? `Remove "${entry.title}" from favorites` : `Add "${entry.title}" to favorites`}
-                      className={`shrink-0 rounded p-1.5 hover:bg-amber-50 disabled:opacity-40 ${
-                        entry.favorite ? 'text-amber-500' : 'text-gray-300 hover:text-amber-500'
-                      }`}
-                    >
-                      <StarIcon className="h-4 w-4" filled={entry.favorite === true} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => startEditing(entry)}
-                      aria-label={`Edit "${entry.title}"`}
-                      className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40"
-                    >
-                      <PencilIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => {
-                        setDeletingEntry(entry)
-                        setDeleteError(null)
-                      }}
-                      aria-label={`Delete "${entry.title}"`}
-                      className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
+                    {!guest && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isBusy || togglingFavoriteId === entry.id}
+                          onClick={() => {
+                            void handleToggleFavorite(entry)
+                          }}
+                          aria-pressed={entry.favorite === true}
+                          aria-label={entry.favorite ? `Remove "${entry.title}" from favorites` : `Add "${entry.title}" to favorites`}
+                          className={`shrink-0 rounded p-1.5 hover:bg-amber-50 disabled:opacity-40 ${
+                            entry.favorite ? 'text-amber-500' : 'text-gray-300 hover:text-amber-500'
+                          }`}
+                        >
+                          <StarIcon className="h-4 w-4" filled={entry.favorite === true} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => startEditing(entry)}
+                          aria-label={`Edit "${entry.title}"`}
+                          className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40"
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => {
+                            setDeletingEntry(entry)
+                            setDeleteError(null)
+                          }}
+                          aria-label={`Delete "${entry.title}"`}
+                          className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
                   </li>
                 ),
               )}
