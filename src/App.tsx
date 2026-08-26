@@ -8,7 +8,7 @@ import { Practice } from './pages/Practice'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { createHanonExercise } from './engine/hanonGenerator'
-import { clearToken, fetchAuthStatus, subscribeAuthRequired } from './api/auth'
+import { adoptGuestLinkToken, clearToken, fetchAuthStatus, isGuest, subscribeAuthRequired } from './api/auth'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
 import type {
@@ -19,7 +19,7 @@ import type {
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
 import type { SessionSource, SessionStats } from './types/session'
-import type { CatalogEntry, ScoreDifficulty } from './types/catalog'
+import { DEFAULT_BROWSE_STATE, type CatalogBrowseState, type CatalogEntry } from './types/catalog'
 import type {
   ExerciseKind,
   ExerciseRequest,
@@ -61,6 +61,13 @@ type AuthGate = 'checking' | 'locked' | 'open'
 
 function App() {
   const [authGate, setAuthGate] = useState<AuthGate>('checking')
+  // Read-only share-link session (see api/auth.ts). Held here rather than read
+  // per screen so every screen agrees within one session, even though the
+  // server is what actually enforces it.
+  const [isGuestSession, setIsGuestSession] = useState(false)
+  // Only the owner is ever told the guest token, and only when the server has a
+  // guest password configured -- null means there is no link to hand out.
+  const [guestToken, setGuestToken] = useState<string | null>(null)
   const [screen, setScreen] = useState<Screen>('home')
   // Tracks the screen we already have a browser-history entry for. Lets the
   // effect below tell "screen changed via a fresh navigation" apart from
@@ -76,19 +83,10 @@ function App() {
   // Owned here (not inside ScoreLibrary) so it survives that component
   // unmounting when navigating away and back -- otherwise browsing the
   // catalog always resumed reset to page 1.
-  const [catalogSearch, setCatalogSearch] = useState('')
-  const [catalogDifficulty, setCatalogDifficulty] = useState<ScoreDifficulty | ''>('')
-  const [catalogFavoritesOnly, setCatalogFavoritesOnly] = useState(false)
-  const [catalogPage, setCatalogPage] = useState(1)
-  const handleCatalogBrowseChange = useCallback(
-    (search: string, difficulty: ScoreDifficulty | '', favoritesOnly: boolean, page: number) => {
-      setCatalogSearch(search)
-      setCatalogDifficulty(difficulty)
-      setCatalogFavoritesOnly(favoritesOnly)
-      setCatalogPage(page)
-    },
-    [],
-  )
+  const [catalogBrowseState, setCatalogBrowseState] = useState<CatalogBrowseState>(DEFAULT_BROWSE_STATE)
+  const handleCatalogBrowseChange = useCallback((state: CatalogBrowseState) => {
+    setCatalogBrowseState(state)
+  }, [])
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
@@ -111,19 +109,31 @@ function App() {
     try {
       const status = await fetchAuthStatus()
       if (status.required && !status.authenticated) {
-        // A stored token the server no longer accepts (password changed) would
-        // otherwise keep failing every request silently.
+        // A stored token the server no longer accepts (password changed, or a
+        // revoked guest link) would otherwise keep failing every request
+        // silently.
         clearToken()
+        setIsGuestSession(false)
+        setGuestToken(null)
         setAuthGate('locked')
         return
       }
+      setIsGuestSession(status.role === 'guest')
+      setGuestToken(status.guestToken)
       setAuthGate('open')
     } catch {
+      // Unreachable server: fall back to what this device last knew about
+      // itself, so an offline guest still gets the read-only screens rather
+      // than the owner's.
+      setIsGuestSession(isGuest())
       setAuthGate('open')
     }
   }, [])
 
   useEffect(() => {
+    // Synchronously, before the first request goes out: a share link is only a
+    // token in the address bar until this stores it.
+    adoptGuestLinkToken()
     void refreshAuthGate()
     return subscribeAuthRequired(() => setAuthGate('locked'))
   }, [refreshAuthGate])
@@ -339,10 +349,7 @@ function App() {
         midiError={error}
         onFileLoaded={handleScoreLoaded}
         onBack={handleBackToHome}
-        initialSearch={catalogSearch}
-        initialDifficulty={catalogDifficulty}
-        initialFavoritesOnly={catalogFavoritesOnly}
-        initialPage={catalogPage}
+        initialBrowseState={catalogBrowseState}
         onBrowseStateChange={handleCatalogBrowseChange}
       />
     )
@@ -389,6 +396,8 @@ function App() {
       onStartExercise={() => setScreen('exercise-setup')}
       onPracticeScore={() => setScreen('score-library')}
       onViewStats={() => setScreen('stats')}
+      isGuestSession={isGuestSession}
+      guestToken={guestToken}
     />
   )
 }

@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { syncSessions } from '../api/stats'
+import { isGuest } from '../api/auth'
+import { fetchSessions, syncSessions } from '../api/stats'
 import { computeGrade } from '../engine/grade'
-import { countedSessions } from '../engine/sessionLog'
+import { countedSessions, mergeSessionLogs } from '../engine/sessionLog'
 import { getSessions, replaceSessions } from '../engine/sessionStore'
 import {
   bestCombo,
@@ -27,7 +28,7 @@ const RECENT_WINDOW_DAYS = 7
 const CHART_DAYS = 14
 const VISIBLE_BLOCK_ROWS = 12
 
-type SyncState = 'syncing' | 'synced' | 'local'
+type SyncState = 'syncing' | 'synced' | 'guest' | 'local'
 
 const PRACTICE_MODE_LABELS: Record<string, string> = {
   page: 'Page',
@@ -256,13 +257,19 @@ export function Stats({ onBack }: StatsProps) {
     let cancelled = false
     void (async () => {
       try {
-        const merged = await syncSessions(getSessions())
+        // A guest reads the shared history but never pushes into it, so it
+        // pulls instead of syncing. Merging rather than replacing keeps a
+        // device that has its own local history from losing it just because
+        // someone opened a guest link in that browser.
+        const guest = isGuest()
+        const remote = guest ? await fetchSessions() : await syncSessions(getSessions())
         if (cancelled) {
           return
         }
+        const merged = guest ? mergeSessionLogs(getSessions(), remote) : remote
         replaceSessions(merged)
         setSessions(merged)
-        setSyncState('synced')
+        setSyncState(guest ? 'guest' : 'synced')
       } catch {
         if (!cancelled) {
           setSyncState('local')
@@ -318,7 +325,13 @@ export function Stats({ onBack }: StatsProps) {
             Stats
           </h1>
           <span className="w-24 text-right text-xs text-gray-400">
-            {syncState === 'syncing' ? 'syncing...' : syncState === 'synced' ? 'all devices' : 'this device only'}
+            {syncState === 'syncing'
+              ? 'syncing...'
+              : syncState === 'synced'
+                ? 'all devices'
+                : syncState === 'guest'
+                  ? 'shared history'
+                  : 'this device only'}
           </span>
         </header>
 

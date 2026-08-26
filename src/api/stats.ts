@@ -23,3 +23,21 @@ export async function syncSessions(sessions: PracticeSessionRecord[]): Promise<P
   const body = (await response.json()) as { sessions?: PracticeSessionRecord[] }
   return Array.isArray(body.sessions) ? body.sessions : []
 }
+
+/**
+ * Read-only counterpart of the sync, used by a guest session: it must see the
+ * owner's history without pushing anything into it (the server refuses the sync
+ * for a guest anyway, this just avoids asking).
+ */
+export async function fetchSessions(): Promise<PracticeSessionRecord[]> {
+  const response = await fetch('/api/stats', { headers: authHeaders() })
+  if (!response.ok) {
+    if (response.status === 401) {
+      notifyAuthRequired()
+      throw new AuthRequiredError()
+    }
+    throw new Error(`${response.status} ${response.statusText}`)
+  }
+  const body = (await response.json()) as { sessions?: PracticeSessionRecord[] }
+  return Array.isArray(body.sessions) ? body.sessions : []
+}

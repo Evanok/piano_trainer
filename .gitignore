@@ -25,3 +25,20 @@ dist-ssr
 
 # Catalog data (uploaded scores + their index)
 /data
+
+# Deployment secrets (passwords for the API gate and the guest link).
+# The .example template is committed, the real file never is.
+/piano-trainer.env
+
+# Local tooling: the backing-track lab and its sample/runtime folders (82 MB of
+# assets and third-party runtimes), plus sync-from-prod.sh, which names the
+# production host this public repository deliberately does not. Its snapshots of
+# the production data land in backups/.
+/scripts
+/backups
+
+# Backing-track audio (68 MB of recordings, one per key per collection). Served
+# statically from public/ and copied into dist/ by the build, but deliberately
+# outside version control: it is a manual copy on each machine, and this
+# repository is public.
+/public/audio

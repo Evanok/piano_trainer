@@ -1,10 +1,12 @@
 import { AuthRequiredError, authHeaders, notifyAuthRequired } from './auth'
-import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
+import type { CatalogEntry, CatalogPage, CatalogSort, ScoreDifficulty } from '../types/catalog'
 
 export interface CatalogQueryParams {
   search: string
   difficulty?: ScoreDifficulty
   favoritesOnly?: boolean
+  /** Omitted means the server's default order (most recently uploaded first). */
+  sort?: CatalogSort
   page: number
   pageSize?: number
   signal?: AbortSignal
@@ -38,6 +40,7 @@ export async function fetchCatalogPage({
   search,
   difficulty,
   favoritesOnly,
+  sort,
   page,
   pageSize,
   signal,
@@ -48,6 +51,9 @@ export async function fetchCatalogPage({
   }
   if (favoritesOnly) {
     params.set('favorite', '1')
+  }
+  if (sort !== undefined) {
+    params.set('sort', sort)
   }
   if (pageSize !== undefined) {
     params.set('limit', String(pageSize))

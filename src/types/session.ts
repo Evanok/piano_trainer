@@ -86,6 +86,15 @@ export interface PracticeSessionRecord {
   totalEvents: number
   /** Events cleared, so an abandoned session still says how far it got. */
   eventsPlayed: number
+  /**
+   * High-water mark of the cursor during the session, which is what the
+   * catalog's progress bar reads. `eventsPlayed` is the cursor's *final*
+   * position instead, so it drops back when the player returns to an earlier
+   * passage; that is right for "where did they stop", wrong for "how far did
+   * they get". Optional: sessions recorded before this existed fall back to
+   * `eventsPlayed`, which is the same number for a straight-through run.
+   */
+  furthestEventIndex?: number
   errorCount: number
   correctNoteCount: number
   /** First-try accuracy over the events actually reached; 0 when none were. */

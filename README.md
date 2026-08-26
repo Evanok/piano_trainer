@@ -25,6 +25,8 @@ Every score you upload from Practice a score is saved server-side, so you never 
 
 Scores are listed under their real title and composer, read from the MusicXML itself (`.mxl` files are unzipped to get at it) rather than under their file name. A score whose metadata is empty falls back to a readable form of the file name, and the search box matches title, composer and file name.
 
+Each row shows how far the piece has been played, as a bar and a percentage, turning green when a session has played it through to the end. A piece never practised shows nothing. The figure is the furthest point reached across every session, taken from the shared practice history, so it is the same on every device. The list can be ordered by latest upload (the default), title, last played, most progress or most played, and the order applies to the whole catalog rather than to the page on screen.
+
 Uploads land in `data/` next to the repo (gitignored):
 
 ```
@@ -53,12 +55,39 @@ can be uploaded or deleted, and stats can be overwritten. The password is asked
 once per device. It travels unencrypted over plain HTTP, so it guards against
 passers-by and bots, not against someone able to sniff the network.
 
+### Showing the app to someone else
+
+Set `PIANO_TRAINER_GUEST_PASSWORD` (a different value from
+`PIANO_TRAINER_PASSWORD`) to enable a read-only share link. Whoever opens it can
+browse the catalog, play any score, run exercises and look at the practice
+history, but cannot upload, rename, star or delete a score, and nothing they
+play is recorded: the API refuses every write for a guest token, so this holds
+for `curl` too, not just for the hidden buttons.
+
+The link is `http://<vps-host>:5173/?guest=<token>`. `deploy.sh prod start`
+prints it, and the app itself offers it on the Home screen ("Share a guest
+link"). It carries the credential, so treat it as a password: anyone it is
+forwarded to gets the same access, and revoking it means changing
+`PIANO_TRAINER_GUEST_PASSWORD` and restarting.
+
 Use the repository's deployment script. It manages the two PM2 processes and
 prevents them from fighting over port 5173:
 
+Both passwords live in `piano-trainer.env`, next to `deploy.sh`, which sources
+it on every run. That file is gitignored and never committed; copy the template
+and fill it in once on the VPS:
+
 ```bash
-# On the VPS: set the API password, then install, build and expose the app.
-export PIANO_TRAINER_PASSWORD='something-long'
+cp piano-trainer.env.example piano-trainer.env
+chmod 600 piano-trainer.env   # deploy.sh refuses to read it otherwise
+$EDITOR piano-trainer.env
+```
+
+Exporting the variables by hand still works, and `PIANO_TRAINER_ENV_FILE` points
+the script at the file somewhere else.
+
+```bash
+# On the VPS, once piano-trainer.env holds the passwords:
 ./deploy.sh prod start
 
 # Stop the public production server.

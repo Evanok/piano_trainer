@@ -1,4 +1,5 @@
-import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../src/types/catalog.ts'
+import type { CatalogEntry, CatalogPage, CatalogSort, ScoreDifficulty } from '../src/types/catalog.ts'
+import type { ScorePlayProgress } from '../src/engine/scoreProgress.ts'
 
 export const DEFAULT_PAGE_SIZE = 10
 // Only a guard against a hand-crafted ?limit=999999 -- the UI never asks for
@@ -13,6 +14,14 @@ export interface CatalogQuery {
   /** When true, keep only the starred entries; false and undefined both mean
    *  "no filter" (there is deliberately no "non-favorites only" option). */
   favoritesOnly?: boolean
+  /** Defaults to 'recent' (most recently uploaded first), the historical order. */
+  sort?: CatalogSort
+  /**
+   * Practice history joined in by id (server/statsStore.ts). Entries missing
+   * from it have never been practised: they get no progress on the listing and
+   * sort last under every play-based order.
+   */
+  progress?: Map<string, ScorePlayProgress>
   page?: number
   pageSize?: number
 }
@@ -30,10 +39,54 @@ function clampPageSize(pageSize: number | undefined): number {
 }
 
 /**
+ * Most recently uploaded first, the catalog's own order and every other sort's
+ * tie-break. ISO-8601 strings compare lexicographically in chronological order,
+ * so no Date parsing is needed; two uploads can land in the same millisecond, so
+ * the id breaks that tie and keeps paging stable.
+ */
+function byRecent(a: CatalogEntry, b: CatalogEntry): number {
+  return a.uploadedAt === b.uploadedAt ? a.id.localeCompare(b.id) : b.uploadedAt.localeCompare(a.uploadedAt)
+}
+
+/**
+ * Every sort ends in `byRecent`, so entries the sort cannot tell apart (two
+ * unplayed pieces under "highest progress", say) still come back in one stable
+ * order rather than drifting between pages on successive requests.
+ */
+function comparatorFor(
+  sort: CatalogSort,
+  progressOf: (entry: CatalogEntry) => ScorePlayProgress | undefined,
+): (a: CatalogEntry, b: CatalogEntry) => number {
+  switch (sort) {
+    case 'title':
+      // Locale-aware and case-insensitive, so "elise" sorts next to "Elise"
+      // and accented titles land where a French reader expects them.
+      return (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || byRecent(a, b)
+    case 'lastPlayed':
+      return (a, b) => {
+        const left = progressOf(a)?.lastPlayedAt ?? ''
+        const right = progressOf(b)?.lastPlayedAt ?? ''
+        return left === right ? byRecent(a, b) : right.localeCompare(left)
+      }
+    case 'progress':
+      return (a, b) => (progressOf(b)?.percent ?? -1) - (progressOf(a)?.percent ?? -1) || byRecent(a, b)
+    case 'played':
+      return (a, b) => (progressOf(b)?.sessionCount ?? 0) - (progressOf(a)?.sessionCount ?? 0) || byRecent(a, b)
+    case 'recent':
+    default:
+      return byRecent
+  }
+}
+
+/**
  * Pure search + pagination over the whole catalog: every term must match
  * (AND), case-insensitively, against the title, the composer or the file name;
  * the difficulty and favorite filters then narrow that down (AND again), and
- * results come back most recently uploaded first.
+ * results come back in `sort` order (most recently uploaded first by default).
+ *
+ * Sorting happens here, before pagination, which is the whole reason the
+ * play-based orders need the history passed in rather than being applied by the
+ * front-end: reordering the ten entries of one page is not sorting a catalog.
  */
 export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}): CatalogPage {
   const terms = (query.search ?? '')
@@ -44,12 +97,8 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
   const byDifficulty = query.difficulty ? bySearch.filter((entry) => entry.difficulty === query.difficulty) : bySearch
   const matched = query.favoritesOnly ? byDifficulty.filter((entry) => entry.favorite === true) : byDifficulty
 
-  // ISO-8601 strings compare lexicographically in chronological order, so no
-  // Date parsing is needed. Two uploads can land in the same millisecond, so
-  // fall back to the id to keep the order (and therefore paging) stable.
-  matched.sort((a, b) =>
-    a.uploadedAt === b.uploadedAt ? a.id.localeCompare(b.id) : b.uploadedAt.localeCompare(a.uploadedAt),
-  )
+  const progressOf = (entry: CatalogEntry): ScorePlayProgress | undefined => query.progress?.get(entry.id)
+  matched.sort(comparatorFor(query.sort ?? 'recent', progressOf))
 
   const pageSize = clampPageSize(query.pageSize)
   // Always at least one page, so an empty catalog still reports "page 1 of 1"
@@ -60,7 +109,9 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
   const start = (page - 1) * pageSize
 
   return {
-    items: matched.slice(start, start + pageSize),
+    // Copied, never mutated in place: these are the very objects catalog.json
+    // was read into, and progress is derived data that must not be written back.
+    items: matched.slice(start, start + pageSize).map((entry) => ({ ...entry, progress: progressOf(entry) ?? null })),
     total: matched.length,
     page,
     pageCount,

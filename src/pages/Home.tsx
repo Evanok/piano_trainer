@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChartIcon, LibraryIcon, NotesIcon } from '../components/icons'
+import { GuestLinkShare } from '../components/GuestLinkShare'
 import { StreakBadges } from '../components/StreakBadges'
 import { getStreakStats } from '../engine/streak'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -9,6 +10,12 @@ interface HomeProps {
   onStartExercise: () => void
   onPracticeScore: () => void
   onViewStats: () => void
+  /** This device came in through a share link: say so, since half the controls
+   *  it would normally have are hidden. */
+  isGuestSession: boolean
+  /** The token behind the owner's share link, null for a guest and whenever the
+   *  server has no guest password configured. */
+  guestToken: string | null
 }
 
 interface Tile {
@@ -24,7 +31,7 @@ interface Tile {
   actionColor: string
 }
 
-export function Home({ onStartExercise, onPracticeScore, onViewStats }: HomeProps) {
+export function Home({ onStartExercise, onPracticeScore, onViewStats, isGuestSession, guestToken }: HomeProps) {
   const isMobile = useIsMobile()
   const [streak] = useState(() => getStreakStats())
 
@@ -84,6 +91,16 @@ export function Home({ onStartExercise, onPracticeScore, onViewStats }: HomeProp
             Piano Trainer
           </h1>
           <StreakBadges streak={streak} className="mt-3 justify-center" />
+          {isGuestSession && (
+            <p className="mt-3 inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+              Guest access, read only
+            </p>
+          )}
+          {!isGuestSession && guestToken && (
+            <div className="mt-3 flex justify-center">
+              <GuestLinkShare token={guestToken} />
+            </div>
+          )}
         </header>
 
         <main className={isMobile ? 'grid min-h-0 flex-1 grid-cols-3 gap-3 pt-4' : 'grid grid-cols-3 gap-5'}>
