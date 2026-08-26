@@ -30,8 +30,15 @@ dist-ssr
 # The .example template is committed, the real file never is.
 /piano-trainer.env
 
-# Local operations script: it names the production host, which this public
-# repository deliberately does not. Its snapshots of the production data land
-# in backups/.
-/scripts/sync-from-prod.sh
+# Local tooling: the backing-track lab and its sample/runtime folders (82 MB of
+# assets and third-party runtimes), plus sync-from-prod.sh, which names the
+# production host this public repository deliberately does not. Its snapshots of
+# the production data land in backups/.
+/scripts
 /backups
+
+# Backing-track audio (68 MB of recordings, one per key per collection). Served
+# statically from public/ and copied into dist/ by the build, but deliberately
+# outside version control: it is a manual copy on each machine, and this
+# repository is public.
+/public/audio
