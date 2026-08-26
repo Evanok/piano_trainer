@@ -1372,10 +1372,16 @@ export function Practice({
 
       {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
 
-      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900">
-        <p>DEBUG -- expected: [{debugExpected}] -- held: [{debugHeld}]</p>
-        <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
-      </div>
+      {/* Development only: `import.meta.env.DEV` is true under `npm run dev`
+          (and so under `deploy.sh dev start`) and compiled away by the
+          production build, so the panel stays one keystroke from a real
+          session while nobody visiting the deployed app ever sees it. */}
+      {import.meta.env.DEV && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900">
+          <p>DEBUG -- expected: [{debugExpected}] -- held: [{debugHeld}]</p>
+          <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
+        </div>
+      )}
 
       <PianoScore
         ref={scoreRef}
