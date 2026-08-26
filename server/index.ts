@@ -7,9 +7,10 @@
 // Environment: PORT (default 5173), PIANO_TRAINER_DATA_DIR (default ./data),
 // PIANO_TRAINER_PASSWORD (no password gate when unset -- see server/auth.ts).
 
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import path from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { createCatalogApi } from './catalogApi.ts'
 import { migrateCatalog, resolveDataDir } from './catalogStore.ts'
 import { configuredPassword } from './auth.ts'
@@ -31,15 +32,59 @@ const MIME_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
-function sendFile(res: ServerResponse, file: string, immutable: boolean): void {
-  res.writeHead(200, {
+// Text compresses; PNG, WOFF2 and the backing-track audio are already
+// compressed, so gzipping them would burn CPU to make them very slightly
+// bigger. The app bundle is by far the biggest thing here: ~1.5 MB of
+// JavaScript (React plus OpenSheetMusicDisplay) that every first-time visitor
+// downloads before seeing anything.
+const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.js', '.css', '.json', '.svg'])
+
+/**
+ * Compressed bodies for the fingerprinted assets, built once and kept.
+ *
+ * Vite puts a content hash in every /assets file name, so a path identifies its
+ * bytes for good and this can never go stale. It matters under load: without
+ * it, every single visitor costs ~40 ms of CPU compressing the same 1.5 MB
+ * bundle again, on a server that runs one thread for everything. Bounded by the
+ * number of built asset files, and the process restarts on each deploy.
+ */
+const compressedAssets = new Map<string, Buffer>()
+
+function acceptsGzip(req: IncomingMessage): boolean {
+  const header = req.headers['accept-encoding']
+  return typeof header === 'string' && /\bgzip\b/.test(header)
+}
+
+function sendFile(req: IncomingMessage, res: ServerResponse, file: string, immutable: boolean): void {
+  const headers: Record<string, string | number> = {
     'content-type': MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': statSync(file).size,
     // Vite fingerprints everything under /assets, so those can be cached
     // forever; index.html must not be, or a deploy never reaches the browser.
     'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+  }
+
+  if (!COMPRESSIBLE_EXTENSIONS.has(path.extname(file).toLowerCase()) || !acceptsGzip(req)) {
+    res.writeHead(200, { ...headers, 'content-length': statSync(file).size })
+    createReadStream(file).pipe(res)
+    return
+  }
+
+  let body = immutable ? compressedAssets.get(file) : undefined
+  if (!body) {
+    body = gzipSync(readFileSync(file))
+    if (immutable) {
+      compressedAssets.set(file, body)
+    }
+  }
+  res.writeHead(200, {
+    ...headers,
+    'content-encoding': 'gzip',
+    'content-length': body.byteLength,
+    // One URL, two possible bodies, so any cache in between has to key on the
+    // request's encoding rather than serve gzip to a client that asked for none.
+    vary: 'Accept-Encoding',
   })
-  createReadStream(file).pipe(res)
+  res.end(body)
 }
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
@@ -55,7 +100,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   const insideDist = requested === DIST_DIR || requested.startsWith(`${DIST_DIR}${path.sep}`)
 
   if (insideDist && existsSync(requested) && statSync(requested).isFile()) {
-    sendFile(res, requested, pathname.startsWith('/assets/'))
+    sendFile(req, res, requested, pathname.startsWith('/assets/'))
     return
   }
 
@@ -66,7 +111,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
     res.end('dist/index.html is missing -- run `npm run build` first.')
     return
   }
-  sendFile(res, indexFile, false)
+  sendFile(req, res, indexFile, false)
 }
 
 const dataDir = resolveDataDir()
