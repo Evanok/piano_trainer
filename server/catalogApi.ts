@@ -225,12 +225,22 @@ async function handleStatsSync(req: IncomingMessage, res: ServerResponse, dataDi
 // A password and nothing else.
 const MAX_LOGIN_BYTES = 1024
 
+/**
+ * Who is asking, for the login throttle. The socket's own address, never
+ * X-Forwarded-For: nothing proxies this deployment, so that header would be
+ * attacker-supplied and a guesser could mint a fresh identity per attempt.
+ */
+function clientAddress(req: IncomingMessage): string {
+  return req.socket.remoteAddress ?? 'unknown'
+}
+
 async function handleLogin(req: IncomingMessage, res: ServerResponse, throttle: ReturnType<typeof createLoginThrottle>): Promise<void> {
+  const client = clientAddress(req)
   const password = configuredPassword()
   if (!password) {
     throw new HttpError(409, 'This server has no password configured.')
   }
-  if (throttle.isBlocked(Date.now())) {
+  if (throttle.isBlocked(client, Date.now())) {
     throw new HttpError(429, 'Too many failed attempts. Wait a minute and try again.')
   }
   const body = await readBody(req, MAX_LOGIN_BYTES)
@@ -253,10 +263,10 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, throttle: 
           ? { password: guestPassword, role: 'guest' }
           : null
   if (matched === null) {
-    throttle.registerFailure(Date.now())
+    throttle.registerFailure(client, Date.now())
     throw new HttpError(401, 'Wrong password.')
   }
-  throttle.reset()
+  throttle.reset(client)
   sendJson(res, 200, { token: tokenForPassword(matched.password, matched.role), role: matched.role })
 }
 

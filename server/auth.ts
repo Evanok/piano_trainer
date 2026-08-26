@@ -105,31 +105,87 @@ export function guestToken(): string | null {
 }
 
 export interface LoginThrottle {
-  isBlocked(now: number): boolean
-  registerFailure(now: number): void
-  reset(): void
+  isBlocked(client: string, now: number): boolean
+  registerFailure(client: string, now: number): void
+  reset(client: string): void
+  /** Tracked clients, for the memory-bound test. */
+  size(): number
 }
 
 /**
- * Brute-force brake on the one endpoint that has to stay open. Counts recent
- * failures globally rather than per IP: this is a single-user app, so "someone
- * is guessing" is the only meaning a burst of failures can have, and a per-IP
- * map would just be a slower way to be wrong behind a NAT.
+ * Brute-force brake on the one endpoint that has to stay open, counted **per
+ * client address**.
+ *
+ * It used to count failures globally, on the reasoning that a single-user app
+ * can only be under attack when failures pile up. That was wrong in one
+ * specific way: it made the throttle itself a denial of service. Anyone who can
+ * reach the port can send ten bad passwords a minute forever and lock *the
+ * owner* out of logging in, from any device, for as long as they keep going.
+ * Per address, a guesser only ever blocks themselves.
+ *
+ * The address is `req.socket.remoteAddress` and deliberately NOT
+ * `X-Forwarded-For`: this deployment has no proxy in front of it (see README),
+ * so that header would be pure attacker input and would turn the throttle back
+ * into something anyone can sidestep by making one up per request.
+ *
+ * `maxClients` bounds the memory: without it, one address per request is an
+ * unbounded map, which is its own denial of service. Idle entries are pruned as
+ * we go, and when the map is still full the oldest failure is evicted -- the
+ * entry closest to expiring anyway.
  *
  * Takes `now` from the caller so the window is testable without waiting.
  */
-export function createLoginThrottle(maxFailures = 10, windowMs = 60000): LoginThrottle {
-  let failures: number[] = []
+export function createLoginThrottle(maxFailures = 10, windowMs = 60000, maxClients = 1000): LoginThrottle {
+  const failuresByClient = new Map<string, number[]>()
+
+  const recent = (client: string, now: number): number[] => {
+    const kept = (failuresByClient.get(client) ?? []).filter((at) => now - at < windowMs)
+    if (kept.length === 0) {
+      failuresByClient.delete(client)
+    } else {
+      failuresByClient.set(client, kept)
+    }
+    return kept
+  }
+
+  const pruneExpired = (now: number): void => {
+    for (const client of [...failuresByClient.keys()]) {
+      recent(client, now)
+    }
+  }
+
   return {
-    isBlocked(now) {
-      failures = failures.filter((at) => now - at < windowMs)
-      return failures.length >= maxFailures
+    isBlocked(client, now) {
+      return recent(client, now).length >= maxFailures
     },
-    registerFailure(now) {
-      failures.push(now)
+    registerFailure(client, now) {
+      // Failures are rare (they only happen on a wrong password), so sweeping
+      // the whole map here costs nothing and keeps it to whoever is currently
+      // failing rather than to every address ever seen.
+      pruneExpired(now)
+      const kept = recent(client, now)
+      kept.push(now)
+      failuresByClient.set(client, kept)
+      while (failuresByClient.size > maxClients) {
+        // Still full of live entries: drop whoever failed longest ago, since
+        // that entry is the next to expire on its own.
+        let oldestClient = ''
+        let oldestAt = Infinity
+        for (const [candidate, times] of failuresByClient) {
+          const last = times[times.length - 1]
+          if (last < oldestAt) {
+            oldestAt = last
+            oldestClient = candidate
+          }
+        }
+        failuresByClient.delete(oldestClient)
+      }
     },
-    reset() {
-      failures = []
+    reset(client) {
+      failuresByClient.delete(client)
+    },
+    size() {
+      return failuresByClient.size
     },
   }
 }

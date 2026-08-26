@@ -139,32 +139,67 @@ describe('isValidToken', () => {
 })
 
 describe('createLoginThrottle', () => {
-  it('blocks once the failures pile up inside the window', () => {
+  const A = '203.0.113.7'
+  const B = '198.51.100.9'
+
+  it('blocks once one client piles up failures inside the window', () => {
     const throttle = createLoginThrottle(3, 60000)
 
-    expect(throttle.isBlocked(1000)).toBe(false)
-    throttle.registerFailure(1000)
-    throttle.registerFailure(1100)
-    expect(throttle.isBlocked(1200)).toBe(false)
-    throttle.registerFailure(1200)
-    expect(throttle.isBlocked(1300)).toBe(true)
+    expect(throttle.isBlocked(A, 1000)).toBe(false)
+    throttle.registerFailure(A, 1000)
+    throttle.registerFailure(A, 1100)
+    expect(throttle.isBlocked(A, 1200)).toBe(false)
+    throttle.registerFailure(A, 1200)
+    expect(throttle.isBlocked(A, 1300)).toBe(true)
+  })
+
+  it('never lets one client lock another out, which is the whole point of counting per address', () => {
+    const throttle = createLoginThrottle(2, 60000)
+    throttle.registerFailure(A, 1000)
+    throttle.registerFailure(A, 1100)
+
+    expect(throttle.isBlocked(A, 1200)).toBe(true)
+    expect(throttle.isBlocked(B, 1200)).toBe(false)
   })
 
   it('forgets failures older than the window', () => {
     const throttle = createLoginThrottle(2, 60000)
-    throttle.registerFailure(1000)
-    throttle.registerFailure(2000)
+    throttle.registerFailure(A, 1000)
+    throttle.registerFailure(A, 2000)
 
-    expect(throttle.isBlocked(3000)).toBe(true)
-    expect(throttle.isBlocked(70000)).toBe(false)
+    expect(throttle.isBlocked(A, 3000)).toBe(true)
+    expect(throttle.isBlocked(A, 70000)).toBe(false)
   })
 
-  it('clears on a successful login, so one bad guess does not haunt the session', () => {
+  it('clears on a successful login, so one bad guess does not haunt that client', () => {
     const throttle = createLoginThrottle(2, 60000)
-    throttle.registerFailure(1000)
-    throttle.registerFailure(1100)
-    throttle.reset()
+    throttle.registerFailure(A, 1000)
+    throttle.registerFailure(A, 1100)
+    throttle.reset(A)
 
-    expect(throttle.isBlocked(1200)).toBe(false)
+    expect(throttle.isBlocked(A, 1200)).toBe(false)
+  })
+
+  it('drops clients whose failures expired, so the map does not grow with every address seen', () => {
+    const throttle = createLoginThrottle(5, 60000)
+    for (let i = 0; i < 50; i += 1) {
+      throttle.registerFailure(`10.0.0.${i}`, 1000)
+    }
+    expect(throttle.size()).toBe(50)
+
+    // One more, a full window later: everything older is expired by then.
+    throttle.registerFailure('10.0.1.1', 100000)
+    expect(throttle.size()).toBe(1)
+  })
+
+  it('stays bounded even when every tracked failure is still live', () => {
+    const throttle = createLoginThrottle(5, 60000, 10)
+    for (let i = 0; i < 40; i += 1) {
+      throttle.registerFailure(`10.0.0.${i}`, 1000 + i)
+    }
+
+    expect(throttle.size()).toBe(10)
+    // The most recent client is kept; the oldest were evicted first.
+    expect(throttle.isBlocked('10.0.0.39', 1100)).toBe(false)
   })
 })
