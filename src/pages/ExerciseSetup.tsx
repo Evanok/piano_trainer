@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isGuest } from '../api/auth'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
@@ -78,7 +79,13 @@ export function ExerciseSetup({
   const [trainingKey, setTrainingKey] = useState(initialSettings.key)
   const [trainingTonality, setTrainingTonality] = useState<TrainingTonality>(initialSettings.tonality)
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>(initialKeyboardAssistMode)
-  const [backingTrackEnabled, setBackingTrackEnabled] = useState(initialBackingTrackEnabled)
+  // A backing track is several megabytes of audio per exercise, streamed from
+  // the server, and a read-only visitor is here to see what the app does rather
+  // than to drill in tempo. Off and hidden for them: the state starts false, so
+  // nothing downstream (App's backingTrack, useBackingTrack) is ever asked for
+  // a file, whatever the remembered setting was.
+  const guest = isGuest()
+  const [backingTrackEnabled, setBackingTrackEnabled] = useState(initialBackingTrackEnabled && !guest)
   const [trainingMeasureCount, setTrainingMeasureCount] = useState(initialSettings.measureCount)
   const [rightOctaveLow, setRightOctaveLow] = useState(initialSettings.rightOctaveLow)
   const [rightOctaveHigh, setRightOctaveHigh] = useState(initialSettings.rightOctaveHigh)
@@ -443,17 +450,19 @@ export function ExerciseSetup({
               </select>
             </label>
 
-            <label className="flex flex-col gap-1 text-sm text-gray-700">
-              Backing track
-              <select
-                value={backingTrackEnabled ? 'rhythm' : 'off'}
-                onChange={(event) => setBackingTrackEnabled(event.target.value === 'rhythm')}
-                className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
-              >
-                <option value="off">Off</option>
-                <option value="rhythm">Bass + drums</option>
-              </select>
-            </label>
+            {!guest && (
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Backing track
+                <select
+                  value={backingTrackEnabled ? 'rhythm' : 'off'}
+                  onChange={(event) => setBackingTrackEnabled(event.target.value === 'rhythm')}
+                  className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                >
+                  <option value="off">Off</option>
+                  <option value="rhythm">Bass + drums</option>
+                </select>
+              </label>
+            )}
           </div>
 
           <button
