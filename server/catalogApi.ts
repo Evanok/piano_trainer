@@ -225,13 +225,33 @@ async function handleStatsSync(req: IncomingMessage, res: ServerResponse, dataDi
 // A password and nothing else.
 const MAX_LOGIN_BYTES = 1024
 
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
 /**
- * Who is asking, for the login throttle. The socket's own address, never
- * X-Forwarded-For: nothing proxies this deployment, so that header would be
- * attacker-supplied and a guesser could mint a fresh identity per attempt.
+ * Who is asking, for the login throttle.
+ *
+ * The socket's own address, except when the connection comes from the machine
+ * itself: that is the reverse proxy (nginx on the same host, see README), and
+ * its socket address is the same 127.0.0.1 for every visitor on earth, which
+ * would quietly collapse the per-address throttle back into a global one.
+ *
+ * Only then is `X-Forwarded-For` read, and only its **last** entry. nginx
+ * appends the peer it actually saw, so the last entry is the one it vouches
+ * for; everything before it was sent by the client and can be anything they
+ * like. Reading the first entry instead is the classic way to make a per-IP
+ * limit bypassable by anyone who can set a header. Reached directly (the port
+ * is still open), the address is not loopback, so the header is ignored
+ * outright and cannot be forged.
  */
-function clientAddress(req: IncomingMessage): string {
-  return req.socket.remoteAddress ?? 'unknown'
+export function clientAddress(req: IncomingMessage): string {
+  const socketAddress = req.socket.remoteAddress ?? 'unknown'
+  if (!LOOPBACK_ADDRESSES.has(socketAddress)) {
+    return socketAddress
+  }
+  const forwarded = req.headers['x-forwarded-for']
+  const chain = (Array.isArray(forwarded) ? forwarded.join(',') : (forwarded ?? '')).split(',')
+  const nearest = chain[chain.length - 1]?.trim()
+  return nearest ? nearest : socketAddress
 }
 
 async function handleLogin(req: IncomingMessage, res: ServerResponse, throttle: ReturnType<typeof createLoginThrottle>): Promise<void> {
