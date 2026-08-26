@@ -25,6 +25,8 @@ Every score you upload from Practice a score is saved server-side, so you never 
 
 Scores are listed under their real title and composer, read from the MusicXML itself (`.mxl` files are unzipped to get at it) rather than under their file name. A score whose metadata is empty falls back to a readable form of the file name, and the search box matches title, composer and file name.
 
+Each row shows how far the piece has been played, as a bar and a percentage, turning green when a session has played it through to the end. A piece never practised shows nothing. The figure is the furthest point reached across every session, taken from the shared practice history, so it is the same on every device. The list can be ordered by latest upload (the default), title, last played, most progress or most played, and the order applies to the whole catalog rather than to the page on screen.
+
 Uploads land in `data/` next to the repo (gitignored):
 
 ```

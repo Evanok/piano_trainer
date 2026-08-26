@@ -19,7 +19,7 @@ import type {
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
 import type { SessionSource, SessionStats } from './types/session'
-import type { CatalogEntry, ScoreDifficulty } from './types/catalog'
+import { DEFAULT_BROWSE_STATE, type CatalogBrowseState, type CatalogEntry } from './types/catalog'
 import type {
   ExerciseKind,
   ExerciseRequest,
@@ -83,19 +83,10 @@ function App() {
   // Owned here (not inside ScoreLibrary) so it survives that component
   // unmounting when navigating away and back -- otherwise browsing the
   // catalog always resumed reset to page 1.
-  const [catalogSearch, setCatalogSearch] = useState('')
-  const [catalogDifficulty, setCatalogDifficulty] = useState<ScoreDifficulty | ''>('')
-  const [catalogFavoritesOnly, setCatalogFavoritesOnly] = useState(false)
-  const [catalogPage, setCatalogPage] = useState(1)
-  const handleCatalogBrowseChange = useCallback(
-    (search: string, difficulty: ScoreDifficulty | '', favoritesOnly: boolean, page: number) => {
-      setCatalogSearch(search)
-      setCatalogDifficulty(difficulty)
-      setCatalogFavoritesOnly(favoritesOnly)
-      setCatalogPage(page)
-    },
-    [],
-  )
+  const [catalogBrowseState, setCatalogBrowseState] = useState<CatalogBrowseState>(DEFAULT_BROWSE_STATE)
+  const handleCatalogBrowseChange = useCallback((state: CatalogBrowseState) => {
+    setCatalogBrowseState(state)
+  }, [])
   const [practiceSourceKind, setPracticeSourceKind] = useState<PracticeSourceKind>('score')
   const [keyboardAssistMode, setKeyboardAssistMode] = useState<KeyboardAssistMode>('learning')
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
@@ -358,10 +349,7 @@ function App() {
         midiError={error}
         onFileLoaded={handleScoreLoaded}
         onBack={handleBackToHome}
-        initialSearch={catalogSearch}
-        initialDifficulty={catalogDifficulty}
-        initialFavoritesOnly={catalogFavoritesOnly}
-        initialPage={catalogPage}
+        initialBrowseState={catalogBrowseState}
         onBrowseStateChange={handleCatalogBrowseChange}
       />
     )

@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { mergeSessionLogs } from '../src/engine/sessionLog.ts'
+import { progressByCatalogId, type ScorePlayProgress } from '../src/engine/scoreProgress.ts'
 import type { PracticeSessionRecord } from '../src/types/session.ts'
 
 /**
@@ -84,4 +85,39 @@ export function syncSessions(dataDir: string, incoming: unknown): PracticeSessio
   const merged = mergeSessionLogs(readSessions(dataDir), sanitizeSessions(incoming), MAX_SERVER_SESSIONS)
   writeSessions(dataDir, merged)
   return merged
+}
+
+/**
+ * Per-score progress for the catalog listing, memoized on the stats file's own
+ * mtime and size.
+ *
+ * The cache matters because every catalog request needs this (the listing shows
+ * a progress bar per row, and three of its sort orders are play-based) while a
+ * search box fires one request per debounced keystroke -- re-parsing and
+ * re-aggregating a history that can hold up to MAX_SERVER_SESSIONS records for
+ * each of those would be a real cost for a file that changes only when someone
+ * finishes practising. Keying on mtime+size rather than holding the parsed
+ * value forever means a sync (which rewrites the file) invalidates it by
+ * itself, including one written by another process.
+ */
+let progressCache: { key: string; value: Map<string, ScorePlayProgress> } | null = null
+
+export function readScoreProgress(dataDir: string): Map<string, ScorePlayProgress> {
+  const file = statsPath(dataDir)
+  let key: string
+  try {
+    const stats = statSync(file)
+    // The path is part of the key: one process can serve more than one data
+    // directory (every test in this repo uses its own).
+    key = `${file}:${stats.mtimeMs}:${stats.size}`
+  } catch {
+    // No history yet: nothing has been practised, so nothing has progress.
+    return new Map()
+  }
+  if (progressCache?.key === key) {
+    return progressCache.value
+  }
+  const value = progressByCatalogId(readSessions(dataDir))
+  progressCache = { key, value }
+  return value
 }

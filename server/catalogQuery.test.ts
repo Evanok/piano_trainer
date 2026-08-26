@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, queryCatalog } from './catalogQuery.ts'
 import type { CatalogEntry } from '../src/types/catalog.ts'
+import type { ScorePlayProgress } from '../src/engine/scoreProgress.ts'
 
 function entry(
   id: string,
@@ -152,5 +153,77 @@ describe('queryCatalog', () => {
     ]
     const result = queryCatalog(entries, { search: 'clair', difficulty: 'easy', favoritesOnly: true })
     expect(result.items.map((item) => item.id)).toEqual(['a'])
+  })
+})
+
+function progressMap(
+  byId: Record<string, Partial<ScorePlayProgress>>,
+): Map<string, ScorePlayProgress> {
+  return new Map(
+    Object.entries(byId).map(([id, value]) => [
+      id,
+      { percent: 0, completed: false, sessionCount: 1, lastPlayedAt: '2026-01-01T10:00:00.000Z', ...value },
+    ]),
+  )
+}
+
+describe('queryCatalog sorting', () => {
+  // Uploaded oldest to newest: a, b, c.
+  const entries = [
+    entry('a', 'Csardas', '2026-01-01T10:00:00.000Z'),
+    entry('b', 'apple', '2026-01-02T10:00:00.000Z'),
+    entry('c', 'Ballade', '2026-01-03T10:00:00.000Z'),
+  ]
+
+  it('sorts by title case-insensitively rather than by ASCII order', () => {
+    const result = queryCatalog(entries, { sort: 'title' })
+    expect(result.items.map((item) => item.title)).toEqual(['apple', 'Ballade', 'Csardas'])
+  })
+
+  it('sorts by last played, with never-played entries last', () => {
+    const progress = progressMap({
+      a: { lastPlayedAt: '2026-02-01T10:00:00.000Z' },
+      c: { lastPlayedAt: '2026-03-01T10:00:00.000Z' },
+    })
+    const result = queryCatalog(entries, { sort: 'lastPlayed', progress })
+    expect(result.items.map((item) => item.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('sorts by progress, and puts a never-played entry below one still at 0%', () => {
+    const progress = progressMap({ a: { percent: 40 }, b: { percent: 0 } })
+    const result = queryCatalog(entries, { sort: 'progress', progress })
+    expect(result.items.map((item) => item.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('sorts by how many sessions a piece has', () => {
+    const progress = progressMap({ a: { sessionCount: 2 }, c: { sessionCount: 9 } })
+    const result = queryCatalog(entries, { sort: 'played', progress })
+    expect(result.items.map((item) => item.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('breaks every tie by upload date, so paging cannot drift between requests', () => {
+    const progress = progressMap({ a: { percent: 50 }, b: { percent: 50 }, c: { percent: 50 } })
+    const result = queryCatalog(entries, { sort: 'progress', progress })
+    expect(result.items.map((item) => item.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('sorts the whole catalog before paginating, not just the page it returns', () => {
+    const many = manyEntries(25)
+    // The oldest upload is the only played one, so it must reach page 1.
+    const progress = progressMap({ 'id-0': { percent: 90 } })
+    const result = queryCatalog(many, { sort: 'progress', progress, page: 1 })
+    expect(result.items[0].id).toBe('id-0')
+  })
+
+  it('attaches each entry its progress without touching the stored objects', () => {
+    const stored = [entry('a', 'Csardas', '2026-01-01T10:00:00.000Z')]
+    const result = queryCatalog(stored, { progress: progressMap({ a: { percent: 30 } }) })
+    expect(result.items[0].progress).toMatchObject({ percent: 30 })
+    expect(stored[0]).not.toHaveProperty('progress')
+  })
+
+  it('reports null progress for a piece never practised', () => {
+    const result = queryCatalog([entry('a', 'Csardas', '2026-01-01T10:00:00.000Z')])
+    expect(result.items[0].progress).toBeNull()
   })
 })

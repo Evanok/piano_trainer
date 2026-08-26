@@ -5,7 +5,14 @@ import { PencilIcon, StarIcon, TrashIcon } from '../components/icons'
 import { isGuest } from '../api/auth'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streak'
-import type { CatalogEntry, CatalogPage, ScoreDifficulty } from '../types/catalog'
+import {
+  CATALOG_SORTS,
+  type CatalogBrowseState,
+  type CatalogEntry,
+  type CatalogPage,
+  type CatalogSort,
+  type ScoreDifficulty,
+} from '../types/catalog'
 import type { MidiDeviceInfo } from '../types/midi'
 import { PAGE_BACKGROUND } from '../theme'
 
@@ -27,18 +34,18 @@ interface ScoreLibraryProps {
   onBack: () => void
   // Owned by App (survives this component unmounting when navigating away
   // and back, e.g. via the browser's back button into Practice and back)
-  // so browsing the catalog resumes on the same page/search/filter instead
-  // of silently resetting to page 1 every time.
-  initialSearch: string
-  initialDifficulty: ScoreDifficulty | ''
-  initialFavoritesOnly: boolean
-  initialPage: number
-  onBrowseStateChange: (
-    search: string,
-    difficulty: ScoreDifficulty | '',
-    favoritesOnly: boolean,
-    page: number,
-  ) => void
+  // so browsing the catalog resumes on the same page/search/filter/order
+  // instead of silently resetting to page 1 every time.
+  initialBrowseState: CatalogBrowseState
+  onBrowseStateChange: (state: CatalogBrowseState) => void
+}
+
+const SORT_LABELS: Record<CatalogSort, string> = {
+  recent: 'Latest upload',
+  title: 'Title A-Z',
+  lastPlayed: 'Last played',
+  progress: 'Most progress',
+  played: 'Most played',
 }
 
 function errorMessage(error: unknown): string {
@@ -89,6 +96,36 @@ function formatUploadedAt(iso: string): string {
   return date.toLocaleDateString()
 }
 
+/**
+ * How far the piece has been played, from the shared practice history (see
+ * engine/scoreProgress.ts). Renders nothing at all for a piece never
+ * practised, so a fresh catalog stays a plain list instead of a wall of empty
+ * bars. Spans rather than divs: this sits inside the row's <button>.
+ */
+function ProgressBar({ progress }: { progress: CatalogEntry['progress'] }) {
+  if (!progress || progress.percent <= 0) {
+    return null
+  }
+  const finished = progress.completed
+  const sessions = `${progress.sessionCount} session${progress.sessionCount === 1 ? '' : 's'}`
+  return (
+    <span
+      className="mt-1.5 flex items-center gap-2"
+      title={`Played to ${progress.percent}% over ${sessions}`}
+    >
+      <span className="block h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
+        <span
+          className={`block h-full rounded-full ${finished ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+          style={{ width: `${progress.percent}%` }}
+        />
+      </span>
+      <span className={`text-[11px] font-medium ${finished ? 'text-emerald-600' : 'text-gray-500'}`}>
+        {finished ? 'Finished' : `${progress.percent}%`}
+      </span>
+    </span>
+  )
+}
+
 export function ScoreLibrary({
   devices,
   selectedDeviceId,
@@ -97,10 +134,7 @@ export function ScoreLibrary({
   midiError,
   onFileLoaded,
   onBack,
-  initialSearch,
-  initialDifficulty,
-  initialFavoritesOnly,
-  initialPage,
+  initialBrowseState,
   onBrowseStateChange,
 }: ScoreLibraryProps) {
   // Read-only share link: the catalog is browsable and playable, but nothing
@@ -119,11 +153,12 @@ export function ScoreLibrary({
   // on screen switches), so it always reflects the latest practice day.
   const [streak] = useState(() => getStreakStats())
 
-  const [searchInput, setSearchInput] = useState(initialSearch)
-  const [search, setSearch] = useState(initialSearch)
-  const [difficultyFilter, setDifficultyFilter] = useState<ScoreDifficulty | ''>(initialDifficulty)
-  const [favoritesOnly, setFavoritesOnly] = useState(initialFavoritesOnly)
-  const [page, setPage] = useState(initialPage)
+  const [searchInput, setSearchInput] = useState(initialBrowseState.search)
+  const [search, setSearch] = useState(initialBrowseState.search)
+  const [difficultyFilter, setDifficultyFilter] = useState<ScoreDifficulty | ''>(initialBrowseState.difficulty)
+  const [favoritesOnly, setFavoritesOnly] = useState(initialBrowseState.favoritesOnly)
+  const [sort, setSort] = useState<CatalogSort>(initialBrowseState.sort)
+  const [page, setPage] = useState(initialBrowseState.page)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalog, setCatalog] = useState<CatalogPage | null>(null)
   const [isCatalogLoading, setIsCatalogLoading] = useState(true)
@@ -174,9 +209,9 @@ export function ScoreLibrary({
   // a score) and back later resumes on the same page/search/filter instead
   // of resetting -- this component fully unmounts on every screen switch.
   useEffect(() => {
-    onBrowseStateChange(search, difficultyFilter, favoritesOnly, page)
+    onBrowseStateChange({ search, difficulty: difficultyFilter, favoritesOnly, sort, page })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, difficultyFilter, favoritesOnly, page])
+  }, [search, difficultyFilter, favoritesOnly, sort, page])
 
   const handleSelectDifficultyFilter = (value: ScoreDifficulty | '') => {
     setDifficultyFilter(value)
@@ -189,6 +224,12 @@ export function ScoreLibrary({
     setPage(1)
   }
 
+  const handleSelectSort = (value: CatalogSort) => {
+    setSort(value)
+    // Page 3 of one order has nothing to do with page 3 of another.
+    setPage(1)
+  }
+
   useEffect(() => {
     const controller = new AbortController()
     setIsCatalogLoading(true)
@@ -196,6 +237,7 @@ export function ScoreLibrary({
       search,
       difficulty: difficultyFilter || undefined,
       favoritesOnly,
+      sort,
       page,
       pageSize: CATALOG_PAGE_SIZE,
       signal: controller.signal,
@@ -217,7 +259,7 @@ export function ScoreLibrary({
         }
       })
     return () => controller.abort()
-  }, [search, difficultyFilter, favoritesOnly, page, reloadToken])
+  }, [search, difficultyFilter, favoritesOnly, sort, page, reloadToken])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -411,7 +453,7 @@ export function ScoreLibrary({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
               value={searchInput}
@@ -419,6 +461,18 @@ export function ScoreLibrary({
               placeholder="Search saved scores..."
               className="min-w-0 flex-1 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-400 focus:outline-none"
             />
+            <select
+              value={sort}
+              onChange={(event) => handleSelectSort(event.target.value as CatalogSort)}
+              aria-label="Sort scores"
+              className="shrink-0 rounded-md border border-indigo-200 bg-white px-2 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+            >
+              {CATALOG_SORTS.map((option) => (
+                <option key={option} value={option}>
+                  {SORT_LABELS[option]}
+                </option>
+              ))}
+            </select>
             <select
               value={difficultyFilter}
               onChange={(event) => handleSelectDifficultyFilter(event.target.value as ScoreDifficulty | '')}
@@ -558,6 +612,7 @@ export function ScoreLibrary({
                         <span className="block truncate text-xs text-gray-400">
                           {formatUploadedAt(entry.uploadedAt)} - {formatSize(entry.sizeBytes)}
                         </span>
+                        <ProgressBar progress={entry.progress} />
                       </span>
                       <span className="shrink-0 text-xs font-medium text-indigo-600">
                         {openingId === entry.id ? 'Opening...' : 'Practice'}

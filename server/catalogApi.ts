@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { queryCatalog } from './catalogQuery.ts'
-import type { ScoreDifficulty } from '../src/types/catalog.ts'
+import { CATALOG_SORTS, DEFAULT_CATALOG_SORT, type CatalogSort, type ScoreDifficulty } from '../src/types/catalog.ts'
 import {
   addScore,
   ALLOWED_EXTENSIONS,
@@ -14,7 +14,7 @@ import {
   scoreFilePath,
   updateEntry,
 } from './catalogStore.ts'
-import { readSessions, syncSessions } from './statsStore.ts'
+import { readScoreProgress, readSessions, syncSessions } from './statsStore.ts'
 import {
   AUTH_HEADER,
   configuredGuestPassword,
@@ -81,11 +81,23 @@ function parseDifficulty(raw: string | null): ScoreDifficulty | undefined {
   return raw !== null && (VALID_DIFFICULTIES as string[]).includes(raw) ? (raw as ScoreDifficulty) : undefined
 }
 
+// Same leniency again: an unknown ?sort= falls back to the default order rather
+// than failing the listing.
+function parseSort(raw: string | null): CatalogSort {
+  return raw !== null && (CATALOG_SORTS as string[]).includes(raw) ? (raw as CatalogSort) : DEFAULT_CATALOG_SORT
+}
+
 function handleList(res: ServerResponse, dataDir: string, url: URL): void {
   sendJson(
     res,
     200,
     queryCatalog(readCatalog(dataDir), {
+      // Joined in from the shared practice history, which is what makes the
+      // progress bar and the play-based sorts agree across devices (and what
+      // lets them work at all with pagination, since sorting must happen over
+      // the whole catalog, not over one page).
+      progress: readScoreProgress(dataDir),
+      sort: parseSort(url.searchParams.get('sort')),
       search: url.searchParams.get('q') ?? '',
       difficulty: parseDifficulty(url.searchParams.get('difficulty')),
       // Only ?favorite=1 turns the filter on; anything else (absent, 0, junk)

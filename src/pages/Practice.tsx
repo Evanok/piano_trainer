@@ -214,6 +214,11 @@ export function Practice({
   const waitEngineRef = useRef<WaitEngine | null>(null)
   const previousIndexRef = useRef(0)
   const eventsWithErrorsRef = useRef<Set<number>>(new Set())
+  // Highest event index the cursor ever advanced to this session, which is what
+  // the catalog's progress bar reads. Only real advances move it, so jumping
+  // around the score does not invent progress, and going back to an earlier
+  // passage does not throw away what was already reached.
+  const furthestIndexRef = useRef(0)
   const errorCountRef = useRef(0)
   const totalEventsRef = useRef(0)
   // comboRef: consecutive events completed with zero errors before
@@ -344,6 +349,10 @@ export function Practice({
       source: sessionSourceRef.current,
       totalEvents: totalEventsRef.current,
       eventsPlayed,
+      // Deliberately not max'd with eventsPlayed: that one is the cursor's
+      // position, which a jump moves without a note ever being played. Looking
+      // at the last page is not progress through the piece.
+      furthestEventIndex: furthestIndexRef.current,
       errorCount: errorCountRef.current,
       correctNoteCount: correctNoteCountRef.current,
       // Over the events actually reached, so an abandoned session reports the
@@ -605,6 +614,7 @@ export function Practice({
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
+          furthestIndexRef.current = Math.max(furthestIndexRef.current, newIndex)
 
           if (activeSection && newIndex >= activeSection.endEventIndex) {
             // Finishing the LAST section ends the session immediately
@@ -657,6 +667,7 @@ export function Practice({
     }
     waitEngineRef.current = new WaitEngine(newEvents)
     previousIndexRef.current = 0
+    furthestIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
     comboRef.current = 0
@@ -890,6 +901,9 @@ export function Practice({
     setTotalEvents(newEvents.length)
     setEvents(newEvents)
     waitEngineRef.current = new WaitEngine(newEvents)
+    // A different hand mode is a different event list, so an index from the old
+    // one is not comparable and must not carry over as progress.
+    furthestIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
     setErrorCount(0)
