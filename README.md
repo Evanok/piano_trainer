@@ -2,6 +2,12 @@
 
 A "Wait Mode" piano practice web app, Simply-Piano-style: load a MusicXML or `.mxl` score, connect a USB/MIDI keyboard, and the score only advances when you play the correct note(s)/chord. No tempo pressure, no composition features -- practice only.
 
+![Practising a section, waiting on the next note](docs/screenshots/wait-mode.png)
+
+Green is what you played, yellow is what it is waiting for, on the staff and on the on-screen keyboard at the same time. A wrong note reddens that key alone, not the notes you were supposed to play.
+
+**More screenshots and a feature tour: [the wiki](https://github.com/Evanok/piano_trainer/wiki).**
+
 ## Stack
 
 React + TypeScript + Vite + Tailwind CSS, plus a minimal `node:http` backend (no framework, no database) that stores the score catalog. Score rendering via [OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay), keyboard input via the Web MIDI API (Chrome/Edge only -- Firefox and Safari/iOS don't support it).
@@ -25,6 +31,8 @@ Every score you upload from Practice a score is saved server-side, so you never 
 
 Scores are listed under their real title and composer, read from the MusicXML itself (`.mxl` files are unzipped to get at it) rather than under their file name. A score whose metadata is empty falls back to a readable form of the file name, and the search box matches title, composer and file name.
 
+![The catalog, ordered by progress](docs/screenshots/catalog.png)
+
 Each row shows how far the piece has been played, as a bar and a percentage, turning green when a session has played it through to the end. A piece never practised shows nothing. The figure is the furthest point reached across every session, taken from the shared practice history, so it is the same on every device. The list can be ordered by latest upload (the default), title, last played, most progress or most played, and the order applies to the whole catalog rather than to the page on screen.
 
 Uploads land in `data/` next to the repo (gitignored):
@@ -38,6 +46,8 @@ data/
 Set `PIANO_TRAINER_DATA_DIR` to store them elsewhere (recommended on a real deployment, so a redeploy of the code never touches the scores).
 
 ## Generated training
+
+![The end of a generated exercise](docs/screenshots/session-complete.png)
 
 The Exercise page generates a short training exercise without uploading a score. Pick the hand setup, exercise type (notes, triads, or mixed), octave range, accidental mode, difficulty and length; the app builds a MusicXML file in memory and opens it through the same Practice pipeline as a normal score. The generator favours small melodic motion, phrase endings on stable scale tones, key signatures, and simple left-hand accompaniment instead of pure random notes. Single-hand exercises can drill notes, triads, or alternating measures of both; two-hand exercises keep the right hand as melody and apply the notes/triads/mixed choice to the left-hand accompaniment. Generated exercises are not saved to the catalog.
 
