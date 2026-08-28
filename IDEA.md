@@ -31,6 +31,10 @@ stepping one section at a time. It would also double as a progress indicator,
 which no control currently provides during practice.
 
 Notes:
+- Part of this now exists: "Scroll loop" has a measure bar spanning the whole
+  piece with two draggable handles and a playhead marker
+  (`components/LoopRangeBar.tsx`). It sets a loop range rather than seeking, so a
+  scrubber would be the same bar with a third interaction, not a new control.
 - It should go through `jumpToMeasure` like everything else, so section cropping
   keeps following the target measure and the cursor walk keeps happening with no
   crop active.
