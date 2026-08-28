@@ -12,6 +12,8 @@
     // as a default import from ESM.
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
+    // The difficulty model ships as a JSON asset imported by server/grade.
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,

@@ -162,34 +162,380 @@ and bass-clef reading are not, so the data would describe one atypical player
 rather than the difficulty of any piece. It is not usable for training and not
 usable for recalibrating either.
 
+## Step 1 results: the domain gap is real but small, and avoidable
+
+Measured on ASAP, 235 pieces, each scored twice with PianoML's own
+`features.py`: once from `midi_score.mid` (quantised notation) and once from a
+human performance of the same piece. Deltas below are in units of the
+PSyllabus training standard deviation, which is the scale the model sees after
+normalisation.
+
+**Domain-invariant (delta under 0.15 sigma, essentially zero):**
+`pitch_range`, `num_distinct_pitches`, `repeated_note_ratio`, `wide_leap_ratio`,
+`avg_polyphony`, `max_polyphony`, `polyphony_entropy`, `low_ratio`,
+`high_ratio`, `hand_independence`. Notably these include the three most
+important features of the LightGBM model (`num_distinct_pitches`,
+`repeated_note_ratio`, `max_polyphony`).
+
+**Domain-sensitive:**
+
+| Feature | Mean delta (sigma) | Pieces over 1 sigma |
+|---|---|---|
+| `dynamic_range` | -2.62 | 77% |
+| `rhythmic_complexity` | -1.37 | 71% |
+| `avg_velocity` | +1.29 | 62% |
+| `arpeggio_ratio` | +1.22 | 51% |
+| `std_velocity` | +0.14 (median abs 2.78) | 78% |
+| `chord_ratio` | +0.75 | 21% |
+| `note_density` | +0.54 | 39% |
+| `fast_note_ratio` | +0.32 | 21% |
+
+The velocity block behaves exactly as expected. `rhythmic_complexity` confirms
+the prediction: 0.61 on notation against 1.39 on performance, since rubato
+inflates the spread of inter-onset intervals. `chord_ratio` drops on
+performance because a human does not strike a chord's notes on the same
+millisecond. `note_density` differs because performers do not play at the
+notated tempo.
+
+**At the level that actually matters, the predicted grade:**
+
+- mean absolute difference **0.354 grade**, bias -0.07 (so noise, not a
+  systematic shift), correlation 0.838, only 5% of pieces off by more than a
+  full grade.
+- That is comfortably below the model's own error on its own test set
+  (MAE 0.79). The domain gap is not the dominant error term.
+
+**Two caveats.** ASAP is virtuoso competition repertoire: the predicted grades
+cluster at the top (mean 6.94, and 28 of 235 pieces hit the 8 ceiling from
+notation), which mechanically compresses differences. Restricting to pieces
+under grade 7 raises the gap to 0.494 mean absolute with 14% over a full grade.
+And ASAP contains essentially nothing at grades 1-4, which is exactly the range
+a beginner's catalog lives in, so that range remains unmeasured.
+
+**Dropping the domain-sensitive features closes the gap almost entirely.**
+Simulated by pinning them to the training mean on both sides:
+
+| Features neutralised | Mean abs delta | Over 1 grade | Correlation |
+|---|---|---|---|
+| none (baseline) | 0.354 | 5% | 0.838 |
+| velocity (3) | 0.317 | 3% | 0.902 |
+| + timing (`rhythmic_complexity`, `arpeggio_ratio`) | 0.272 | 2% | 0.919 |
+| + density (`note_density`, `chord_ratio`, `fast_note_ratio`) | 0.110 | 0% | 0.988 |
+
+So a model trained on the 10 domain-invariant features would be near-immune to
+the notation/performance difference, and those ten include the ones the model
+leans on most. What that costs in raw accuracy is unknown until we retrain and
+compare; that is the ablation in step 3.
+
+**Verdict: PSyllabus is usable.** Training on it is not a dead end, provided
+the feature set is chosen for domain invariance rather than copied wholesale.
+CIPI remains the only route to grading on key signature, real hands and chord
+spans, but it is no longer a prerequisite.
+
+## Reality check: the model against our own easy/medium/hard labels
+
+The catalog synced from production carries 99 scores, 98 of them hand-labelled
+(36 easy / 47 medium / 15 hard). Converting each one to MIDI with music21 (the
+same way PianoML's `convert.py` does) and running their shipped model gives:
+
+- **Spearman(manual label, model grade) = 0.315.** Weak.
+- **Spearman(manual label, raw note count) = 0.434.** The plain number of notes
+  in the file predicts the labels *better* than the model does.
+- **Spearman(model grade, raw note count) = 0.863.** On this repertoire the
+  model is largely a note-count proxy.
+
+Five scores could not be converted (music21 raised on malformed repeats, one on
+an infinite value), which is worth remembering as a general robustness note
+about real-world MusicXML.
+
+The disagreements are systematic rather than random, and they split cleanly in
+two:
+
+- Labelled **easy**, graded 5-6: Hania Rani's "F Major", Radiohead's
+  "Daydreaming", Bach BWV 999 and BWV 846. All long and note-dense, but built
+  on one repeated figure -- learn a bar, play the piece.
+- Labelled **hard**, graded 1.5-2.8: "En therapie", "Ramona", "Branches Break",
+  "Sweden v2". All sparse, few notes, but rhythmically awkward or oddly voiced.
+
+So the two scales measure genuinely different things: the model measures
+**quantity and density**, the labels measure **awkwardness and how long it
+takes to learn**. Neither is wrong, and the labels are not simply noise from a
+beginner -- though with 93 samples in 3 buckets they are noisy too.
+
+What this exposes is the model's real structural blind spot: **it has no notion
+of repetition**. Nothing in the 18 features asks how much of a piece is a
+restatement of material already played, which is one of the largest components
+of how hard a piece is to learn. A self-similarity feature is cheap to compute
+from MusicXML and is the single most promising thing we could add that PianoML
+does not have.
+
+Second caveat on this comparison: the catalog is pop, game and film
+arrangements, while the model was trained on classical syllabus repertoire, so
+part of the weak correlation is repertoire domain shift rather than the model
+being wrong.
+
+Two consequences for the plan: the manual `difficulty` field must keep winning
+whenever it is set (it encodes something the model cannot see), and our own
+catalog is not a validation set for the model -- it is at best a sanity check.
+
+## Step 3 results: the ablation
+
+PSyllabus downloaded (7,901 labelled MIDIs), features extracted for all of
+them, same split procedure and same LightGBM hyperparameters as
+`piano-syllabus-classifier`. LightGBM only, no MLP -- it carries 75% of their
+ensemble weight, and what matters here is the comparison between feature sets.
+
+The reproduction checks out: with all 18 features we get **MAE 0.799, 47.2%
+exact, 383 trees**, against their published 0.792 / 47.0% / 383 trees. Same
+split, same pipeline.
+
+| Feature set | Test MAE | Exact | Within 1 grade | Domain gap (step 1) |
+|---|---|---|---|---|
+| all 18 (theirs) | 0.799 | 47.2% | 82.2% | 0.354 |
+| minus velocity (15) | 0.800 | 46.7% | 83.2% | 0.317 |
+| minus velocity + timing (13) | 0.812 | 46.5% | 81.7% | 0.272 |
+| domain-invariant only (10) | 0.865 | 44.9% | 80.0% | 0.110 |
+
+**Dropping the three velocity features is completely free** (MAE 0.800 vs
+0.799). That alone removes the need to fabricate velocity at inference, which
+was the ugliest part of porting the model as-is.
+
+Dropping `rhythmic_complexity` and `arpeggio_ratio` on top costs 0.013 MAE and
+buys a visibly smaller domain gap. Dropping the density block as well costs
+0.066 MAE to buy the remaining 0.16 of gap -- the only trade in the table that
+is not obviously worth it.
+
+**Decision: the 13-feature set** (all 18 minus the three velocity features,
+minus `rhythmic_complexity` and `arpeggio_ratio`), with `note_density` later
+swapped for its tempo-free form and the repetition features added -- see the
+section below. Roughly 0.81 model error
+plus roughly 0.27 of notation/performance noise, against 0.80 plus 0.35 for the
+full set -- slightly better end to end, and it never needs a value we cannot
+compute from a score.
+
+**Ship LightGBM alone, drop the MLP.** Their full ensemble scores 0.792 against
+0.812 for LightGBM alone on 13 features: a 0.02 difference, irrelevant beside a
+0.27 domain gap and a 0.79 intrinsic error. In exchange the TypeScript port
+loses the safetensors parsing, the frozen BatchNorm and the CORN head, and
+becomes a numeric-threshold tree walk and nothing else.
+
+## Tested afterwards: tempo-free density, and repetition
+
+**Tempo.** Everything tempo-dependent was already suspect: a beginner plays
+well under the notated tempo without the piece becoming a different piece, and
+plenty of real MusicXML carries no tempo marking at all (music21 and any parser
+then default to 120, so `note_density` becomes an arbitrary number). Replacing
+`note_density` (notes per second) with `notes_per_quarter` (notes per quarter
+note) costs 0.007 MAE across five splits -- well inside the seed-to-seed spread
+of 0.02. **Go tempo-free**: the accuracy is the same and the feature stops
+depending on a field that is often missing or wrong.
+
+Note that `fast_note_ratio` is already tempo-free: it counts notated durations
+shorter than an eighth, not real-time speed.
+
+**Repetition.** Three candidate measures were built and tested rather than
+assumed:
+- `compress_pitch` / `compress_events` -- gzip ratio of the note stream
+  (compressed size over raw size), the standard cheap proxy for structure.
+- `unique_bar_ratio` -- distinct bars over total bars, bars hashed on rhythm
+  plus intervals from the bar's first note, so a figure repeated on a different
+  chord counts as the same material.
+
+On PSyllabus the three together are worth about **0.009 MAE**, in the same
+direction on all five splits (13 features: 0.815 mean, 13 + repetition: 0.806).
+Consistent, and small. Worth keeping since they cost nothing to compute, not
+worth calling a breakthrough.
+
+**The hypothesis that repetition explains our own labels did not survive
+testing.** Against the 93 hand-labelled catalog scores:
+
+| Measure | Spearman with labels | Spearman with note count |
+|---|---|---|
+| raw compression ratio | -0.313 | -0.652 |
+| compression vs a shuffled control | -0.374 | -0.673 |
+| distinct bars (rhythm only) | +0.308 | +0.485 |
+| unique bar ratio | -0.151 | -0.391 |
+| **plain note count** | **+0.434** | 1.000 |
+
+Every repetition measure is dominated by length: longer pieces genuinely repeat
+more, and normalising against a length-matched shuffled control does not break
+the coupling. None of them beats simply counting the notes at predicting the
+manual labels, and the sign is the opposite of the hypothesis -- more
+repetitive reads as *harder*, because more repetitive means longer.
+
+So the story that "Bach BWV 846 is labelled easy because it is one repeated
+figure" is a plausible reading of the examples, but it is not what the measures
+support. What remains true is the observation itself: nothing available,
+including the model, predicts the manual labels better than the raw note count
+(0.434 against 0.315), which says more about those labels being a different and
+noisy axis than about any single missing feature. 93 samples in three buckets
+from one labeller cannot settle it either way.
+
+## Which XML parser
+
+`opensheetmusicdisplay` has no XML dependency at all -- it uses the browser's
+`DOMParser`, so reusing it server-side would mean pulling in jsdom.
+
+The syntax half is a solved problem: **`fast-xml-parser`** (zero dependencies,
+actively maintained, XML to plain objects). `musicxml-interfaces` exists and
+maps MusicXML to typed structures, but it has not been touched since 2022 and
+still leaves the hard half undone.
+
+The hard half is not parsing XML, it is **musical semantics**: turning elements
+into notes positioned in time (divisions, `backup`/`forward`, `chord`, ties,
+staff assignment, repeats). That is roughly 200 lines we write ourselves, and
+it is the same logic `ScoreParser.extractExpectedEvents` already implements
+against OSMD's object model in the browser.
+
+The alternative is computing the features client-side at upload, where OSMD is
+already loaded, and posting them with the file. It saves the parser but gives
+up re-deriving grades for scores already in the catalog on a version bump,
+which is the main reason to sit in the `scoreMetadata.ts` pattern at all.
+
+## Step 4 results: the port, and what it changed about the feature set
+
+Written and validated. `server/grade/` holds it: `musicXmlNotes.ts` (notes out
+of MusicXML), `gradeFeatures.ts` (the features), `lightgbm.ts` (the tree walk),
+`gradeModel.json` (the trained model, 125 trees, 104 KB), `index.ts`
+(`estimateScoreGrade`, mirroring `extractScoreMetadata`: best-effort, never
+throws). No new runtime dependency. Grading the whole 99-score catalog takes
+278 ms.
+
+**The port forced one more cut to the feature set.** Comparing the TypeScript
+features (from `xml_score.musicxml`) against the Python reference (from the
+same piece's `midi_score.mid`) on 60 ASAP pieces showed three features
+disagreeing badly while everything else matched:
+
+- `fast_note_ratio`: 0.018 from the score against 0.193 from the rendering, a
+  factor of ten. The cause is trivial and unfixable: **a MIDI renderer writes
+  every note one tick short** (0.9979 of a quarter, not 1.0), so every eighth
+  note lands just under a "shorter than an eighth" threshold that the notated
+  value sits exactly on.
+- `avg_polyphony` and `polyphony_entropy`: about 24% apart, same cause. Those
+  one-tick gaps each become their own sample in the event sweep, dragging the
+  average down.
+
+Held duration is a rendering convention, not a fact of the score. So the final
+set is **nine features, none of which depends on how long a note is held**:
+`max_polyphony`, `pitch_range`, `num_distinct_pitches`, `chord_ratio`,
+`wide_leap_ratio`, `repeated_note_ratio`, `low_ratio`, `high_ratio`,
+`hand_independence`. Retrained: **MAE 0.816, 45.9% exact, 81.8% within one
+grade** -- indistinguishable from the 18-feature original (0.810 over five
+splits) and from every other set tried (all between 0.86 and 0.88 once the
+domain gap is added in).
+
+After the cut, TypeScript and Python agree to **under 1% on every feature**,
+and exactly on four of them.
+
+**Repeats had to be unfolded after all.** The first version deliberately did
+not, on the reasoning that ratios are invariant to playing a section twice.
+That is wrong for two of the nine: `repeated_note_ratio` is
+`(notes - distinct) / (notes - 1)` and `wide_leap_ratio` divides by the note
+count, so both move when the count doubles and the pitch set does not. Measured
+on the catalog: leaving repeats folded shifted the grade by **1.09 on average**
+for the 37 scores that have them, always downwards -- more than the model's own
+error. `playbackOrder` now expands repeat barlines and first/second endings
+(jump directions are not followed: rare here, ambiguous, and capped expansion
+matters more than completeness). Median note count against music21 went from
+0.99 with big outliers to exactly 1.000.
+
+**Final agreement with the Python pipeline, per score: 0.094 of a grade on
+average** (max 0.93) across the catalog.
+
+The exception is worth recording because it is music21's artifact, not ours:
+**ten scores carry `<harmony>` chord symbols, which music21 renders as extra
+sounding notes** (656 notes in the MIDI against 438 real ones in the XML for
+"Perfect"). Those score 1.75 apart on average. Our parser ignores chord symbols,
+which is the correct behaviour and also matches the training data, where
+transcribed performances contain no such phantom notes.
+
+## The length problem
+
+The grade is, to a first approximation, a note counter. On the catalog,
+**Spearman(grade, note count) = +0.90**. A short hard piece ranks last: the
+catalog's "Moanin" head is 66 notes of jazz and comes out at 1.00.
+
+Three measurements frame it:
+
+- **The labels have the bias too.** On PSyllabus, Spearman(syllabus grade, note
+  count) = +0.79, and on our own catalog Spearman(manual tag, note count) =
+  +0.43. In graded repertoire, long really does mean hard. The model did not
+  invent this.
+- **The model amplifies it**: its predictions correlate +0.92 with length,
+  higher than the labels do. Our features are length proxies --
+  `repeated_note_ratio` correlates +0.93 with the note count and
+  `num_distinct_pitches` +0.81, since both saturate as a piece gets longer.
+- **But length alone is not enough**: a model given only the note count scores
+  MAE 0.992, against 0.843 for the nine features. They carry roughly 0.15 of a
+  grade of real information beyond size.
+
+### Two ways to remove it, both measured
+
+**Local features.** The same nine measurements computed over a sliding window
+of 64 consecutive notes and aggregated at the 75th percentile -- "how hard does
+it get" rather than "how much of it is there". A window counted in notes is
+also the only window definition that means the same thing on a score and on a
+performance. Result: correlation with length falls from +0.91 to +0.16, and
+Moanin rises from 1.8 to 6.4. But PSyllabus MAE degrades from 0.843 to 1.264.
+
+**Holding length constant** (the cleaner method). Give the model the note count
+as an explicit feature during training, so the trees attribute the length
+effect to it, then pin that input to the training median when predicting. What
+is left answers "how hard would this be at ordinary length". Correlation with
+length falls from +0.93 to +0.13, and Moanin rises from 1.4 to 5.1.
+
+### Why neither is shipped as *the* grade
+
+Holding length constant collapses the answer. On the PSyllabus test set, where
+the true grades are known:
+
+| | spread (sd) | MAE | separation of grade 1-3 from 7-8 |
+|---|---|---|---|
+| true labels | 2.43 | - | - |
+| grade, length known | 2.22 | 0.822 | 3.99 |
+| grade, length held | 1.28 | 1.359 | 2.73 |
+
+Almost every piece lands between 3.3 and 5.0. That is the honest reading:
+length was carrying most of the signal the nine features had, so removing it
+leaves a flatter and noisier ranking rather than a better one. It fixes Moanin
+and breaks the ordering everywhere else.
+
+The deeper reason is that nothing in the feature set can see what actually
+makes Moanin hard -- jazz harmony, syncopation, blue-note voicings, the
+independence of the two hands as *lines* rather than as registers. Removing
+length does not add that signal; it only removes the one signal we had.
+
+### What to do instead
+
+**Show the length next to the grade** (measures, or note count) rather than
+trying to hide it inside a single number. A catalog row reading "Grade 5, 54
+bars" and one reading "Grade 5, 210 bars" say different things, and the reader
+can tell them apart instantly. This costs nothing, hides nothing, and does not
+degrade the calibrated number.
+
+The length-controlled prediction is kept as a measured experiment, not a
+shipped field. Making a real "peak demand" number work needs features that
+capture harmonic and rhythmic difficulty -- the MusicXML-native signals in the
+next section -- and those cannot be trained on PSyllabus at all, since it
+contains no scores.
+
 ## Plan
 
-**Step 1 -- measure the domain gap (the decision point).**
-Clone ASAP, install `symusic`, and run PianoML's own `features.py` twice per
-piece: once on `midi_score.mid` (quantised notation, i.e. what we would
-produce from MusicXML) and once on a human performance MIDI (same domain as
-PSyllabus). Same piece, both domains, 222 samples. Compare the 18 features,
-paying attention to the timing-sensitive ones.
-
-- Small shift -> a model trained on PSyllabus is usable on our scores.
-- Large shift (about a standard deviation or more) -> training on PSyllabus is
-  a dead end for us and CIPI becomes the prerequisite.
+**Step 1 -- measure the domain gap. DONE**, see the section above. PSyllabus
+is usable if we pick domain-invariant features.
 
 **Step 2 -- request CIPI, in parallel.** Free, no commitment, and it is the
 only path to a model that actually sees key signature, real hands and chord
 spans. Worth sending whatever step 1 concludes.
 
-**Step 3 -- train our own weights** (on PSyllabus or CIPI, depending on step 1).
-Cheap: LightGBM on 7,900 x 18 trains in seconds on CPU, the MLP in minutes. No
+**Step 3 -- train our own weights on PSyllabus. DONE**, see the ablation
+above: 13 features, LightGBM only. Cheap, as expected: LightGBM on 7,900 x 18 trains in seconds on CPU, the MLP in minutes. No
 GPU. Training our own also settles three things at once: it removes the
 licensing grey area, it lets us drop the three velocity features outright
 instead of faking them at inference, and it lets us fix the two sorted-pitch
 bugs instead of reproducing them. Baseline to beat: MAE 0.79.
 
-**Step 4 -- port inference to TypeScript, server-side only.** The MLP is three
-matrices plus a frozen BatchNorm and a cumulative sigmoid; LightGBM inference
-is a numeric-threshold tree walk, with the text model precompiled once into
-compact JSON. No new runtime dependency, no Python on the VPS, and no browser
+**Step 4 -- port inference to TypeScript, server-side only. DONE**, see above. No new runtime dependency, no Python on the VPS, and no browser
 bundle cost since it runs at upload time.
 
 Validation for the port comes free from ASAP: our TypeScript features computed
@@ -206,6 +552,7 @@ being re-uploaded.
 
 **Step 6, optional -- our own MusicXML-native signals alongside.** Key
 signature, real per-hand simultaneity from the staves, true melodic leaps per
-hand, chord span in semitones. Displayed as an explanation of the grade rather
+hand, chord span in semitones, and above all **repetition / self-similarity**,
+which the catalog comparison above singles out as the biggest missing signal. Displayed as an explanation of the grade rather
 than folded into it, because mixing a calibrated number with invented weights
 loses the calibration. Folding them in properly means retraining on CIPI.
