@@ -38,4 +38,8 @@ describe('handPitchesOf', () => {
   it('has no hands to report past the end of the piece', () => {
     expect(handPitchesOf(undefined)).toEqual({ right: [], left: [] })
   })
+
+  it('treats an event carrying no hands at all the same as unknown hands', () => {
+    expect(handPitchesOf({ index: 0, pitches: [C4], measureNumber: 1 })).toEqual({ right: [], left: [] })
+  })
 })

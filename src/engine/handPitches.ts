@@ -24,7 +24,7 @@ export function handPitchesOf(event: ExpectedEvent | undefined): HandPitches {
   }
   const byHand: HandPitches = { right: [], left: [] }
   event.pitches.forEach((pitch, i) => {
-    const hand: NoteHand | null = event.hands[i] ?? null
+    const hand: NoteHand | null = event.hands?.[i] ?? null
     if (hand && !byHand[hand].includes(pitch)) {
       byHand[hand].push(pitch)
     }

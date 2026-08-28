@@ -5,6 +5,10 @@ decisions already made and the reasoning behind the code as it exists, this
 file holds what we would like to do next and why. Nothing here is a
 commitment, and nothing here has been designed in detail yet.
 
+Section numbers are stable identifiers: an idea that gets built is removed and
+the remaining ones keep the numbers they had, so "idea 4" means the same thing
+across conversations. Gaps in the numbering are therefore deliberate.
+
 ## Context: PianoML
 
 Several ideas below come from looking at [PianoML](https://pianoml.org)
@@ -13,36 +17,6 @@ closest open-source project to this app found so far: a browser-based practice
 tool built on real notation (MusicXML), not falling notes. Worth revisiting
 whenever we look for prior art, since it solves several of the same problems
 independently.
-
-## 1. Redesign the virtual keyboard, and fix the missing octave landmark
-
-Two related problems with the same component.
-
-**Visual quality.** The keyboard looks plain compared to other apps in this
-space. It is a functional aid, and it should look like a deliberate part of the
-interface rather than coloured rectangles.
-
-**The octave problem (the actually important one).** The rendered range and the
-scroll position both change constantly: the range is derived from the piece's
-lowest/highest pitch (widened by any out-of-range wrong note), and the view
-auto-scrolls to centre the currently active keys. So when a passage plays a note
-and then the *same* note an octave higher, the keyboard re-centres onto a
-different part of the instrument that looks identical -- the highlighted key
-appears in roughly the same place, with nothing in the design to say the hand
-must move an octave. The player gets no cue for one of the moves that most needs
-one.
-
-Possible directions (not decided):
-- A fixed keyboard layout/scale that never re-scales, so a position on screen
-  always means the same pitch. Costs screen width, which is exactly why the
-  current fitting logic exists (`MIN_WHITE_KEY_WIDTH_PX`, the ResizeObserver
-  fit, the centring effect).
-- Keep the adaptive scaling but add landmarks so an octave jump is visible:
-  octave separators, note names on the C keys, a subtly different treatment per
-  octave, or an explicit animation/indicator when the target octave changes.
-- **Show middle C (C4) explicitly.** This is the cheapest first step and worth
-  doing on its own: a permanent marker on middle C gives the player one fixed
-  reference point on an otherwise repeating pattern of keys.
 
 ## 2. A scrubber/slider for moving through the piece
 

@@ -5,7 +5,7 @@ import type { ExpectedEvent } from '../types/score'
 // One event per measure -- keeps expected event indices trivially equal to
 // (measureNumber - 1), so boundary assertions read directly as measure math.
 function eventsPerMeasure(measureCount: number): ExpectedEvent[] {
-  return Array.from({ length: measureCount }, (_, i) => ({ index: i, pitches: [60], measureNumber: i + 1, hands: [null] }))
+  return Array.from({ length: measureCount }, (_, i) => ({ index: i, pitches: [60], measureNumber: i + 1 }))
 }
 
 describe('computeSections', () => {
@@ -34,10 +34,10 @@ describe('computeSections', () => {
 
   it('resolves boundaries via actual event indices, not a naive measure count, when measures hold multiple events', () => {
     const events: ExpectedEvent[] = [
-      { index: 0, pitches: [60], measureNumber: 1, hands: [null] },
-      { index: 1, pitches: [62], measureNumber: 1, hands: [null] }, // measure 1 has 2 events
-      { index: 2, pitches: [64], measureNumber: 2, hands: [null] },
-      { index: 3, pitches: [65], measureNumber: 3, hands: [null] },
+      { index: 0, pitches: [60], measureNumber: 1 },
+      { index: 1, pitches: [62], measureNumber: 1 }, // measure 1 has 2 events
+      { index: 2, pitches: [64], measureNumber: 2 },
+      { index: 3, pitches: [65], measureNumber: 3 },
     ]
     const sections = computeSections(events, 2)
     // measures 1-2 hold events 0,1 (both measure 1) and 2 (measure 2) -> endEventIndex 3, not a naive 2.
