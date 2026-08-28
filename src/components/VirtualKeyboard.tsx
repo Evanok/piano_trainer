@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { NoteHand } from '../types/score'
 
 const WHITE_OFFSETS = [0, 2, 4, 5, 7, 9, 11]
 
@@ -12,6 +13,20 @@ const MIN_WHITE_KEY_WIDTH_PX = 28
 const CORRECT_COLOR = '#22c55e'
 const NEUTRAL_COLOR = '#eab308'
 const WRONG_COLOR = '#ef4444'
+
+/** The hand a key belongs to is a SECOND visual channel, deliberately not a
+ * replacement for the yellow/green/red state colours above: a key still has to
+ * read as expected/held/wrong first. It is drawn as a bar along the bottom of
+ * the key, so it survives every state colour and works on black keys too (both
+ * hues are dark enough to sit on white and light enough to sit on near-black,
+ * with a white hairline separating the bar from the key itself). */
+const RIGHT_HAND_COLOR = '#2563eb'
+const LEFT_HAND_COLOR = '#9333ea'
+
+/** Below this, an R/L letter inside a bar segment is an unreadable smudge, so
+ * the segment keeps its colour and drops the letter -- the case for black keys
+ * (0.6 of a white key) and for a key both hands play (half a key each). */
+const HAND_LABEL_MIN_WIDTH_PX = 14
 
 function isWhiteKey(pitch: number): boolean {
   return WHITE_OFFSETS.includes(((pitch % 12) + 12) % 12)
@@ -27,6 +42,14 @@ interface VirtualKeyboardProps {
    * off each attempt was and correct (e.g. an octave slip), not just that
    * they were wrong. All of them clear together when the decay timer fires. */
   wrongPitches?: number[]
+  /** The expected pitches the right/left hand is written to play, so a
+   * two-hand passage reads as two things to do rather than one undifferentiated
+   * set of highlighted keys. Both are empty whenever the score has no
+   * unambiguous pair of hands (see selectHandStaves), and the whole channel
+   * then simply does not render. A pitch written on both staves legitimately
+   * appears in both lists and gets a split bar. */
+  rightHandPitches?: number[]
+  leftHandPitches?: number[]
 }
 
 export function VirtualKeyboard({
@@ -35,6 +58,8 @@ export function VirtualKeyboard({
   expectedPitches,
   heldPitches,
   wrongPitches = [],
+  rightHandPitches = [],
+  leftHandPitches = [],
 }: VirtualKeyboardProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const keyRefs = useRef(new Map<number, HTMLDivElement>())
@@ -80,6 +105,38 @@ export function VirtualKeyboard({
       return NEUTRAL_COLOR
     }
     return defaultColor
+  }
+
+  const handsFor = (pitch: number): NoteHand[] => {
+    const hands: NoteHand[] = []
+    if (rightHandPitches.includes(pitch)) {
+      hands.push('right')
+    }
+    if (leftHandPitches.includes(pitch)) {
+      hands.push('left')
+    }
+    return hands
+  }
+
+  const renderHandBar = (pitch: number, keyWidthPx: number, roundedClass: string) => {
+    const hands = handsFor(pitch)
+    if (hands.length === 0) {
+      return null
+    }
+    const segmentWidthPx = keyWidthPx / hands.length
+    return (
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 flex h-3 overflow-hidden border-t border-white ${roundedClass}`}>
+        {hands.map((hand) => (
+          <div
+            key={hand}
+            className="flex flex-1 items-center justify-center text-[8px] font-bold leading-none text-white"
+            style={{ backgroundColor: hand === 'right' ? RIGHT_HAND_COLOR : LEFT_HAND_COLOR }}
+          >
+            {segmentWidthPx >= HAND_LABEL_MIN_WIDTH_PX ? (hand === 'right' ? 'R' : 'L') : null}
+          </div>
+        ))}
+      </div>
+    )
   }
 
   const blackKeyLeftPx = (pitch: number): number => {
@@ -130,7 +187,9 @@ export function VirtualKeyboard({
               width: `${whiteKeyWidthPx}px`,
               backgroundColor: colorFor(pitch, '#ffffff'),
             }}
-          />
+          >
+            {renderHandBar(pitch, whiteKeyWidthPx, '')}
+          </div>
         ))}
         {blackKeys.map((pitch) => (
           <div
@@ -142,7 +201,9 @@ export function VirtualKeyboard({
               width: `${whiteKeyWidthPx * 0.6}px`,
               backgroundColor: colorFor(pitch, '#111827'),
             }}
-          />
+          >
+            {renderHandBar(pitch, whiteKeyWidthPx * 0.6, 'rounded-b-sm')}
+          </div>
         ))}
       </div>
     </div>

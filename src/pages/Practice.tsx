@@ -16,6 +16,7 @@ import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
+import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
@@ -187,6 +188,11 @@ export function Practice({
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
   const [wrongPitches, setWrongPitches] = useState<number[]>([])
+  // The same expected pitches, split by the hand they are written for, so the
+  // virtual keyboard can show which hand plays what on top of the state
+  // colours. Empty for a score with no unambiguous pair of hands, which is
+  // exactly when there is nothing true to say about hands.
+  const [expectedHandPitches, setExpectedHandPitches] = useState(NO_HAND_PITCHES)
 
   const [events, setEvents] = useState<ExpectedEvent[]>([])
   const [naturalBreaks, setNaturalBreaks] = useState<Set<number>>(new Set())
@@ -472,6 +478,7 @@ export function Practice({
     setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
     setExpectedPitches(engine.currentExpectedPitches)
+    setExpectedHandPitches(handPitchesOf(engine.currentEvent))
     setHeldPitches([])
     setWrongPitches([])
     eventStartedAtRef.current = nowMs()
@@ -636,6 +643,7 @@ export function Practice({
       setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
       setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
       setExpectedPitches(engine.currentExpectedPitches)
+      setExpectedHandPitches(handPitchesOf(engine.currentEvent))
       setHeldPitches(engine.currentHeldPitches)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -688,6 +696,7 @@ export function Practice({
     setDebugLog([])
     // Page free never highlights anything -- see isFreePageMode.
     setExpectedPitches(practiceMode === 'page' ? [] : waitEngineRef.current.currentExpectedPitches)
+    setExpectedHandPitches(practiceMode === 'page' ? NO_HAND_PITCHES : handPitchesOf(waitEngineRef.current.currentEvent))
     setHeldPitches([])
     setWrongPitches([])
     const allPitches = newEvents.flatMap((event) => event.pitches)
@@ -1159,6 +1168,8 @@ export function Practice({
               expectedPitches={expectedPitches}
               heldPitches={heldPitches}
               wrongPitches={wrongPitches}
+              rightHandPitches={expectedHandPitches.right}
+              leftHandPitches={expectedHandPitches.left}
             />
           </div>
         )}
@@ -1399,6 +1410,8 @@ export function Practice({
           expectedPitches={expectedPitches}
           heldPitches={heldPitches}
           wrongPitches={wrongPitches}
+          rightHandPitches={expectedHandPitches.right}
+          leftHandPitches={expectedHandPitches.left}
         />
       )}
     </div>

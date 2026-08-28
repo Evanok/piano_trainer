@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectHandStaff } from './ScoreParser'
+import { selectHandStaff, selectHandStaves } from './ScoreParser'
 
 // The staff objects only ever get compared by identity (a note's ParentStaff is
 // matched against the selected one), so plain strings stand in for them here --
@@ -56,5 +56,27 @@ describe('selectHandStaff', () => {
 
     expect(selectHandStaff(unnamed, 'right')).toBe('first')
     expect(selectHandStaff(unnamed, 'left')).toBe('second')
+  })
+})
+
+// The pair behind selectHandStaff, used to label each required note with the
+// hand it belongs to (the virtual keyboard's hand channel).
+describe('selectHandStaves', () => {
+  it('pairs the staves top-first, whichever layout the file uses', () => {
+    expect(selectHandStaves([{ name: 'Piano', staves: ['treble', 'bass'] }])).toEqual({
+      right: 'treble',
+      left: 'bass',
+    })
+    expect(
+      selectHandStaves([
+        { name: 'Piano, Left Hand', staves: ['lower'] },
+        { name: 'Piano, Right Hand', staves: ['upper'] },
+      ]),
+    ).toEqual({ right: 'upper', left: 'lower' })
+  })
+
+  it('answers nothing when there is no unambiguous pair of hands', () => {
+    expect(selectHandStaves([{ name: 'Piano', staves: ['only'] }])).toBeUndefined()
+    expect(selectHandStaves([{ name: 'Organ', staves: ['a', 'b', 'c'] }])).toBeUndefined()
   })
 })

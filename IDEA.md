@@ -14,26 +14,7 @@ tool built on real notation (MusicXML), not falling notes. Worth revisiting
 whenever we look for prior art, since it solves several of the same problems
 independently.
 
-## 1. Colour the hands differently on the virtual keyboard
-
-The virtual keyboard (`src/components/VirtualKeyboard.tsx`) currently colours a
-key by *state* only: yellow for expected, green for held/correct, red for
-wrong. It says nothing about *which hand* is supposed to play the key.
-
-Idea: distinguish the right hand from the left hand visually on the keyboard, so
-a two-hand passage reads as two separate things to do instead of one
-undifferentiated set of highlighted keys.
-
-Notes:
-- The information already exists upstream: `ScoreParser.selectHandStaff` and
-  `requiredNotesUnderCursor(osmd, handMode)` already know which staff (and
-  therefore which hand) each required note comes from. Today that identity is
-  discarded by the time pitches reach the keyboard as flat `number[]` arrays.
-- The state colours must stay readable. The hand distinction probably has to be
-  a second visual channel (hue family, an underline/bar at the bottom of the
-  key, a marker) rather than a replacement for the yellow/green/red scheme.
-
-## 2. Redesign the virtual keyboard, and fix the missing octave landmark
+## 1. Redesign the virtual keyboard, and fix the missing octave landmark
 
 Two related problems with the same component.
 
@@ -63,7 +44,7 @@ Possible directions (not decided):
   doing on its own: a permanent marker on middle C gives the player one fixed
   reference point on an otherwise repeating pattern of keys.
 
-## 3. A scrubber/slider for moving through the piece
+## 2. A scrubber/slider for moving through the piece
 
 PianoML's cursor control for changing position is nicer than our Prev/Next
 section buttons. Today, moving around means the section dropdown, the
@@ -84,7 +65,7 @@ Notes:
   infrequent). A scrubber would need to commit on release, or that cost has to be
   reconsidered.
 
-## 4. Score sources: PianoML has a large MusicXML library
+## 3. Score sources: PianoML has a large MusicXML library
 
 PianoML carries a lot of MusicXML files, with a filter by grade/level, including
 a large amount of beginner material. Worth investigating later as a source of
@@ -95,7 +76,7 @@ To check before relying on it: what the licence/provenance of those files
 actually is, per file, and whether anything can legitimately be reused or only
 consulted.
 
-## 5. An automatic difficulty grade for a score
+## 4. An automatic difficulty grade for a score
 
 PianoML also exposes a grade/level per piece. We have two adjacent things but
 not this one:
@@ -152,7 +133,7 @@ Two incidental findings from that repo, worth keeping:
 - `scripts/detect-good-song.ts` curates a MIDI collection with exactly one
   heuristic: a file with **exactly two piano tracks** is "almost definitely
   excellent". That is a quality/usability filter rather than a difficulty metric,
-  but it is precisely the precondition the MIDI import in section 6 needs for
+  but it is precisely the precondition the MIDI import in section 5 needs for
   hand splitting -- the same test would tell us up front whether an imported file
   can support hand mode or needs the middle-C fallback.
 - `scripts/generate-score-meta.ts` shells out to the MuseScore 4 CLI
@@ -163,7 +144,7 @@ Two incidental findings from that repo, worth keeping:
   an upload path.
 
 
-## 6. Support MIDI files as a score source
+## 5. Support MIDI files as a score source
 
 Today the only accepted input is MusicXML (`.musicxml` / `.xml` / `.mxl`), because
 OSMD reads nothing else. A lot of the piano material circulating online is

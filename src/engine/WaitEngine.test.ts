@@ -10,7 +10,7 @@ const G4 = 67
 const A4 = 69
 
 function event(index: number, pitches: number[], measureNumber = 1): ExpectedEvent {
-  return { index, pitches, measureNumber }
+  return { index, pitches, measureNumber, hands: pitches.map(() => null) }
 }
 
 describe('WaitEngine', () => {
