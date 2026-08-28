@@ -14,12 +14,20 @@ import {
 } from '../components/icons'
 import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
+import { LoopRangeBar } from '../components/LoopRangeBar'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
+import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
 import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
-import { computeSections, type Section } from '../engine/sections'
+import {
+  computeSections,
+  eventIndexAtOrAfterMeasure,
+  lastMeasureNumber,
+  sectionForMeasureRange,
+  type Section,
+} from '../engine/sections'
 import { createSessionId } from '../engine/sessionLog'
 import { saveSession } from '../engine/sessionStore'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
@@ -187,12 +195,22 @@ export function Practice({
   const [heldPitches, setHeldPitches] = useState<number[]>([])
   const [pitchRange, setPitchRange] = useState({ low: 60, high: 72 })
   const [wrongPitches, setWrongPitches] = useState<number[]>([])
+  // The same expected pitches, split by the hand they are written for, so the
+  // virtual keyboard can show which hand plays what on top of the state
+  // colours. Empty for a score with no unambiguous pair of hands, which is
+  // exactly when there is nothing true to say about hands.
+  const [expectedHandPitches, setExpectedHandPitches] = useState(NO_HAND_PITCHES)
 
   const [events, setEvents] = useState<ExpectedEvent[]>([])
   const [naturalBreaks, setNaturalBreaks] = useState<Set<number>>(new Set())
   const [measuresPerSection, setMeasuresPerSection] = useState(DEFAULT_MEASURES_PER_SECTION)
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
   const [sectionMessage, setSectionMessage] = useState<string | null>(null)
+  // Scroll loop's range, in measures. It starts as the whole piece, which
+  // is what makes the mode behave exactly like plain Scroll until a bound is
+  // actually moved. Kept in measure space rather than event indices so it
+  // survives a hand-mode change, which renumbers every event.
+  const [loopRange, setLoopRange] = useState({ start: 1, end: 1 })
 
   // currentSectionIndex === sections.length is the implicit "Whole piece"
   // choice -- practice every event with no section boundary, same as being
@@ -201,6 +219,17 @@ export function Practice({
     () => computeSections(events, measuresPerSection, naturalBreaks),
     [events, measuresPerSection, naturalBreaks],
   )
+
+  const totalMeasures = useMemo(() => lastMeasureNumber(events), [events])
+  const isLoopMode = practiceMode === 'scrollLoop'
+  // Null means "the whole piece", i.e. no crop and no looping: the default
+  // range and a range dragged back out to both ends are the same thing.
+  const loopSection = useMemo(() => {
+    if (!isLoopMode || (loopRange.start <= 1 && loopRange.end >= totalMeasures)) {
+      return null
+    }
+    return sectionForMeasureRange(events, loopRange.start, loopRange.end)
+  }, [isLoopMode, loopRange, totalMeasures, events])
 
   const backing = useBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
 
@@ -257,6 +286,17 @@ export function Practice({
   sectionsRef.current = sections
   const currentSectionIndexRef = useRef(currentSectionIndex)
   currentSectionIndexRef.current = currentSectionIndex
+  // The range practice is currently confined to, whichever mode put it there:
+  // the selected section, Scroll loop's range, or nothing at all. Every
+  // crop, every end-of-range check and every "back to start" reads this one
+  // value, so the two mechanisms can't drift apart.
+  const activeBounds: Section | null = isLoopMode
+    ? loopSection
+    : isSectionPracticeMode(practiceMode) && currentSectionIndex < sections.length
+      ? sections[currentSectionIndex]
+      : null
+  const activeBoundsRef = useRef<Section | null>(activeBounds)
+  activeBoundsRef.current = activeBounds
   const handModeRef = useRef(handMode)
   handModeRef.current = handMode
   const sessionSourceRef = useRef(sessionSource)
@@ -472,6 +512,7 @@ export function Practice({
     setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
     setExpectedPitches(engine.currentExpectedPitches)
+    setExpectedHandPitches(handPitchesOf(engine.currentEvent))
     setHeldPitches([])
     setWrongPitches([])
     eventStartedAtRef.current = nowMs()
@@ -546,6 +587,35 @@ export function Practice({
     }
   }
 
+  // Scroll loop never advances and never ends: reaching the last measure
+  // of the loop starts it again, clean pass or not. Same clear-walk-crop dance
+  // every range change owes OSMD (see handleSectionCompleted).
+  const restartLoop = (loop: Section, message: string | null = null) => {
+    applySectionBounds(null)
+    goToEventIndex(loop.startEventIndex)
+    applySectionBounds(loop)
+    if (message !== null) {
+      showSectionMessage(message)
+    }
+  }
+
+  // Any move of either bound puts the cursor back on the loop's first measure,
+  // deliberately: after changing what is being drilled, the only position that
+  // is never surprising is the start of it.
+  const handleLoopRangeChange = (start: number, end: number) => {
+    const clampedStart = Math.min(Math.max(1, Math.round(start)), Math.max(1, totalMeasures))
+    const clampedEnd = Math.min(Math.max(clampedStart, Math.round(end)), Math.max(1, totalMeasures))
+    setLoopRange({ start: clampedStart, end: clampedEnd })
+    setSectionMessage(null)
+    // The loopSection memo has not recomputed at this point, so the bounds to
+    // apply are derived here -- same pattern as handleReady's freshSections.
+    const bounds =
+      clampedStart <= 1 && clampedEnd >= totalMeasures ? null : sectionForMeasureRange(events, clampedStart, clampedEnd)
+    applySectionBounds(null)
+    goToEventIndex(bounds ? bounds.startEventIndex : eventIndexAtOrAfterMeasure(events, clampedStart))
+    applySectionBounds(bounds)
+  }
+
   useEffect(() => {
     return onNoteEvent((event) => {
       if (event.type !== 'noteon') {
@@ -574,10 +644,7 @@ export function Practice({
         [...log, `received ${midiToNoteName(event.pitch)} (${event.pitch}) -> ${status}`].slice(-10),
       )
 
-      const activeSection =
-        isSectionPracticeMode(practiceModeRef.current) && currentSectionIndexRef.current < sectionsRef.current.length
-          ? sectionsRef.current[currentSectionIndexRef.current]
-          : null
+      const activeSection = activeBoundsRef.current
 
       if (status === 'error') {
         eventsWithErrorsRef.current.add(indexBeforeNote)
@@ -617,11 +684,15 @@ export function Practice({
           furthestIndexRef.current = Math.max(furthestIndexRef.current, newIndex)
 
           if (activeSection && newIndex >= activeSection.endEventIndex) {
-            // Finishing the LAST section ends the session immediately
-            // (handleSectionCompleted calls finishSession itself in that
-            // case) -- a bounded section only wins over plain completion
-            // while there's another section still ahead of it.
-            handleSectionCompleted()
+            if (practiceModeRef.current === 'scrollLoop') {
+              restartLoop(activeSection)
+            } else {
+              // Finishing the LAST section ends the session immediately
+              // (handleSectionCompleted calls finishSession itself in that
+              // case) -- a bounded section only wins over plain completion
+              // while there's another section still ahead of it.
+              handleSectionCompleted()
+            }
           } else if (engine.state.completed) {
             finishSession()
           } else {
@@ -636,6 +707,7 @@ export function Practice({
       setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
       setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
       setExpectedPitches(engine.currentExpectedPitches)
+      setExpectedHandPitches(handPitchesOf(engine.currentEvent))
       setHeldPitches(engine.currentHeldPitches)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -655,6 +727,9 @@ export function Practice({
     setEvents(newEvents)
     const freshNaturalBreaks = extractNaturalBreakMeasures(osmd)
     setNaturalBreaks(freshNaturalBreaks)
+    // A remount reloads the piece from the top, so the loop goes back to
+    // covering all of it (which applies no crop, matching the branch below).
+    setLoopRange({ start: 1, end: Math.max(1, lastMeasureNumber(newEvents)) })
     // A remount (e.g. a layoutMode change from switching modes) loses any
     // previously-set section crop -- the `sections` memo above hasn't
     // recomputed yet at this point in the render cycle, so section 0's
@@ -688,6 +763,7 @@ export function Practice({
     setDebugLog([])
     // Page free never highlights anything -- see isFreePageMode.
     setExpectedPitches(practiceMode === 'page' ? [] : waitEngineRef.current.currentExpectedPitches)
+    setExpectedHandPitches(practiceMode === 'page' ? NO_HAND_PITCHES : handPitchesOf(waitEngineRef.current.currentEvent))
     setHeldPitches([])
     setWrongPitches([])
     const allPitches = newEvents.flatMap((event) => event.pitches)
@@ -704,7 +780,17 @@ export function Practice({
     scoreRef.current?.setZoom(value)
   }
 
-  const handleBackToStart = () => goToEventIndex(0)
+  // In Scroll loop this is "back to the top of the loop", which is the one
+  // control that mode needs constantly; everywhere else it is the top of the
+  // piece. Silent on purpose: the player asked for it, so it needs no message.
+  const handleBackToStart = () => {
+    const loop = activeBounds
+    if (isLoopMode && loop) {
+      restartLoop(loop)
+      return
+    }
+    goToEventIndex(0)
+  }
 
   // Every measure-addressed cursor jump goes through here -- desktop's "Go to
   // measure" box and mobile's long press on the staff -- so the two can never
@@ -724,6 +810,21 @@ export function Practice({
     const eventIndex = engine.findEventIndexForMeasure(measureNumber)
     if (eventIndex === null) {
       return false
+    }
+    // Scroll loop's range is the drawn range, and only measures inside it
+    // exist on screen: a jump outside would leave the cursor on measures that
+    // are not rendered. Refused with a message rather than silently ignored,
+    // and rather than moving the loop the player just placed.
+    if (isLoopMode) {
+      const loop = activeBounds
+      if (loop && (measureNumber < loop.startMeasure || measureNumber > loop.endMeasure)) {
+        showSectionMessage(`Measure ${measureNumber} is outside the loop (${loop.startMeasure}-${loop.endMeasure})`)
+        return false
+      }
+      applySectionBounds(null)
+      goToEventIndex(eventIndex)
+      applySectionBounds(loop)
+      return true
     }
     // Outside a section mode, and on the explicit "Whole piece" choice inside
     // one, no crop is active and none should become active -- cropping here
@@ -824,16 +925,26 @@ export function Practice({
     }
     const entering = isSectionPracticeMode(newMode)
     const wasIn = isSectionPracticeMode(practiceMode)
+    const wasCropped = activeBounds !== null
     setPracticeMode(newMode)
     setSectionMessage(null)
 
-    if (entering && !wasIn) {
+    if (newMode === 'scrollLoop') {
+      // A fresh loop is always the whole piece, so entering the mode changes
+      // nothing on screen until a bound is moved. Whatever crop the previous
+      // mode had applied still has to go, and un-cropping needs its own walk.
+      setLoopRange({ start: 1, end: Math.max(1, totalMeasures) })
+      if (wasCropped) {
+        applySectionBounds(null)
+        goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
+      }
+    } else if (entering && !wasIn) {
       // Fresh entry into section-scoped practice: always restart at section 1.
       setCurrentSectionIndex(0)
       applySectionBounds(null)
       goToEventIndex(0)
       applySectionBounds(sections[0] ?? null)
-    } else if (!entering && wasIn) {
+    } else if (!entering && (wasIn || wasCropped)) {
       // Leaving section-scoped practice: clear the crop, THEN walk -- see
       // handleSectionCompleted for why the cursor walk must always happen
       // with no crop active (OSMD's own tie/rest counting only lines up with
@@ -886,14 +997,14 @@ export function Practice({
     // React re-renders PianoScore with the new handMode prop.
     scoreRef.current?.setHandMode(newHandMode)
     clearDecayTimer()
-    // The section crop currently applied would otherwise confine this walk to
-    // that one section's measures, so the fresh event list (and the WaitEngine
-    // built from it) would cover the section instead of the piece -- the same
-    // "always walk with no crop active" rule setSectionBounds documents. Only
-    // touched in a section mode: clearing bounds costs a full render, and there
-    // is nothing to clear outside those modes.
+    // The crop currently applied (a section, or Scroll loop's range) would
+    // otherwise confine this walk to those measures, so the fresh event list
+    // (and the WaitEngine built from it) would cover the range instead of the
+    // piece -- the same "always walk with no crop active" rule setSectionBounds
+    // documents. Only touched when something is actually cropped: clearing
+    // bounds costs a full render.
     const inSectionMode = isSectionPracticeMode(practiceMode)
-    if (inSectionMode) {
+    if (activeBounds !== null) {
       applySectionBounds(null)
     }
     const newEvents = extractExpectedEvents(osmd, newHandMode)
@@ -915,7 +1026,17 @@ export function Practice({
     resetNoteStats()
     setSectionMessage(null)
 
-    if (inSectionMode) {
+    if (isLoopMode) {
+      // The loop is in measure space, so it survives the renumbering; it only
+      // needs re-clamping in case the other hand reached further into the piece.
+      const freshTotal = Math.max(1, lastMeasureNumber(newEvents))
+      const start = Math.min(loopRange.start, freshTotal)
+      const end = Math.min(Math.max(loopRange.end, start), freshTotal)
+      setLoopRange({ start, end })
+      const bounds = start <= 1 && end >= freshTotal ? null : sectionForMeasureRange(newEvents, start, end)
+      goToEventIndex(bounds ? bounds.startEventIndex : 0)
+      applySectionBounds(bounds)
+    } else if (inSectionMode) {
       const freshSections = computeSections(newEvents, measuresPerSection, naturalBreaks)
       setCurrentSectionIndex(0)
       goToEventIndex(freshSections[0]?.startEventIndex ?? 0)
@@ -1046,6 +1167,7 @@ export function Practice({
           >
             <option value="page">Page</option>
             <option value="scroll">Scroll</option>
+            <option value="scrollLoop">Loop</option>
             {supportsSectionNavigation && <option value="sectionFree">Sect. free</option>}
             {supportsSectionNavigation && <option value="sectionTraining">Sect. drill</option>}
           </select>
@@ -1114,6 +1236,25 @@ export function Practice({
           )}
         </div>
 
+        {/* Scroll loop only, and deliberately one thin row: every pixel
+            spent here is a pixel the score loses on a landscape phone, so
+            there are no tick numbers, no numeric fields and no stepper
+            buttons on mobile. A and B cover setting the loop while playing,
+            and the two handles cover widening it, since the bar always spans
+            the whole piece even when the score is cropped to the loop. */}
+        {isLoopMode && totalMeasures > 0 && (
+          <div className="shrink-0 border-b border-gray-200 bg-white">
+            <LoopRangeBar
+              compact
+              totalMeasures={totalMeasures}
+              startMeasure={loopRange.start}
+              endMeasure={loopRange.end}
+              currentMeasure={currentMeasure}
+              onChange={handleLoopRangeChange}
+            />
+          </div>
+        )}
+
         {/* Long-press-to-move-the-cursor target (see handleScoreTouchStart).
             The wrapper is what carries the touch handlers rather than
             PianoScore itself, so the score component stays free of gesture
@@ -1159,6 +1300,8 @@ export function Practice({
               expectedPitches={expectedPitches}
               heldPitches={heldPitches}
               wrongPitches={wrongPitches}
+              rightHandPitches={expectedHandPitches.right}
+              leftHandPitches={expectedHandPitches.left}
             />
           </div>
         )}
@@ -1299,6 +1442,7 @@ export function Practice({
           >
             <option value="page">Page free</option>
             <option value="scroll">Scroll free</option>
+            <option value="scrollLoop">Scroll loop</option>
             {supportsSectionNavigation && <option value="sectionFree">Section free</option>}
             {supportsSectionNavigation && <option value="sectionTraining">Section training</option>}
           </select>
@@ -1383,6 +1527,16 @@ export function Practice({
         </div>
       )}
 
+      {isLoopMode && totalMeasures > 0 && (
+        <LoopRangeBar
+          totalMeasures={totalMeasures}
+          startMeasure={loopRange.start}
+          endMeasure={loopRange.end}
+          currentMeasure={currentMeasure}
+          onChange={handleLoopRangeChange}
+        />
+      )}
+
       <PianoScore
         ref={scoreRef}
         source={scoreFile}
@@ -1399,6 +1553,8 @@ export function Practice({
           expectedPitches={expectedPitches}
           heldPitches={heldPitches}
           wrongPitches={wrongPitches}
+          rightHandPitches={expectedHandPitches.right}
+          leftHandPitches={expectedHandPitches.left}
         />
       )}
     </div>

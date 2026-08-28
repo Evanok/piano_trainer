@@ -43,6 +43,12 @@ export class WaitEngine {
     }
   }
 
+  /** The whole event, for callers that need more than its pitches (the hand
+   * each note belongs to, its measure) -- undefined once the piece is done. */
+  get currentEvent(): ExpectedEvent | undefined {
+    return this.events[this.currentIndex]
+  }
+
   get currentExpectedPitches(): number[] {
     return this.events[this.currentIndex]?.pitches ?? []
   }

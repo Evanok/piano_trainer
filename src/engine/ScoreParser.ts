@@ -1,6 +1,6 @@
 import type { Instrument, Note, OpenSheetMusicDisplay, Staff } from 'opensheetmusicdisplay'
 import type { HandMode } from '../types/practice'
-import type { ExpectedEvent } from '../types/score'
+import type { ExpectedEvent, NoteHand } from '../types/score'
 
 // OSMD's Note.halfTone uses its own internal octave convention (offset by
 // Pitch.OctaveXmlDifference = 3 from the MusicXML octave). +12 converts it to
@@ -108,19 +108,35 @@ export function selectHandStaff<S>(
   if (handMode === 'both') {
     return undefined
   }
+  const staves = selectHandStaves(parts)
+  return staves && staves[handMode]
+}
+
+/**
+ * The same pairing rules as selectHandStaff, but returning both staves at once
+ * rather than the one a hand mode requires -- which is what labelling each
+ * required note with the hand it belongs to needs (VirtualKeyboard shows the
+ * hand as a second visual channel next to the note's state colour). Undefined
+ * for any layout without an unambiguous pair of hands, so a caller that cannot
+ * tell the hands apart says nothing instead of guessing.
+ */
+export function selectHandStaves<S>(
+  parts: Array<{ name: string | null; staves: S[] }>,
+): { right: S; left: S } | undefined {
   const named = parts.flatMap((part) => part.staves.map((staff) => ({ staff, name: part.name ?? '' })))
   if (named.length !== 2) {
     return undefined
   }
   const ordered = /left.?hand/i.test(named[0].name) && !/left.?hand/i.test(named[1].name) ? [named[1], named[0]] : named
-  return (handMode === 'right' ? ordered[0] : ordered[1]).staff
+  return { right: ordered[0].staff, left: ordered[1].staff }
+}
+
+function handParts(osmd: OpenSheetMusicDisplay): Array<{ name: string | null; staves: Staff[] }> {
+  return playableInstruments(osmd).map((instrument) => ({ name: instrument.Name ?? null, staves: instrument.Staves }))
 }
 
 function targetStaffForHand(osmd: OpenSheetMusicDisplay, handMode: HandMode): Staff | undefined {
-  return selectHandStaff(
-    playableInstruments(osmd).map((instrument) => ({ name: instrument.Name ?? null, staves: instrument.Staves })),
-    handMode,
-  )
+  return selectHandStaff(handParts(osmd), handMode)
 }
 
 // The single source of truth for "which notes under the cursor actually
@@ -141,6 +157,9 @@ export function requiredNotesUnderCursor(osmd: OpenSheetMusicDisplay, handMode: 
 export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: HandMode = 'both'): ExpectedEvent[] {
   const events: ExpectedEvent[] = []
   const cursor = osmd.cursor
+  // Resolved once for the whole walk rather than per cursor position: the
+  // staves belong to the loaded score, not to where the cursor happens to be.
+  const handStaves = selectHandStaves(handParts(osmd))
   cursor.reset()
 
   let index = 0
@@ -148,8 +167,14 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: Han
     const notes = requiredNotesUnderCursor(osmd, handMode)
     if (notes.length > 0) {
       const pitches = notes.map(noteToMidi)
+      const hands = notes.map((note): NoteHand | null => {
+        if (!handStaves) return null
+        if (note.ParentStaff === handStaves.right) return 'right'
+        if (note.ParentStaff === handStaves.left) return 'left'
+        return null
+      })
       const measureNumber = cursor.Iterator.CurrentMeasureIndex + 1
-      events.push({ index, pitches, measureNumber })
+      events.push({ index, pitches, measureNumber, hands })
       index += 1
     }
     cursor.next()

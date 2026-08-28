@@ -33,6 +33,7 @@ type SyncState = 'syncing' | 'synced' | 'guest' | 'local'
 const PRACTICE_MODE_LABELS: Record<string, string> = {
   page: 'Page',
   scroll: 'Scroll',
+  scrollLoop: 'Scroll loop',
   sectionFree: 'Sections',
   sectionTraining: 'Section training',
 }

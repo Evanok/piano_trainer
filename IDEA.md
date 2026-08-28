@@ -5,6 +5,10 @@ decisions already made and the reasoning behind the code as it exists, this
 file holds what we would like to do next and why. Nothing here is a
 commitment, and nothing here has been designed in detail yet.
 
+Section numbers are stable identifiers: an idea that gets built is removed and
+the remaining ones keep the numbers they had, so "idea 4" means the same thing
+across conversations. Gaps in the numbering are therefore deliberate.
+
 ## Context: PianoML
 
 Several ideas below come from looking at [PianoML](https://pianoml.org)
@@ -14,56 +18,7 @@ tool built on real notation (MusicXML), not falling notes. Worth revisiting
 whenever we look for prior art, since it solves several of the same problems
 independently.
 
-## 1. Colour the hands differently on the virtual keyboard
-
-The virtual keyboard (`src/components/VirtualKeyboard.tsx`) currently colours a
-key by *state* only: yellow for expected, green for held/correct, red for
-wrong. It says nothing about *which hand* is supposed to play the key.
-
-Idea: distinguish the right hand from the left hand visually on the keyboard, so
-a two-hand passage reads as two separate things to do instead of one
-undifferentiated set of highlighted keys.
-
-Notes:
-- The information already exists upstream: `ScoreParser.selectHandStaff` and
-  `requiredNotesUnderCursor(osmd, handMode)` already know which staff (and
-  therefore which hand) each required note comes from. Today that identity is
-  discarded by the time pitches reach the keyboard as flat `number[]` arrays.
-- The state colours must stay readable. The hand distinction probably has to be
-  a second visual channel (hue family, an underline/bar at the bottom of the
-  key, a marker) rather than a replacement for the yellow/green/red scheme.
-
-## 2. Redesign the virtual keyboard, and fix the missing octave landmark
-
-Two related problems with the same component.
-
-**Visual quality.** The keyboard looks plain compared to other apps in this
-space. It is a functional aid, and it should look like a deliberate part of the
-interface rather than coloured rectangles.
-
-**The octave problem (the actually important one).** The rendered range and the
-scroll position both change constantly: the range is derived from the piece's
-lowest/highest pitch (widened by any out-of-range wrong note), and the view
-auto-scrolls to centre the currently active keys. So when a passage plays a note
-and then the *same* note an octave higher, the keyboard re-centres onto a
-different part of the instrument that looks identical -- the highlighted key
-appears in roughly the same place, with nothing in the design to say the hand
-must move an octave. The player gets no cue for one of the moves that most needs
-one.
-
-Possible directions (not decided):
-- A fixed keyboard layout/scale that never re-scales, so a position on screen
-  always means the same pitch. Costs screen width, which is exactly why the
-  current fitting logic exists (`MIN_WHITE_KEY_WIDTH_PX`, the ResizeObserver
-  fit, the centring effect).
-- Keep the adaptive scaling but add landmarks so an octave jump is visible:
-  octave separators, note names on the C keys, a subtly different treatment per
-  octave, or an explicit animation/indicator when the target octave changes.
-- **Show middle C (C4) explicitly.** This is the cheapest first step and worth
-  doing on its own: a permanent marker on middle C gives the player one fixed
-  reference point on an otherwise repeating pattern of keys.
-
-## 3. A scrubber/slider for moving through the piece
+## 2. A scrubber/slider for moving through the piece
 
 PianoML's cursor control for changing position is nicer than our Prev/Next
 section buttons. Today, moving around means the section dropdown, the
@@ -76,6 +31,10 @@ stepping one section at a time. It would also double as a progress indicator,
 which no control currently provides during practice.
 
 Notes:
+- Part of this now exists: "Scroll loop" has a measure bar spanning the whole
+  piece with two draggable handles and a playhead marker
+  (`components/LoopRangeBar.tsx`). It sets a loop range rather than seeking, so a
+  scrubber would be the same bar with a third interaction, not a new control.
 - It should go through `jumpToMeasure` like everything else, so section cropping
   keeps following the target measure and the cursor walk keeps happening with no
   crop active.
@@ -84,7 +43,7 @@ Notes:
   infrequent). A scrubber would need to commit on release, or that cost has to be
   reconsidered.
 
-## 4. Score sources: PianoML has a large MusicXML library
+## 3. Score sources: PianoML has a large MusicXML library
 
 PianoML carries a lot of MusicXML files, with a filter by grade/level, including
 a large amount of beginner material. Worth investigating later as a source of
@@ -95,7 +54,7 @@ To check before relying on it: what the licence/provenance of those files
 actually is, per file, and whether anything can legitimately be reused or only
 consulted.
 
-## 5. An automatic difficulty grade for a score
+## 4. An automatic difficulty grade for a score
 
 PianoML also exposes a grade/level per piece. We have two adjacent things but
 not this one:
@@ -152,7 +111,7 @@ Two incidental findings from that repo, worth keeping:
 - `scripts/detect-good-song.ts` curates a MIDI collection with exactly one
   heuristic: a file with **exactly two piano tracks** is "almost definitely
   excellent". That is a quality/usability filter rather than a difficulty metric,
-  but it is precisely the precondition the MIDI import in section 6 needs for
+  but it is precisely the precondition the MIDI import in section 5 needs for
   hand splitting -- the same test would tell us up front whether an imported file
   can support hand mode or needs the middle-C fallback.
 - `scripts/generate-score-meta.ts` shells out to the MuseScore 4 CLI
@@ -163,7 +122,7 @@ Two incidental findings from that repo, worth keeping:
   an upload path.
 
 
-## 6. Support MIDI files as a score source
+## 5. Support MIDI files as a score source
 
 Today the only accepted input is MusicXML (`.musicxml` / `.xml` / `.mxl`), because
 OSMD reads nothing else. A lot of the piano material circulating online is
