@@ -91,10 +91,11 @@ interface VirtualKeyboardProps {
   highestPitch: number
   expectedPitches: number[]
   heldPitches: number[]
-  /** Every wrong note played since the last decay, if any -- shown even
-   * though none of them are expected notes, so the player can see how far
-   * off each attempt was and correct (e.g. an octave slip), not just that
-   * they were wrong. All of them clear together when the decay timer fires. */
+  /** Every wrong note played since the last decay, if any -- coloured red
+   * where it falls, so the player can see how far off the attempt was (e.g. an
+   * octave slip), not just that it was wrong. It never moves the view though:
+   * see the follow effect below. All of them clear together when the decay
+   * timer fires. */
   wrongPitches?: number[]
   /** The expected pitches the right/left hand is written to play, so a
    * two-hand passage reads as two things to do rather than one undifferentiated
@@ -291,10 +292,16 @@ export function VirtualKeyboard({
   // Leaving the view alone while the notes stay on screen means the highlight
   // travels across a stationary instrument, and a jump that does need a scroll
   // reads as one.
+  //
+  // WRONG notes are deliberately not part of what the view follows. A slip two
+  // octaves off would otherwise drag the keyboard away from the notes actually
+  // being played, exactly when the player needs to see them. Such a note is
+  // still coloured red where it is; if that is off screen, it stays off
+  // screen -- the view belongs to what has to be played, not to the mistake.
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
-    const span = spanOf([...expectedPitches, ...heldPitches, ...wrongPitches])
+    const span = spanOf([...expectedPitches, ...heldPitches])
     if (!span) return
     const comfort = whiteKeyWidthPx * SCROLL_COMFORT_WHITE_KEYS
     const viewLeft = container.scrollLeft
@@ -307,7 +314,7 @@ export function VirtualKeyboard({
     // travel, which an instant redraw never gives.
     scrollToSpan(span.left, span.right, 'smooth')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expectedPitches, heldPitches, wrongPitches, whiteKeyWidthPx])
+  }, [expectedPitches, heldPitches, whiteKeyWidthPx])
 
   return (
     <div
