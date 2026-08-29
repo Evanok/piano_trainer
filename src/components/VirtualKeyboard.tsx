@@ -105,6 +105,12 @@ interface VirtualKeyboardProps {
    * appears in both lists and gets a split bar. */
   rightHandPitches?: number[]
   leftHandPitches?: number[]
+  /**
+   * Makes the keys answer taps, for the reading quiz's "tap the key" mode. Left
+   * out during practice, where the keyboard is a mirror of what the MIDI
+   * keyboard is doing and must not become a way to play notes with a finger.
+   */
+  onKeyPress?: (pitch: number) => void
 }
 
 export function VirtualKeyboard({
@@ -115,6 +121,7 @@ export function VirtualKeyboard({
   wrongPitches = [],
   rightHandPitches = [],
   leftHandPitches = [],
+  onKeyPress,
 }: VirtualKeyboardProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const keyRefs = useRef(new Map<number, HTMLDivElement>())
@@ -326,7 +333,8 @@ export function VirtualKeyboard({
           <div
             key={pitch}
             ref={setKeyRef(pitch)}
-            className="absolute top-0 h-full rounded-b-md border-r border-gray-300"
+            onClick={onKeyPress ? () => onKeyPress(pitch) : undefined}
+            className={`absolute top-0 h-full rounded-b-md border-r border-gray-300${onKeyPress ? ' cursor-pointer' : ''}`}
             style={{
               left: `${index * whiteKeyWidthPx}px`,
               width: `${whiteKeyWidthPx}px`,
@@ -344,7 +352,8 @@ export function VirtualKeyboard({
           <div
             key={pitch}
             ref={setKeyRef(pitch)}
-            className="absolute top-0 z-10 h-3/5 rounded-b"
+            onClick={onKeyPress ? () => onKeyPress(pitch) : undefined}
+            className={`absolute top-0 z-10 h-3/5 rounded-b${onKeyPress ? ' cursor-pointer' : ''}`}
             style={{
               left: `${blackKeyLeftPx(pitch)}px`,
               width: `${whiteKeyWidthPx * 0.6}px`,

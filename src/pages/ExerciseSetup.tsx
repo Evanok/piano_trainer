@@ -11,7 +11,12 @@ import { getStreakStats } from '../engine/streak'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
-import type { ReadingClefMode, ReadingLedgerLevel, ReadingQuizSettings } from '../types/reading'
+import type {
+  ReadingAnswerMode,
+  ReadingClefMode,
+  ReadingLedgerLevel,
+  ReadingQuizSettings,
+} from '../types/reading'
 import type {
   ExerciseKind,
   ExerciseRequest,
@@ -471,6 +476,28 @@ export function ExerciseSetup({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Answer with
+                <select
+                  value={readingSettings.answerMode}
+                  onChange={(event) =>
+                    setReadingSettings((current) => ({
+                      ...current,
+                      answerMode: event.target.value as ReadingAnswerMode,
+                    }))
+                  }
+                  className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                >
+                  <option value="name">Note names (do re mi)</option>
+                  <option value="key">Piano keys</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {readingSettings.answerMode === 'key'
+                    ? 'Tap the key on the keyboard, octave included'
+                    : 'Tap the name, the octave does not count'}
+                </span>
+              </label>
+
               <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Clef
                 <select
