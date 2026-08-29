@@ -5,6 +5,7 @@ import { ExerciseSetup } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
+import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { createHanonExercise } from './engine/hanonGenerator'
@@ -18,6 +19,7 @@ import type {
   PracticeSourceKind,
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
+import type { ReadingQuizSettings } from './types/reading'
 import type { SessionSource, SessionStats } from './types/session'
 import { DEFAULT_BROWSE_STATE, type CatalogBrowseState, type CatalogEntry } from './types/catalog'
 import type {
@@ -27,7 +29,14 @@ import type {
   TrainingExerciseSettings,
 } from './types/training'
 
-type Screen = 'home' | 'exercise-setup' | 'score-library' | 'stats' | 'practice' | 'end'
+type Screen =
+  | 'home'
+  | 'exercise-setup'
+  | 'score-library'
+  | 'stats'
+  | 'practice'
+  | 'reading-quiz'
+  | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   handMode: 'right',
@@ -41,6 +50,15 @@ const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
   rightOctaveHigh: 5,
   leftOctaveLow: 2,
   leftOctaveHigh: 3,
+}
+
+const DEFAULT_READING_SETTINGS: ReadingQuizSettings = {
+  clefMode: 'treble',
+  ledgerLevel: 1,
+  questionCount: 20,
+  // Replaced by a fresh one per round in ReadingQuiz: a reading drill is only a
+  // reading drill if the notes have not been seen in that order before.
+  seed: 'reading',
 }
 
 const DEFAULT_HANON_SETTINGS: HanonSettings = {
@@ -96,6 +114,7 @@ function App() {
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(DEFAULT_HANON_SETTINGS)
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
   const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
+  const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -304,6 +323,11 @@ function App() {
     startExercise,
   ])
 
+  const startReadingQuiz = useCallback((settings: ReadingQuizSettings) => {
+    setReadingSettings(settings)
+    setScreen('reading-quiz')
+  }, [])
+
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
@@ -334,9 +358,15 @@ function App() {
         initialKeyboardAssistMode={exerciseKeyboardAssistMode}
         initialBackingTrackEnabled={exerciseBackingTrackEnabled}
         onExerciseReady={startExercise}
+        initialReadingSettings={readingSettings}
+        onReadingReady={startReadingQuiz}
         onBack={handleBackToHome}
       />
     )
+  }
+
+  if (screen === 'reading-quiz') {
+    return <ReadingQuiz settings={readingSettings} onBack={() => setScreen('exercise-setup')} />
   }
 
   if (screen === 'score-library') {

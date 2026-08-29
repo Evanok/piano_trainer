@@ -1,4 +1,5 @@
 import type { PracticeSessionRecord } from '../types/session.ts'
+import type { ReadingQuizSettings } from '../types/reading.ts'
 import type { ExerciseRequest } from '../types/training.ts'
 
 /**
@@ -141,6 +142,25 @@ const CONTENT_LABELS: Record<string, string> = {
   notes: 'Notes',
   triads: 'Triads',
   mixed: 'Notes + triads',
+}
+
+/**
+ * The label stored in a session record for a reading quiz, same idea as
+ * exerciseSessionTitle below: computed once, so the stats screen never needs to
+ * know what a clef mode or a ledger level is.
+ */
+export function readingSessionTitle(settings: ReadingQuizSettings): string {
+  const clef =
+    settings.clefMode === 'both'
+      ? 'both clefs'
+      : settings.clefMode === 'bass'
+        ? 'bass clef'
+        : 'treble clef'
+  const ledger =
+    settings.ledgerLevel === 0
+      ? 'on the staff'
+      : `up to ${settings.ledgerLevel} ledger line${settings.ledgerLevel > 1 ? 's' : ''}`
+  return `Reading - ${clef}, ${ledger}`
 }
 
 /**

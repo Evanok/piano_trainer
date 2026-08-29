@@ -38,6 +38,17 @@ const PRACTICE_MODE_LABELS: Record<string, string> = {
   sectionTraining: 'Section training',
 }
 
+/**
+ * A reading quiz has no practice mode at all (no score to navigate, no hands),
+ * so the column names the activity instead of leaving a blank cell.
+ */
+function activityLabel(session: PracticeSessionRecord): string {
+  if (session.source.kind === 'reading') {
+    return 'Reading quiz'
+  }
+  return session.practiceMode ? (PRACTICE_MODE_LABELS[session.practiceMode] ?? session.practiceMode) : '-'
+}
+
 function formatClock(ms: number): string {
   const totalMinutes = Math.round(ms / 60000)
   if (totalMinutes < 60) {
@@ -174,7 +185,7 @@ function SessionRow({ session }: { session: PracticeSessionRecord }) {
         {session.source.title}
       </td>
       <td className="whitespace-nowrap py-1.5 pr-4 text-xs">
-        {PRACTICE_MODE_LABELS[session.practiceMode] ?? session.practiceMode}
+        {activityLabel(session)}
       </td>
       <td className="whitespace-nowrap py-1.5 pr-4">
         <CompletionCell session={session} />
@@ -216,7 +227,7 @@ function BlockRow({
         )}
       </td>
       <td className="whitespace-nowrap py-2 pr-4 font-normal text-gray-500">
-        {single ? (PRACTICE_MODE_LABELS[block.sessions[0].practiceMode] ?? block.sessions[0].practiceMode) : '-'}
+        {single ? activityLabel(block.sessions[0]) : '-'}
       </td>
       <td className="whitespace-nowrap py-2 pr-4">
         {single ? (
