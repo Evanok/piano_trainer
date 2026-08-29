@@ -9,6 +9,7 @@ import {
   summarizeAllTime,
   summarizeRecent,
   summarizeScores,
+  timeByActivity,
 } from './statsAnalytics'
 import type { ExerciseSessionStats, PracticeSessionRecord } from '../types/session'
 
@@ -244,7 +245,12 @@ describe('dailyMinutes', () => {
 
     expect(days).toHaveLength(14)
     expect(days[0].day).toBe(localDayString(daysAgo(13)))
-    expect(days[13]).toEqual({ day: localDayString(NOW), minutes: 15, sessionCount: 1 })
+    expect(days[13]).toEqual({
+      day: localDayString(NOW),
+      minutes: 15,
+      sessionCount: 1,
+      byActivity: { score: 15, exercise: 0, reading: 0 },
+    })
     expect(days[12].minutes).toBe(0)
   })
 
@@ -253,7 +259,12 @@ describe('dailyMinutes', () => {
 
     const yesterday = dailyMinutes(sessions, 7, NOW).find((entry) => entry.day === localDayString(daysAgo(1)))
 
-    expect(yesterday).toEqual({ day: localDayString(daysAgo(1)), minutes: 15, sessionCount: 2 })
+    expect(yesterday).toEqual({
+      day: localDayString(daysAgo(1)),
+      minutes: 15,
+      sessionCount: 2,
+      byActivity: { score: 15, exercise: 0, reading: 0 },
+    })
   })
 })
 
@@ -308,5 +319,53 @@ describe('summarizeScores', () => {
     ]
 
     expect(summarizeScores(sessions)[0].title).toBe('New Title')
+  })
+})
+
+describe('timeByActivity', () => {
+  const exerciseSource = {
+    kind: 'exercise' as const,
+    title: 'Notes - C major - Right hand (easy)',
+    exercise: { kind: 'generated' as const, settings: {} as never },
+    keyName: 'C major',
+  }
+  const readingSource = {
+    kind: 'reading' as const,
+    title: 'Reading - treble clef',
+    settings: { answerMode: 'name' as const, clefMode: 'treble' as const, ledgerLevel: 1 as const, questionCount: 20, seed: 'x' },
+  }
+
+  it('keeps reading time apart from time at the keyboard', () => {
+    const day = daysAgo(0, 10)
+    const sessions = [
+      session(day, { durationMs: 600000 }),
+      session(day, { durationMs: 300000, source: exerciseSource }),
+      session(day, { durationMs: 120000, source: readingSource }),
+      session(day, { durationMs: 60000, source: readingSource }),
+    ]
+    expect(timeByActivity(sessions)).toEqual([
+      { kind: 'score', totalMs: 600000, sessionCount: 1 },
+      { kind: 'exercise', totalMs: 300000, sessionCount: 1 },
+      { kind: 'reading', totalMs: 180000, sessionCount: 2 },
+    ])
+  })
+
+  it('splits a day of minutes by activity for the chart', () => {
+    const day = daysAgo(0, 10)
+    const days = dailyMinutes(
+      [
+        session(day, { durationMs: 1200000 }),
+        session(day, { durationMs: 600000, source: readingSource }),
+      ],
+      3,
+      NOW,
+    )
+    const today = days[days.length - 1]
+    expect(today.minutes).toBe(30)
+    expect(today.byActivity).toEqual({ score: 20, exercise: 0, reading: 10 })
+  })
+
+  it('reports every kind even with no sessions at all', () => {
+    expect(timeByActivity([]).map((entry) => entry.kind)).toEqual(['score', 'exercise', 'reading'])
   })
 })

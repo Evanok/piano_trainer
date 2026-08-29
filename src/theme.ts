@@ -37,3 +37,27 @@ export const STAT_TONES = {
 } as const
 
 export type StatTone = keyof typeof STAT_TONES
+
+/**
+ * One colour per kind of practice, shared by every place the split appears (the
+ * "where the time goes" rows and the per-day chart), so a colour means the same
+ * activity wherever it is seen. Scores keep the indigo the chart has always
+ * been, so a day of nothing but scores looks exactly as it did before the split
+ * existed.
+ */
+export const ACTIVITY_ORDER = ['score', 'exercise', 'reading'] as const
+
+export type ActivityToneKey = (typeof ACTIVITY_ORDER)[number]
+
+export const ACTIVITY_TONES: Record<ActivityToneKey, string> = {
+  score: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+  exercise: 'border-rose-200 bg-rose-50 text-rose-700',
+  reading: 'border-purple-200 bg-purple-50 text-purple-700',
+}
+
+/** The solid fill of the same colour, for a bar rather than a pill. */
+export const ACTIVITY_BARS: Record<ActivityToneKey, string> = {
+  score: 'bg-indigo-400',
+  exercise: 'bg-rose-400',
+  reading: 'bg-purple-400',
+}

@@ -10,14 +10,26 @@ import {
   dailyMinutes,
   groupPracticeBlocks,
   percentChange,
+  sessionsInLastDays,
   summarizeAllTime,
   summarizeRecent,
+  timeByActivity,
   summarizeScores,
   type PracticeBlock,
+  type ActivityTime,
+  type DayMinutes,
   type WindowSummary,
 } from '../engine/statsAnalytics'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { PAGE_BACKGROUND, PAGE_CARD, STAT_TONES, type StatTone } from '../theme'
+import {
+  ACTIVITY_BARS,
+  ACTIVITY_ORDER,
+  ACTIVITY_TONES,
+  PAGE_BACKGROUND,
+  PAGE_CARD,
+  STAT_TONES,
+  type StatTone,
+} from '../theme'
 import type { PracticeSessionRecord } from '../types/session'
 
 interface StatsProps {
@@ -136,11 +148,38 @@ function buildComparison(recent: WindowSummary, allTime: WindowSummary): Compari
   ]
 }
 
-function PracticeChart({ days }: { days: { day: string; minutes: number }[] }) {
+const ACTIVITY_LABELS: Record<ActivityTime['kind'], string> = {
+  score: 'Scores',
+  exercise: 'Keyboard exercises',
+  reading: 'Reading quizzes',
+}
+
+function ActivityLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {ACTIVITY_ORDER.map((kind) => (
+        <span key={kind} className="flex items-center gap-1 text-[10px] text-gray-500">
+          <span className={`h-2 w-2 rounded-sm ${ACTIVITY_BARS[kind]}`} />
+          {ACTIVITY_LABELS[kind]}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * One bar per day, stacked by what the day was spent on. A day of nothing but
+ * scores looks exactly as the whole chart did before the split, which is the
+ * point: the colours only appear once there is something to tell apart.
+ */
+function PracticeChart({ days }: { days: DayMinutes[] }) {
   const peak = Math.max(...days.map((entry) => entry.minutes), 1)
   return (
     <section className={`p-4 ${PAGE_CARD}`}>
-      <h2 className="text-sm font-semibold text-indigo-700">Minutes practiced, last {days.length} days</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-indigo-700">Minutes practiced, last {days.length} days</h2>
+        <ActivityLegend />
+      </div>
       <div className="mt-4 flex h-32 items-end gap-1">
         {days.map((entry) => (
           <div key={entry.day} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
@@ -150,18 +189,42 @@ function PracticeChart({ days }: { days: { day: string; minutes: number }[] }) {
               {entry.minutes === 0 ? '' : entry.minutes < 1 ? '<1' : Math.round(entry.minutes)}
             </span>
             <div
-              className={`w-full rounded-t ${entry.minutes > 0 ? 'bg-indigo-400' : 'bg-indigo-100'}`}
+              className={`w-full overflow-hidden rounded-t ${entry.minutes > 0 ? '' : 'bg-indigo-100'}`}
               // A day with nothing on it still gets a sliver of bar, so the
               // baseline reads as a row of days rather than a gap in the chart.
               style={{ height: `${entry.minutes > 0 ? Math.max(6, (entry.minutes / peak) * 100) : 2}%` }}
-              title={`${entry.day}: ${entry.minutes} min`}
-            />
+              title={dayTitle(entry)}
+            >
+              {/* Reversed, so the first kind of the shared order sits at the
+                  bottom of the stack rather than at the top. */}
+              <div className="flex h-full w-full flex-col-reverse">
+                {ACTIVITY_ORDER.map((kind) =>
+                  entry.byActivity[kind] > 0 ? (
+                    <div
+                      key={kind}
+                      className={ACTIVITY_BARS[kind]}
+                      style={{ height: `${(entry.byActivity[kind] / entry.minutes) * 100}%` }}
+                    />
+                  ) : null,
+                )}
+              </div>
+            </div>
             <span className="text-[10px] text-gray-500">{entry.day.slice(8)}</span>
           </div>
         ))}
       </div>
     </section>
   )
+}
+
+function dayTitle(entry: DayMinutes): string {
+  if (entry.minutes === 0) {
+    return `${entry.day}: nothing`
+  }
+  const parts = ACTIVITY_ORDER.filter((kind) => entry.byActivity[kind] > 0).map(
+    (kind) => `${entry.byActivity[kind]} min ${ACTIVITY_LABELS[kind].toLowerCase()}`,
+  )
+  return `${entry.day}: ${parts.join(', ')}`
 }
 
 function CompletionCell({ session }: { session: PracticeSessionRecord }) {
@@ -171,6 +234,45 @@ function CompletionCell({ session }: { session: PracticeSessionRecord }) {
     <span className="text-xs text-gray-500">
       {session.eventsPlayed}/{session.totalEvents}
     </span>
+  )
+}
+
+/**
+ * Practice time split by what was being done, never merged into one total: time
+ * at the keyboard and time naming notes on a phone are different things, and a
+ * run of quizzes must not be readable as a run of playing.
+ */
+function ActivitySplit({ recent, allTime }: { recent: ActivityTime[]; allTime: ActivityTime[] }) {
+  const total = allTime.reduce((sum, entry) => sum + entry.totalMs, 0)
+  return (
+    <section className={`p-4 ${PAGE_CARD}`}>
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="text-sm font-semibold text-gray-900">Where the time goes</h2>
+        <span className="text-xs text-gray-500">last {RECENT_WINDOW_DAYS} days and all time</span>
+      </div>
+      <ul className="mt-3 flex flex-col gap-2">
+        {allTime.map((entry, index) => {
+          const share = total === 0 ? 0 : Math.round((entry.totalMs / total) * 100)
+          return (
+            <li key={entry.kind} className="flex items-center gap-3 text-sm">
+              <span
+                className={`w-40 shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${ACTIVITY_TONES[entry.kind]}`}
+              >
+                {ACTIVITY_LABELS[entry.kind]}
+              </span>
+              <span className="w-20 shrink-0 text-xs text-gray-500">
+                {formatClock(recent[index]?.totalMs ?? 0)}
+              </span>
+              <span className="w-20 shrink-0 font-medium text-gray-900">{formatClock(entry.totalMs)}</span>
+              <span className="hidden h-2 flex-1 overflow-hidden rounded-full bg-gray-100 sm:block">
+                <span className="block h-full rounded-full bg-indigo-400" style={{ width: `${share}%` }} />
+              </span>
+              <span className="w-10 shrink-0 text-right text-xs text-gray-500">{share}%</span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 
@@ -308,6 +410,10 @@ export function Stats({ onBack }: StatsProps) {
       combo: bestCombo(counted),
       blocks: groupPracticeBlocks(counted),
       scores: summarizeScores(counted),
+      // Two windows of the same split, so "am I only doing quizzes lately" is
+      // answerable rather than being averaged away over the whole history.
+      activityRecent: timeByActivity(sessionsInLastDays(counted, RECENT_WINDOW_DAYS, now)),
+      activityAllTime: timeByActivity(counted),
     }
   }, [sessions])
 
@@ -398,6 +504,8 @@ export function Stats({ onBack }: StatsProps) {
                   </table>
                 </div>
               </section>
+
+              <ActivitySplit recent={view.activityRecent} allTime={view.activityAllTime} />
 
               <PracticeChart days={view.chart} />
 
