@@ -1,4 +1,5 @@
 import type { HandMode, PracticeMode } from './practice.ts'
+import type { ReadingQuizSettings } from './reading.ts'
 import type { ExerciseRequest } from './training.ts'
 
 export interface ExerciseNoteStat {
@@ -59,6 +60,18 @@ export type SessionSource =
       /** Resolved key of the generated exercise ('random' is already rolled here). */
       keyName: string | null
     }
+  | {
+      /**
+       * A keyboard-free reading quiz: notes named on screen, no MIDI, no
+       * piano. Recorded in the same log as everything else so it feeds the
+       * streak and syncs across devices, and kept as its own kind so the stats
+       * screen can report reading time separately from time at the keyboard --
+       * a week of quizzes must not read as a week of playing.
+       */
+      kind: 'reading'
+      title: string
+      settings: ReadingQuizSettings
+    }
 
 /**
  * One practice session, whatever it was: an exercise or a real score, finished
@@ -79,10 +92,11 @@ export interface PracticeSessionRecord {
   durationMs: number
   /** False for a session left before its last note -- kept, not discarded. */
   completed: boolean
-  practiceMode: PracticeMode
-  handMode: HandMode
+  /** Absent for a reading quiz, which has no score to navigate and no hands. */
+  practiceMode?: PracticeMode
+  handMode?: HandMode
   source: SessionSource
-  /** Playable events in the piece under the session's hand mode. */
+  /** Playable events in the piece under the session's hand mode, or questions asked in a quiz. */
   totalEvents: number
   /** Events cleared, so an abandoned session still says how far it got. */
   eventsPlayed: number

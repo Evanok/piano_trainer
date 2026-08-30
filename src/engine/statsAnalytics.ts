@@ -296,6 +296,16 @@ export interface DayMinutes {
   day: string
   minutes: number
   sessionCount: number
+  /**
+   * The same minutes split by what was being done, so a day's bar can be read
+   * as "20 minutes of score and 10 of reading" rather than as 30 undifferentiated
+   * minutes. Sums to `minutes` (bar rounding aside).
+   */
+  byActivity: Record<ActivityKind, number>
+}
+
+function emptyActivityMinutes(): Record<ActivityKind, number> {
+  return { score: 0, exercise: 0, reading: 0 }
 }
 
 /**
@@ -305,21 +315,32 @@ export interface DayMinutes {
  * nobody reads off a bar chart.
  */
 export function dailyMinutes(sessions: PracticeSessionRecord[], days: number, now: Date = new Date()): DayMinutes[] {
-  const byDay = new Map<string, { minutes: number; sessionCount: number }>()
+  const byDay = new Map<string, { minutes: number; sessionCount: number; byActivity: Record<ActivityKind, number> }>()
   for (const session of sessions) {
     const day = sessionDay(session)
-    const existing = byDay.get(day) ?? { minutes: 0, sessionCount: 0 }
+    const existing = byDay.get(day) ?? { minutes: 0, sessionCount: 0, byActivity: emptyActivityMinutes() }
+    const minutes = session.durationMs / 60000
+    existing.byActivity[session.source.kind] += minutes
     byDay.set(day, {
-      minutes: existing.minutes + session.durationMs / 60000,
+      minutes: existing.minutes + minutes,
       sessionCount: existing.sessionCount + 1,
+      byActivity: existing.byActivity,
     })
   }
 
+  const round = (value: number) => Math.round(value * 10) / 10
   const result: DayMinutes[] = []
   for (let offset = days - 1; offset >= 0; offset -= 1) {
     const day = localDayString(addDays(now, -offset))
     const entry = byDay.get(day)
-    result.push({ day, minutes: entry ? Math.round(entry.minutes * 10) / 10 : 0, sessionCount: entry?.sessionCount ?? 0 })
+    result.push({
+      day,
+      minutes: entry ? round(entry.minutes) : 0,
+      sessionCount: entry?.sessionCount ?? 0,
+      byActivity: entry
+        ? { score: round(entry.byActivity.score), exercise: round(entry.byActivity.exercise), reading: round(entry.byActivity.reading) }
+        : emptyActivityMinutes(),
+    })
   }
   return result
 }
@@ -367,6 +388,40 @@ export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgres
     }
   }
   return Array.from(byKey.values()).sort((a, b) => b.lastPlayedAt.localeCompare(a.lastPlayedAt))
+}
+
+/** The three kinds of thing a session can be, straight from `SessionSource`. */
+export type ActivityKind = 'score' | 'exercise' | 'reading'
+
+export interface ActivityTime {
+  kind: ActivityKind
+  totalMs: number
+  sessionCount: number
+}
+
+/**
+ * Practice time split by what was being done. Deliberately NOT folded into one
+ * total: a week of reading quizzes on a phone must not read as a week at the
+ * keyboard, which is the whole reason a quiz is recorded with its own
+ * `SessionSource` kind rather than as just another session.
+ *
+ * The order is fixed (scores, then keyboard exercises, then reading) so the
+ * rows do not reshuffle as the balance between them changes.
+ */
+export function timeByActivity(sessions: PracticeSessionRecord[]): ActivityTime[] {
+  const order: ActivityKind[] = ['score', 'exercise', 'reading']
+  const totals = new Map<ActivityKind, ActivityTime>(
+    order.map((kind) => [kind, { kind, totalMs: 0, sessionCount: 0 }]),
+  )
+  for (const session of sessions) {
+    const entry = totals.get(session.source.kind)
+    if (!entry) {
+      continue
+    }
+    entry.totalMs += session.durationMs
+    entry.sessionCount += 1
+  }
+  return order.map((kind) => totals.get(kind) as ActivityTime)
 }
 
 export function bestCombo(sessions: PracticeSessionRecord[]): number {

@@ -11,6 +11,7 @@ import {
   buildChromaticPitches,
   buildScalePitches,
   createMusicXmlFile,
+  createSeededRng,
   findKey,
   KEYS,
   RANDOM_KEY,
@@ -44,26 +45,6 @@ const DEFAULT_SETTINGS: TrainingSettings = {
   leftOctaveLow: 2,
   leftOctaveHigh: 3,
   seed: 'training',
-}
-
-function hashSeed(seed: string): number {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-}
-
-function createRng(seed: string): () => number {
-  let state = hashSeed(seed)
-  return () => {
-    state += 0x6d2b79f5
-    let value = state
-    value = Math.imul(value ^ (value >>> 15), value | 1)
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 function pick<T>(items: T[], rng: () => number): T {
@@ -449,7 +430,7 @@ ${leftNotes
 
 export function generateTrainingMusicXml(partialSettings: Partial<TrainingSettings> = {}): string {
   const settings = sanitizeSettings(partialSettings)
-  const rng = createRng(settings.seed)
+  const rng = createSeededRng(settings.seed)
   const key = chooseKey(settings, rng)
   const beatCount = settings.measureCount * BEATS_PER_MEASURE
   const phrasePlan = buildPhrasePlan(beatCount, settings.difficulty, rng)
@@ -525,7 +506,7 @@ ${measures}
 
 export function createTrainingExercise(settings: Partial<TrainingSettings>): CreatedTrainingExercise {
   const sanitized = sanitizeSettings(settings)
-  const key = chooseKey(sanitized, createRng(sanitized.seed))
+  const key = chooseKey(sanitized, createSeededRng(sanitized.seed))
   return {
     file: createMusicXmlFile(generateTrainingMusicXml(sanitized), 'training-exercise'),
     keyName: key.name,

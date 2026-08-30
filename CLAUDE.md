@@ -198,6 +198,76 @@ Three OSMD quirks this ran into, all silent (no exceptions, no obviously-wrong o
 
 Remounting `PianoScore` (source or layoutMode change) calls `containerRef.current.replaceChildren()` before constructing a new `OpenSheetMusicDisplay` -- OSMD doesn't clear a container it didn't create itself, so without this the previous instance's SVG (same `id`, now duplicated) is left behind and `document.querySelector('svg')` silently keeps finding the stale one.
 
+### Reading quiz (`engine/readingQuiz.ts`, `engine/ReadingQuizEngine.ts`, `components/ReadingStaff.tsx`, `pages/ReadingQuiz.tsx`)
+
+The one exercise that needs **no MIDI keyboard and no piano**: a note is drawn on
+a staff and named with seven buttons (latin names, `do` to `si`, the reading UI's
+own vocabulary -- everything else in the app speaks letter names). It exists
+because Safari on iOS has no Web MIDI at all and, away from home, there is no
+keyboard either, so until it there was nothing the app could offer in that
+situation. It is a **tab in `ExerciseSetup`** (which drill to do is a setting,
+like Hanon) but **not an `ExerciseKind`**: the other two tabs build a MusicXML
+file for `Practice`, while this one has no cursor, no `WaitEngine` and no MIDI,
+and goes to its own screen (`SetupTab = ExerciseKind | 'reading'`).
+
+- **One score per round, one measure per question.** `createReadingRound` emits
+  the whole round as a single MusicXML with one whole note per measure;
+  `ReadingStaff` loads it into one OSMD instance and moves from question to
+  question by cropping to one measure
+  (`MinMeasureToDrawIndex`/`MaxMeasureToDrawIndex`, the section modes' own crop).
+  One OSMD instance per question is far too heavy for a rapid-fire quiz, and a
+  hand-drawn SVG staff would be a second notation renderer to keep in step with
+  the practice screen (and would need the Bravura glyphs for the clefs). The crop
+  redraws the clef on every measure, which is what makes this work at all.
+- **Making one cropped measure fill the container took three fixes**, each
+  silent, and all three are the reason `applyStaffViewport` looks the way it
+  does. OSMD renders a whole *page* into the SVG with the cropped measure in its
+  top left corner, so untouched the staff occupies about a tenth of the screen
+  whatever the container's size. Setting the SVG to `width/height: 100%` does
+  nothing, because OSMD wraps it in a div it sizes itself, so the percentages
+  resolve against nothing and the SVG keeps its page-sized layout box: it has to
+  be given explicit pixels from the container. And the staffline's model box
+  (`GraphicSheet.MusicPages[0].MusicSystems[0].StaffLines[0].PositionAndShape`,
+  in OSMD units, 10px per unit times the zoom) is **not** the five lines centred
+  on their middle, so building a window centred on it cut the top of the staff
+  off. The viewBox is therefore the **union** of that model box and the drawn
+  content's own `getBBox()`, which cannot clip whatever the model box turns out
+  to mean, while still holding the scale roughly steady between questions since
+  the model box dominates it and does not follow the notes.
+- **Ranges are diatonic, not chromatic.** `ledgerLevel` is how many ledger lines
+  past the staff a note may go, and one ledger line is two diatonic positions, so
+  every bound lives in a diatonic index space (`octave * 7 + step`) rather than
+  in semitones. The quiz is deliberately natural notes only, in C, for now.
+  `readingRange()` exists so the setup screen can name the actual notes in play
+  ("C4 (do) to A5 (la)"): "ledger level" is jargon that says nothing about what
+  will appear on screen, and the first version of that control was unusable.
+- **Two answer modes** (`ReadingAnswerMode`): tap one of seven latin names, or
+  tap the note's own key on the `VirtualKeyboard`. The second is the more useful
+  drill, since reading is note-to-key, not note-to-letter, and it is the only one
+  that **judges the octave** (naming a note says nothing about which one was
+  meant), so its confusion stats keep the octave too (`pitchLabel`, "do4"). The
+  keyboard highlights nothing until the answer is revealed: the same
+  `expectedPitches` that colour a key also drive its follow-the-notes scroll, so
+  passing the answer in would point at it even when it is off screen. Its
+  `onKeyPress` prop is deliberately optional and unused during practice, where
+  the keyboard mirrors the MIDI keyboard and must not become a way to play notes
+  with a finger.
+- **A wrong answer does not advance and names the right note.** The question
+  stays until it is answered correctly, and the correct button turns green after
+  the first miss: a quiz that only ever says "no" teaches nothing. Accuracy
+  counts first attempts only (`successPercent`), so revealing costs no stat.
+- **A quiz is recorded as an ordinary `PracticeSessionRecord`**, with a third
+  `SessionSource` kind, `reading`, written on start, on a 15s heartbeat and on
+  unmount exactly like a practice session. That buys the cross-device sync, the
+  sitting grouping and the streak for free, and a quiz on the phone *does* keep
+  the daily streak alive, which is the whole point of training away from the
+  piano. Practice *time* is reported split by `source.kind` instead, so a week of
+  quizzes cannot read as a week of playing. `practiceMode` and `handMode` are
+  optional on the record because a quiz navigates nothing and uses no hands.
+  `ReadingQuizEngine` fills the same `ExerciseSessionStats` a played session
+  does, so `notes.confusions` reads "shown a do, answered re", which is the most
+  useful number the exercise produces.
+
 ### Gamification (`ScoreHud.tsx`, `engine/grade.ts`, `engine/streak.ts`)
 
 `ScoreHud` is a deliberately colorful, prominent stat strip (combo / best combo / correct notes / errors) placed directly under the title, separate from the small gray utility-controls row below it -- an earlier plain-text version ("Combo: 3" inline among the other controls) was easy to miss entirely. `currentCombo`/`maxCombo` (session-best, reported in `SessionStats`) count consecutive events completed with zero errors, reset the instant a wrong note lands (not only when the event finally advances); `correctNoteCount` counts every correct keypress, including partial chord hits, not just completed events.
@@ -224,6 +294,19 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
 - **Production is plain HTTP on a bare IP and port, so it is NOT a secure context** -- every `[SecureContext]` browser API is missing there while working fine in dev, since localhost always counts as secure. This shipped broken once: `crypto.randomUUID()` for the session id threw `crypto.randomUUID is not a function` and crashed the practice screen in production only. Session ids come from `createSessionId()` (`crypto.getRandomValues`, which has no such restriction, with a `Math.random` fallback); `useWakeLock` guards on `'wakeLock' in navigator`. Anything new must do the same, and testing it means dropping the API in the browser (`delete crypto.randomUUID`) rather than trusting a localhost run.
 - **What is recorded and what is shown are two different sets** (`isCountedSession`/`countedSessions` in `sessionLog.ts`). Recording starts when the practice screen opens, so the log necessarily also holds screens that were merely opened; those are hidden from everything the player sees -- a session counts only if at least one key was pressed (right or wrong) and it either completed or lasted `MIN_COUNTED_SESSION_MS` (60s). A *finished* session always counts however short, since a generated 8-measure drill played cleanly in 45 seconds is real practice. This matters most for the streak: without the filter, opening a score and going straight back would earn a practice day. Applied in exactly two read paths -- `getStreakStats()` and the `view` memo in `Stats.tsx` -- so the table, chart, streak and every average agree; the store and the sync still carry the full log, and **nothing is ever deleted**, so the threshold can be revised later without having lost the excluded sessions.
 - **A session is one *piece* worked, a `PracticeBlock` is one *sitting*.** A record is created per visit to the practice screen, so a 45-minute sitting spread over three scores is three sessions -- the wrong unit for "how long do I practice". `groupPracticeBlocks` (in `statsAnalytics.ts`, gap `DEFAULT_BLOCK_GAP_MS` = 15 min) groups consecutive sessions into sittings, and the sitting is the unit for every headline number (`blockCount`, `blocksPerWeek`, `averageBlockMs`, `longestBlockMs`); session-level counts stay available as "pieces worked". The stats table lists sittings with their pieces nested underneath, expandable only when there is more than one (a single-piece sitting names it inline instead of costing a row that repeats itself). A block's `durationMs` is the **sum of its sessions' durations, not the wall-clock span** -- the breaks between pieces would otherwise count as practice and disagree with the per-day minutes chart. Changing the mode or hand mode mid-session keeps the same record (same id, same start), so it never splits a sitting.
+- **Practice time is reported split three ways, never merged** (`timeByActivity`,
+  rendered as "Where the time goes"): scores, keyboard exercises, and reading
+  quizzes, keyed off `source.kind`. Time at the keyboard and time naming notes on
+  a phone are different things, and a run of quizzes must not read as a run of
+  playing. The streak is the opposite call and stays single, since the point of
+  the quizzes is to keep practising on a day away from the piano. The kinds are
+  listed in a fixed order and every kind is always reported, so the rows do not
+  reshuffle or appear and disappear as the balance between them changes. The
+  per-day chart carries the same split as a stacked bar (`DayMinutes.byActivity`),
+  and the three colours live once in `theme.ts` (`ACTIVITY_ORDER`,
+  `ACTIVITY_TONES`, `ACTIVITY_BARS`) so a colour means the same activity in the
+  rows and in the chart. Scores keep the indigo the chart has always used, so a
+  day of nothing but scores looks exactly as it did before the split existed.
 - **`statsAnalytics.ts` is pure and unit-tested**; the stats screen only formats what it returns. Two rules there are deliberate and easy to get wrong: a weekly rate is always divided by at least one full week (`WEEKLY_RATE_MINIMUM_DAYS`), so two sessions on a fresh account read "2/week" instead of an extrapolated 14; and all-time rates span the days *since the first session*, so the answer is "how often do I practice" rather than being diluted by an old account. `percentChange` returns null with no baseline, which the UI shows as "no baseline" rather than a fake +100%.
 
 **Sync** (`POST /api/stats/sync`, `GET /api/stats`, `<dataDir>/stats.json`): stats used to be device-local, so a phone and a desktop each saw only their own history. The device posts its whole log and gets the merged history back in one round-trip, which it then stores locally. Merging is a plain union by id with no revision numbers and no last-write-wins, and that is safe for one specific reason: the log is append-only and the only way two records share an id is being two snapshots of the same session, so the better snapshot (completed, else longer) always wins -- `mergeSessionLogs` is defined once in `src/engine/sessionLog.ts` and imported by both sides, and is idempotent, so a retried sync is free. There is one shared profile (no accounts). A failed sync is not an error worth interrupting anything for: the screen shows this device's own log and says so ("this device only"), same degradation as an unreachable catalog. Note that `sessionLog.ts` and the type chain it pulls in carry explicit `.ts` import specifiers, because the server typechecks under `nodenext` resolution, which rejects extensionless relative imports.

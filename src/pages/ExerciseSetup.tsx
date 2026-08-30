@@ -6,10 +6,17 @@ import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
 import { hanonMidiRange, isHanonRangePlayable } from '../engine/hanonGenerator'
 import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
 import { midiToNoteName } from '../engine/noteNames'
+import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
+import type {
+  ReadingAnswerMode,
+  ReadingClefMode,
+  ReadingLedgerLevel,
+  ReadingQuizSettings,
+} from '../types/reading'
 import type {
   ExerciseKind,
   ExerciseRequest,
@@ -27,10 +34,28 @@ const OCTAVES = [1, 2, 3, 4, 5, 6, 7]
 
 const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
 
-const EXERCISE_TABS: Array<{ kind: ExerciseKind; label: string }> = [
+/**
+ * "Reading" is a tab here, next to the two keyboard drills, because which drill
+ * to do is a setting rather than an intent -- the same call ExerciseKind
+ * already makes for Hanon. It is NOT an ExerciseKind though: the other two
+ * build a MusicXML file and hand it to Practice, while a reading quiz has no
+ * MIDI, no cursor and no WaitEngine, and goes to its own screen.
+ */
+type SetupTab = ExerciseKind | 'reading'
+
+const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
   { kind: 'hanon', label: 'Hanon' },
+  { kind: 'reading', label: 'Reading' },
 ]
+
+const READING_QUESTION_COUNTS = [10, 20, 30, 40]
+
+/** "C4 (do)" -- the letter name the rest of the app uses, plus the quiz's own. */
+function readingNoteLabel(midi: number): string {
+  const name = midiToNoteName(midi)
+  return `${name} (${latinNameOf(name.slice(0, 1))})`
+}
 
 interface ExerciseSetupProps {
   devices: MidiDeviceInfo[]
@@ -39,6 +64,7 @@ interface ExerciseSetupProps {
   isSupported: boolean
   midiError: string | null
   initialExerciseKind: ExerciseKind
+  initialReadingSettings: ReadingQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
   initialKeyboardAssistMode: KeyboardAssistMode
@@ -48,6 +74,7 @@ interface ExerciseSetupProps {
     keyboardAssistMode: KeyboardAssistMode,
     backingTrackEnabled: boolean,
   ) => void
+  onReadingReady: (settings: ReadingQuizSettings) => void
   onBack: () => void
 }
 
@@ -58,15 +85,18 @@ export function ExerciseSetup({
   isSupported,
   midiError,
   initialExerciseKind,
+  initialReadingSettings,
   initialSettings,
   initialHanonSettings,
   initialKeyboardAssistMode,
   initialBackingTrackEnabled,
   onExerciseReady,
+  onReadingReady,
   onBack,
 }: ExerciseSetupProps) {
   const [streak] = useState(() => getStreakStats())
-  const [exerciseKind, setExerciseKind] = useState<ExerciseKind>(initialExerciseKind)
+  const [tab, setTab] = useState<SetupTab>(initialExerciseKind)
+  const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
@@ -123,6 +153,11 @@ export function ExerciseSetup({
     setHanonSettings((current) => ({ ...current, [key]: value }))
   }
 
+  // "Ledger lines" says nothing about what will show up on screen, so the
+  // setup names the actual notes the setting puts in play.
+  const readingNoteRange = readingRange(readingSettings)
+  const readingRangeLabel = `${readingNoteLabel(readingNoteRange.lowMidi)} to ${readingNoteLabel(readingNoteRange.highMidi)}`
+
   const hanonRange = hanonMidiRange(hanonSettings)
   const hanonFitsKeyboard = isHanonRangePlayable(hanonSettings)
 
@@ -141,23 +176,23 @@ export function ExerciseSetup({
         </header>
 
         <div className="flex w-full gap-2 rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
-          {EXERCISE_TABS.map((tab) => (
+          {EXERCISE_TABS.map((item) => (
             <button
-              key={tab.kind}
+              key={item.kind}
               type="button"
-              onClick={() => setExerciseKind(tab.kind)}
+              onClick={() => setTab(item.kind)}
               className={
-                exerciseKind === tab.kind
+                tab === item.kind
                   ? 'flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm'
                   : 'flex-1 rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-700'
               }
             >
-              {tab.label}
+              {item.label}
             </button>
           ))}
         </div>
 
-        {exerciseKind === 'generated' ? (
+        {tab === 'generated' ? (
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-medium text-gray-900">Generated training</h2>
@@ -335,7 +370,7 @@ export function ExerciseSetup({
             </div>
 
           </section>
-        ) : (
+        ) : tab === 'hanon' ? (
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-medium text-gray-900">Hanon</h2>
@@ -433,8 +468,110 @@ export function ExerciseSetup({
               back down. Both hands play it in parallel, an octave apart.
             </p>
           </section>
+        ) : (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Reading quiz</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Answer with
+                <select
+                  value={readingSettings.answerMode}
+                  onChange={(event) =>
+                    setReadingSettings((current) => ({
+                      ...current,
+                      answerMode: event.target.value as ReadingAnswerMode,
+                    }))
+                  }
+                  className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                >
+                  <option value="name">Note names (do re mi)</option>
+                  <option value="key">Piano keys</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {readingSettings.answerMode === 'key'
+                    ? 'Tap the key on the keyboard, octave included'
+                    : 'Tap the name, the octave does not count'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Clef
+                <select
+                  value={readingSettings.clefMode}
+                  onChange={(event) =>
+                    setReadingSettings((current) => ({
+                      ...current,
+                      clefMode: event.target.value as ReadingClefMode,
+                    }))
+                  }
+                  className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                >
+                  <option value="treble">Treble</option>
+                  <option value="bass">Bass</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                How far outside the staff
+                <select
+                  value={readingSettings.ledgerLevel}
+                  onChange={(event) =>
+                    setReadingSettings((current) => ({
+                      ...current,
+                      ledgerLevel: Number(event.target.value) as ReadingLedgerLevel,
+                    }))
+                  }
+                  className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                >
+                  <option value={0}>Between the staff lines only</option>
+                  <option value={1}>1 ledger line past it</option>
+                  <option value={2}>2 ledger lines past it</option>
+                  <option value={3}>3 ledger lines past it</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {readingRangeLabel} ({readingNoteRange.noteCount} notes)
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes per round
+                <select
+                  value={readingSettings.questionCount}
+                  onChange={(event) =>
+                    setReadingSettings((current) => ({
+                      ...current,
+                      questionCount: Number(event.target.value),
+                    }))
+                  }
+                  className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Name the note on screen. No MIDI keyboard and no piano needed, so this is the drill for a phone away
+              from home. A ledger line is one of the short extra lines drawn above or below the staff for notes that
+              no longer fit on it: the first one below the treble staff is middle C.
+            </p>
+
+            <button type="button" onClick={() => onReadingReady(readingSettings)} className={`self-start ${PRIMARY_BUTTON}`}>
+              Start reading quiz
+            </button>
+          </section>
         )}
 
+        {tab !== 'reading' && (
         <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm text-gray-700">
@@ -467,13 +604,15 @@ export function ExerciseSetup({
 
           <button
             type="button"
-            onClick={exerciseKind === 'hanon' ? handleStartHanonExercise : handleStartTrainingExercise}
+            onClick={tab === 'hanon' ? handleStartHanonExercise : handleStartTrainingExercise}
             className={`self-start ${PRIMARY_BUTTON}`}
           >
-            {exerciseKind === 'hanon' ? `Start Hanon No. ${hanonSettings.exerciseNumber}` : 'Start generated training'}
+            {tab === 'hanon' ? `Start Hanon No. ${hanonSettings.exerciseNumber}` : 'Start generated training'}
           </button>
         </section>
+        )}
 
+        {tab !== 'reading' && (
         <section className={`flex w-full flex-col items-center gap-2 px-4 py-4 ${PAGE_CARD}`}>
           <p className="text-sm font-medium text-gray-700">MIDI keyboard</p>
           <MidiDevice
@@ -484,6 +623,7 @@ export function ExerciseSetup({
             error={midiError}
           />
         </section>
+        )}
       </div>
     </div>
   )
