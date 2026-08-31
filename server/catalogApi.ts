@@ -15,6 +15,7 @@ import {
   updateEntry,
 } from './catalogStore.ts'
 import { readScoreProgress, readSessions, syncSessions } from './statsStore.ts'
+import { normalizeTag, normalizeTags } from '../src/engine/tags.ts'
 import {
   AUTH_HEADER,
   configuredGuestPassword,
@@ -103,6 +104,8 @@ function handleList(res: ServerResponse, dataDir: string, url: URL): void {
       // Only ?favorite=1 turns the filter on; anything else (absent, 0, junk)
       // means "no filter", same leniency as the other listing parameters.
       favoritesOnly: url.searchParams.get('favorite') === '1',
+      // Normalized like a stored tag, so ?tag=Study%2FBartok finds study/bartok.
+      tag: normalizeTag(url.searchParams.get('tag') ?? '') ?? undefined,
       page: parsePositiveInt(url.searchParams.get('page')),
       pageSize: parsePositiveInt(url.searchParams.get('limit')),
     }),
@@ -113,6 +116,11 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, dataDir: 
   // The file is posted as a raw body with the name in the query string rather
   // than as multipart/form-data -- one less thing to parse, and no dependency.
   const filename = url.searchParams.get('filename')
+  // Comma-separated, and normalized like every other tag write. Absent means the
+  // default folder, which is what an upload from the app itself wants.
+  const tags = normalizeTags((url.searchParams.get('tags') ?? '').split(','))
+  // Bookkeeping for the library importer; short and opaque, never displayed.
+  const sourceId = (url.searchParams.get('sourceId') ?? '').trim().slice(0, 64) || undefined
   if (!filename) {
     throw new HttpError(400, 'Missing ?filename= query parameter.')
   }
@@ -123,7 +131,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, dataDir: 
   if (data.byteLength === 0) {
     throw new HttpError(400, 'Empty file.')
   }
-  sendJson(res, 201, await addScore(dataDir, filename, data))
+  sendJson(res, 201, await addScore(dataDir, filename, data, tags, sourceId))
 }
 
 // A metadata edit is a couple of short strings, nowhere near a score file --
@@ -146,13 +154,24 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     composer: rawComposer,
     difficulty: rawDifficulty,
     favorite: rawFavorite,
-  } = payload as { title?: unknown; composer?: unknown; difficulty?: unknown; favorite?: unknown }
+    tags: rawTags,
+    sourceId: rawSourceId,
+  } = payload as {
+    title?: unknown
+    composer?: unknown
+    difficulty?: unknown
+    favorite?: unknown
+    tags?: unknown
+    sourceId?: unknown
+  }
 
   const update: {
     title?: string
     composer?: string | null
     difficulty?: ScoreDifficulty | null
     favorite?: boolean
+    tags?: string[]
+    sourceId?: string
   } = {}
   if (rawTitle !== undefined) {
     if (typeof rawTitle !== 'string' || !rawTitle.trim()) {
@@ -178,13 +197,30 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     }
     update.favorite = rawFavorite
   }
+  if (rawTags !== undefined) {
+    if (!Array.isArray(rawTags)) {
+      throw new HttpError(400, 'Tags must be an array of strings.')
+    }
+    // The whole list is replaced, and normalization happens here rather than in
+    // the UI so a tag typed as "Jeux Video" can never become a second folder
+    // beside "jeux-video".
+    update.tags = normalizeTags(rawTags)
+  }
+  if (rawSourceId !== undefined) {
+    if (typeof rawSourceId !== 'string' || !rawSourceId.trim()) {
+      throw new HttpError(400, 'Source id must be a non-empty string.')
+    }
+    update.sourceId = rawSourceId.trim().slice(0, 64)
+  }
   if (
     update.title === undefined &&
     update.composer === undefined &&
     update.difficulty === undefined &&
-    update.favorite === undefined
+    update.favorite === undefined &&
+    update.tags === undefined &&
+    update.sourceId === undefined
   ) {
-    throw new HttpError(400, 'Nothing to update: provide title, composer, difficulty and/or favorite.')
+    throw new HttpError(400, 'Nothing to update: provide title, composer, difficulty, favorite and/or tags.')
   }
 
   const entry = updateEntry(dataDir, id, update)

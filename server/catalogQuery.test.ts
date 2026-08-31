@@ -227,3 +227,66 @@ describe('queryCatalog sorting', () => {
     expect(result.items[0].progress).toBeNull()
   })
 })
+
+describe('queryCatalog, title order', () => {
+  it('orders numbered pieces numerically, so No. 10 comes after No. 9', () => {
+    const entries = [
+      entry('a', 'Op. 100 No. 10. Tendre Fleur', '2026-01-01T10:00:00.000Z'),
+      entry('b', 'Op. 100 No. 2. Arabesque', '2026-01-02T10:00:00.000Z'),
+      entry('c', 'Op. 100 No. 9. La Chasse', '2026-01-03T10:00:00.000Z'),
+    ]
+    expect(queryCatalog(entries, { sort: 'title' }).items.map((item) => item.id)).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('queryCatalog, virtual folders', () => {
+  function tagged(id: string, tags: string[], favorite = false): CatalogEntry {
+    return { ...entry(id, `score-${id}`, `2026-02-01T10:00:00.000Z`), tags, favorite }
+  }
+
+  it('keeps a folder and its descendants', () => {
+    const entries = [tagged('a', ['study/bartok']), tagged('b', ['study/czerny']), tagged('c', ['personal'])]
+    expect(queryCatalog(entries, { tag: 'study' }).items.map((item) => item.id).sort()).toEqual(['a', 'b'])
+    expect(queryCatalog(entries, { tag: 'study/bartok' }).items.map((item) => item.id)).toEqual(['a'])
+  })
+
+  it('is a filter, not a mode: no tag means every folder', () => {
+    const entries = [tagged('a', ['beginner-1']), tagged('b', ['personal'])]
+    expect(queryCatalog(entries, {}).total).toBe(2)
+    expect(queryCatalog(entries, { tag: '' }).total).toBe(2)
+  })
+
+  it('counts folders under the other filters but not under the folder filter itself', () => {
+    // The faceted-search rule: selecting one folder must not zero its siblings,
+    // otherwise the tree stops answering "where are my favorites?".
+    const entries = [
+      tagged('a', ['beginner-1', 'study/bartok'], true),
+      tagged('b', ['beginner-2'], true),
+      tagged('c', ['beginner-2'], false),
+    ]
+    const result = queryCatalog(entries, { favoritesOnly: true, tag: 'beginner-1' })
+    expect(result.items.map((item) => item.id)).toEqual(['a'])
+    expect(result.total).toBe(1)
+    // Both favorites, whichever folder they are in.
+    expect(result.totalAcrossFolders).toBe(2)
+    expect(result.tagCounts).toEqual({ 'beginner-1': 1, 'beginner-2': 1, study: 1, 'study/bartok': 1 })
+  })
+
+  it('ANDs the folder with the search and the difficulty', () => {
+    const entries = [
+      { ...tagged('a', ['study/czerny']), title: 'Etude in C', difficulty: 'easy' as const },
+      { ...tagged('b', ['study/czerny']), title: 'Etude in D', difficulty: 'hard' as const },
+      { ...tagged('c', ['personal']), title: 'Etude in C', difficulty: 'easy' as const },
+    ]
+    expect(queryCatalog(entries, { tag: 'study', search: 'etude c', difficulty: 'easy' }).items.map((i) => i.id)).toEqual(
+      ['a'],
+    )
+  })
+
+  it('leaves an untagged entry out of every folder but not out of the catalog', () => {
+    const entries = [entry('a', 'Untagged', '2026-02-01T10:00:00.000Z'), tagged('b', ['personal'])]
+    expect(queryCatalog(entries, {}).total).toBe(2)
+    expect(queryCatalog(entries, { tag: 'personal' }).items.map((item) => item.id)).toEqual(['b'])
+    expect(queryCatalog(entries, {}).tagCounts).toEqual({ personal: 1 })
+  })
+})

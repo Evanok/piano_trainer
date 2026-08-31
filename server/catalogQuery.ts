@@ -1,5 +1,6 @@
 import type { CatalogEntry, CatalogPage, CatalogSort, ScoreDifficulty } from '../src/types/catalog.ts'
 import type { ScorePlayProgress } from '../src/engine/scoreProgress.ts'
+import { countTags, entryMatchesTag } from '../src/engine/tags.ts'
 
 export const DEFAULT_PAGE_SIZE = 10
 // Only a guard against a hand-crafted ?limit=999999 -- the UI never asks for
@@ -14,6 +15,9 @@ export interface CatalogQuery {
   /** When true, keep only the starred entries; false and undefined both mean
    *  "no filter" (there is deliberately no "non-favorites only" option). */
   favoritesOnly?: boolean
+  /** Virtual folder to restrict to, descendants included (`study` keeps
+   *  `study/bartok`). Empty and undefined both mean "every folder". */
+  tag?: string
   /** Defaults to 'recent' (most recently uploaded first), the historical order. */
   sort?: CatalogSort
   /**
@@ -60,8 +64,11 @@ function comparatorFor(
   switch (sort) {
     case 'title':
       // Locale-aware and case-insensitive, so "elise" sorts next to "Elise"
-      // and accented titles land where a French reader expects them.
-      return (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || byRecent(a, b)
+      // and accented titles land where a French reader expects them. `numeric`
+      // is what makes a study collection readable: without it "No. 10" sorts
+      // before "No. 2", so a folder of numbered etudes comes back shuffled.
+      return (a, b) =>
+        a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true }) || byRecent(a, b)
     case 'lastPlayed':
       return (a, b) => {
         const left = progressOf(a)?.lastPlayedAt ?? ''
@@ -81,8 +88,9 @@ function comparatorFor(
 /**
  * Pure search + pagination over the whole catalog: every term must match
  * (AND), case-insensitively, against the title, the composer or the file name;
- * the difficulty and favorite filters then narrow that down (AND again), and
- * results come back in `sort` order (most recently uploaded first by default).
+ * the difficulty, favorite and tag filters then narrow that down (AND again),
+ * and results come back in `sort` order (most recently uploaded first by
+ * default).
  *
  * Sorting happens here, before pagination, which is the whole reason the
  * play-based orders need the history passed in rather than being applied by the
@@ -95,7 +103,11 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
     .filter(Boolean)
   const bySearch = terms.length > 0 ? entries.filter((entry) => matchesSearch(entry, terms)) : [...entries]
   const byDifficulty = query.difficulty ? bySearch.filter((entry) => entry.difficulty === query.difficulty) : bySearch
-  const matched = query.favoritesOnly ? byDifficulty.filter((entry) => entry.favorite === true) : byDifficulty
+  const byFavorite = query.favoritesOnly ? byDifficulty.filter((entry) => entry.favorite === true) : byDifficulty
+  // Counted before the tag filter is applied, and only after it for the listing:
+  // the tree has to keep showing what the *other* filters left in each folder.
+  const tagCounts = countTags(byFavorite)
+  const matched = query.tag ? byFavorite.filter((entry) => entryMatchesTag(entry.tags, query.tag as string)) : byFavorite
 
   const progressOf = (entry: CatalogEntry): ScorePlayProgress | undefined => query.progress?.get(entry.id)
   matched.sort(comparatorFor(query.sort ?? 'recent', progressOf))
@@ -113,6 +125,8 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
     // was read into, and progress is derived data that must not be written back.
     items: matched.slice(start, start + pageSize).map((entry) => ({ ...entry, progress: progressOf(entry) ?? null })),
     total: matched.length,
+    totalAcrossFolders: byFavorite.length,
+    tagCounts,
     page,
     pageCount,
     pageSize,

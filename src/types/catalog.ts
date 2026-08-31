@@ -23,6 +23,22 @@ export interface CatalogEntry {
    *  Optional for the same reason as difficulty -- missing means not a favorite. */
   favorite?: boolean
   /**
+   * The catalog's virtual folders (see `src/engine/tags.ts`): a view, not a
+   * location, so one score can sit in several. Optional for the same reason as
+   * difficulty -- entries written before tags existed decode without it, and
+   * missing means "in no folder", which the startup migration then fills in
+   * with `personal`.
+   */
+  tags?: string[]
+  /**
+   * Identifier of the score in the library it was harvested from (a PianoML
+   * score id), set by `tools/import-library.mjs` and absent on anything the
+   * player uploaded. It is the only stable identity across collections: the same
+   * PianoML score reaches two collections under two different titles, so an
+   * importer keyed on the title alone files it twice.
+   */
+  sourceId?: string
+  /**
    * How far this piece has been practised, joined onto the listing from the
    * shared practice history. Derived, never stored in catalog.json: it changes
    * every time the piece is played, and persisting it would only be a copy that
@@ -52,6 +68,8 @@ export interface CatalogBrowseState {
   search: string
   difficulty: ScoreDifficulty | ''
   favoritesOnly: boolean
+  /** Selected virtual folder, '' for "all scores". Matches its descendants too. */
+  tag: string
   sort: CatalogSort
   page: number
 }
@@ -60,6 +78,7 @@ export const DEFAULT_BROWSE_STATE: CatalogBrowseState = {
   search: '',
   difficulty: '',
   favoritesOnly: false,
+  tag: '',
   sort: DEFAULT_CATALOG_SORT,
   page: 1,
 }
@@ -68,6 +87,19 @@ export interface CatalogPage {
   items: CatalogEntry[]
   /** Number of entries matching the search, across every page. */
   total: number
+  /**
+   * Entries matching every active filter *except* the tag one: what the tree's
+   * "all scores" row shows. `total` is after the folder filter, so it would
+   * otherwise report the selected folder's own count as the whole catalog's.
+   */
+  totalAcrossFolders: number
+  /**
+   * How many entries each tag holds, its descendants included, under every
+   * active filter *except* the tag one -- the faceted-search rule: counting with
+   * the tag filter applied would zero every sibling the moment one is selected,
+   * and the tree would stop answering "where are my easy favorites?".
+   */
+  tagCounts: Record<string, number>
   /** 1-based, already clamped to [1, pageCount] by the server. */
   page: number
   pageCount: number
