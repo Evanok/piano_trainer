@@ -87,9 +87,12 @@ export function Home({ onStartExercise, onPracticeScore, onViewStats, isGuestSes
         }
       >
         <header className={isMobile ? 'shrink-0 text-center' : 'text-center'}>
-          <h1 className={isMobile ? 'text-2xl font-semibold text-gray-900' : 'text-4xl font-semibold text-gray-900'}>
-            Piano Trainer
-          </h1>
+          <div className="flex items-baseline justify-center gap-2">
+            <h1 className={isMobile ? 'text-2xl font-semibold text-gray-900' : 'text-4xl font-semibold text-gray-900'}>
+              Piano Trainer
+            </h1>
+            <span className="text-xs font-normal text-gray-400">{import.meta.env.VITE_APP_VERSION}</span>
+          </div>
           <StreakBadges streak={streak} className="mt-3 justify-center" />
           {isGuestSession && (
             <p className="mt-3 inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">

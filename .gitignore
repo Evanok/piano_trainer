@@ -37,6 +37,11 @@ dist-ssr
 /scripts
 /backups
 
+# The library tooling (harvesting scores from an external catalog and importing
+# them here) stays local: this repository is public and those scripts are only
+# useful with the data directory they fill, which is not published either.
+/tools
+
 # Backing-track audio (68 MB of recordings, one per key per collection). Served
 # statically from public/ and copied into dist/ by the build, but deliberately
 # outside version control: it is a manual copy on each machine, and this
