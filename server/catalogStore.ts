@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import path from 'node:path'
 import { extractScoreMetadata } from './scoreMetadata.ts'
 import type { CatalogEntry, ScoreDifficulty } from '../src/types/catalog.ts'
+import { DEFAULT_TAG } from '../src/engine/tags.ts'
 
 export const ALLOWED_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
 export const MAX_SCORE_BYTES = 20 * 1024 * 1024
@@ -137,6 +138,9 @@ export interface CatalogEntryUpdate {
   composer?: string | null
   difficulty?: ScoreDifficulty | null
   favorite?: boolean
+  /** The whole list, already normalized; an empty array puts the score in no
+   *  folder at all, which is allowed (it then only shows under "all scores"). */
+  tags?: string[]
 }
 
 /**
@@ -166,6 +170,9 @@ export function updateEntry(dataDir: string, id: string, update: CatalogEntryUpd
   }
   if (update.favorite !== undefined) {
     entry.favorite = update.favorite
+  }
+  if (update.tags !== undefined) {
+    entry.tags = update.tags
   }
   writeCatalog(dataDir, entries)
   return entry
@@ -208,7 +215,12 @@ export function scoreFilePath(dataDir: string, entry: CatalogEntry): string | nu
   return existsSync(file) ? file : null
 }
 
-export async function addScore(dataDir: string, filename: string, data: Uint8Array): Promise<StoredEntry> {
+export async function addScore(
+  dataDir: string,
+  filename: string,
+  data: Uint8Array,
+  tags?: string[],
+): Promise<StoredEntry> {
   const extension = extensionOf(filename)
   if (!extension) {
     throw new Error(`Unsupported file type: ${filename}`)
@@ -232,6 +244,11 @@ export async function addScore(dataDir: string, filename: string, data: Uint8Arr
     difficulty: null,
     // Same idea: the player stars the pieces they are working on right now.
     favorite: false,
+    // Every upload lands in at least one virtual folder, so a new score is never
+    // outside the tree and unreachable except through "all scores". A caller can
+    // name the folders instead (the library importer does, so a harvested score
+    // does not pretend to be one of the player's own).
+    tags: tags && tags.length > 0 ? tags : [DEFAULT_TAG],
     filename: safeFilename,
     sizeBytes: data.byteLength,
     uploadedAt: new Date().toISOString(),
@@ -249,8 +266,19 @@ export async function addScore(dataDir: string, filename: string, data: Uint8Arr
  */
 export async function migrateCatalog(dataDir: string): Promise<void> {
   const entries = readCatalog(dataDir)
+  // Tags arrived after the metadata versioning, and re-deriving every title just
+  // to add a default folder would be a lot of file reading for one field, so
+  // this backfill is its own pass rather than a METADATA_VERSION bump.
+  const untagged = entries.filter((entry) => entry.tags === undefined)
+  for (const entry of untagged) {
+    entry.tags = [DEFAULT_TAG]
+  }
   const stale = entries.filter((entry) => entry.metadataVersion !== METADATA_VERSION)
   if (stale.length === 0) {
+    if (untagged.length > 0) {
+      writeCatalog(dataDir, entries)
+      console.log(`[catalog] filed ${untagged.length} untagged score(s) under "${DEFAULT_TAG}"`)
+    }
     return
   }
   for (const entry of stale) {
@@ -258,6 +286,7 @@ export async function migrateCatalog(dataDir: string): Promise<void> {
     // re-parsed from disk on every single restart.
     entry.metadataVersion = METADATA_VERSION
     entry.composer = entry.composer ?? null
+    entry.tags = entry.tags ?? [DEFAULT_TAG]
     const file = scoreFilePath(dataDir, entry)
     if (!file) {
       continue

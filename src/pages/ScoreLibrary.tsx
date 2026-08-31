@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+
+import TagTree from '../components/TagTree'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { PencilIcon, StarIcon, TrashIcon } from '../components/icons'
@@ -157,6 +159,7 @@ export function ScoreLibrary({
   const [search, setSearch] = useState(initialBrowseState.search)
   const [difficultyFilter, setDifficultyFilter] = useState<ScoreDifficulty | ''>(initialBrowseState.difficulty)
   const [favoritesOnly, setFavoritesOnly] = useState(initialBrowseState.favoritesOnly)
+  const [tagFilter, setTagFilter] = useState(initialBrowseState.tag)
   const [sort, setSort] = useState<CatalogSort>(initialBrowseState.sort)
   const [page, setPage] = useState(initialBrowseState.page)
   const [reloadToken, setReloadToken] = useState(0)
@@ -173,6 +176,9 @@ export function ScoreLibrary({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editComposer, setEditComposer] = useState('')
+  // Folders as free text, comma-separated: creating "jeux-video" is typing it,
+  // there is no list of known tags to pick from and nothing to register first.
+  const [editTags, setEditTags] = useState('')
   const [editDifficulty, setEditDifficulty] = useState<ScoreDifficulty | ''>('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
@@ -209,13 +215,20 @@ export function ScoreLibrary({
   // a score) and back later resumes on the same page/search/filter instead
   // of resetting -- this component fully unmounts on every screen switch.
   useEffect(() => {
-    onBrowseStateChange({ search, difficulty: difficultyFilter, favoritesOnly, sort, page })
+    onBrowseStateChange({ search, difficulty: difficultyFilter, favoritesOnly, tag: tagFilter, sort, page })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, difficultyFilter, favoritesOnly, sort, page])
+  }, [search, difficultyFilter, favoritesOnly, tagFilter, sort, page])
 
   const handleSelectDifficultyFilter = (value: ScoreDifficulty | '') => {
     setDifficultyFilter(value)
     // A new filter invalidates the current page number, same as a new search.
+    setPage(1)
+  }
+
+  const handleSelectTag = (value: string) => {
+    setTagFilter(value)
+    // Another folder means another result set, so page 3 of the old one is
+    // meaningless -- same rule as the search and the difficulty filter.
     setPage(1)
   }
 
@@ -237,6 +250,7 @@ export function ScoreLibrary({
       search,
       difficulty: difficultyFilter || undefined,
       favoritesOnly,
+      tag: tagFilter || undefined,
       sort,
       page,
       pageSize: CATALOG_PAGE_SIZE,
@@ -259,7 +273,7 @@ export function ScoreLibrary({
         }
       })
     return () => controller.abort()
-  }, [search, difficultyFilter, favoritesOnly, sort, page, reloadToken])
+  }, [search, difficultyFilter, favoritesOnly, tagFilter, sort, page, reloadToken])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -337,6 +351,7 @@ export function ScoreLibrary({
     setEditTitle(entry.title)
     setEditComposer(entry.composer ?? '')
     setEditDifficulty(entry.difficulty ?? '')
+    setEditTags((entry.tags ?? []).join(', '))
     setEditError(null)
   }
 
@@ -353,6 +368,9 @@ export function ScoreLibrary({
         title,
         composer: editComposer.trim() || null,
         difficulty: editDifficulty || null,
+        // Sent raw; the server normalizes, so "Study / Bartok" and
+        // "study/bartok" cannot become two folders.
+        tags: editTags.split(','),
       })
       setEditingId(null)
       // Simplest way to get the edited fields back from the server: refetch
@@ -500,6 +518,24 @@ export function ScoreLibrary({
             </button>
           </div>
 
+          {/* The folder tree is a filter beside the list, not a place the user
+              navigates into, so it stays visible while the search box and the
+              other filters keep applying. Its counts come from the server under
+              those filters (minus the folder one), which is what makes it answer
+              "where are my easy favorites?" rather than being a static index. */}
+          <div className="grid gap-4 sm:grid-cols-[minmax(150px,190px)_minmax(0,1fr)]">
+            <div className="sm:border-r sm:border-indigo-100 sm:pr-3">
+              {catalog && (
+                <TagTree
+                  counts={catalog.tagCounts}
+                  total={catalog.totalAcrossFolders}
+                  selected={tagFilter}
+                  onSelect={handleSelectTag}
+                />
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col gap-3">
+
           {catalogError && (
             <div className="flex items-center justify-between gap-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               <span>{catalogError}</span>
@@ -554,6 +590,14 @@ export function ScoreLibrary({
                         placeholder="Composer (optional)"
                         className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
                       />
+                      <input
+                        type="text"
+                        value={editTags}
+                        onChange={(event) => setEditTags(event.target.value)}
+                        placeholder="Folders, comma-separated (personal, study/bartok)"
+                        aria-label="Folders"
+                        className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+                      />
                       <select
                         value={editDifficulty}
                         onChange={(event) => setEditDifficulty(event.target.value as ScoreDifficulty | '')}
@@ -587,13 +631,18 @@ export function ScoreLibrary({
                   </li>
                 ) : (
                   <li key={entry.id} className="flex items-center gap-1 px-4 py-3 transition-colors hover:bg-indigo-50/60">
+                    {/* The row is one big button that opens the score, so the
+                        folder chips (buttons of their own) live next to it
+                        rather than inside it -- nesting them would be invalid
+                        HTML and their click would open the score anyway. */}
+                    <div className="flex min-w-0 flex-1 flex-col">
                     <button
                       type="button"
                       disabled={isBusy}
                       onClick={() => {
                         void handleOpenEntry(entry)
                       }}
-                      className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
+                      className="flex w-full min-w-0 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
                     >
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
@@ -618,6 +667,22 @@ export function ScoreLibrary({
                         {openingId === entry.id ? 'Opening...' : 'Practice'}
                       </span>
                     </button>
+                    {entry.tags && entry.tags.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {entry.tags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => handleSelectTag(tag)}
+                            title={`Show ${tag}`}
+                            className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] text-indigo-700 hover:bg-indigo-100"
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    </div>
                     {!guest && (
                       <>
                         <button
@@ -686,6 +751,8 @@ export function ScoreLibrary({
               </button>
             </div>
           )}
+            </div>
+          </div>
         </section>
 
         {deletingEntry && (

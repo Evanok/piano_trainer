@@ -5,6 +5,8 @@ export interface CatalogQueryParams {
   search: string
   difficulty?: ScoreDifficulty
   favoritesOnly?: boolean
+  /** Selected virtual folder; omitted or empty means every folder. */
+  tag?: string
   /** Omitted means the server's default order (most recently uploaded first). */
   sort?: CatalogSort
   page: number
@@ -40,6 +42,7 @@ export async function fetchCatalogPage({
   search,
   difficulty,
   favoritesOnly,
+  tag,
   sort,
   page,
   pageSize,
@@ -51,6 +54,9 @@ export async function fetchCatalogPage({
   }
   if (favoritesOnly) {
     params.set('favorite', '1')
+  }
+  if (tag) {
+    params.set('tag', tag)
   }
   if (sort !== undefined) {
     params.set('sort', sort)
@@ -70,6 +76,8 @@ export interface CatalogEntryUpdate {
   composer?: string | null
   difficulty?: ScoreDifficulty | null
   favorite?: boolean
+  /** The whole list; the server normalizes it before storing. */
+  tags?: string[]
 }
 
 export async function updateScoreEntry(id: string, update: CatalogEntryUpdate): Promise<CatalogEntry> {
