@@ -3,64 +3,30 @@
 Open ideas, one or two sentences each.
 
 Dropped or done, never to be re-proposed: the position scrubber (done as
-`LoopRangeBar`), an automatic difficulty grade (rejected -- difficulty stays
-user-assigned), MIDI file import (rejected -- MusicXML only), the note-naming and
-note-to-key quizzes (done as the reading quiz's two answer modes), the
-keyboard-free quizzes beyond those two, and the daily challenge and progression
-ladder built on top of them.
+`LoopRangeBar`), MIDI file import (rejected -- MusicXML only), the note-naming
+and note-to-key quizzes (done as the reading quiz's two answer modes), the
+keyboard-free quizzes beyond those two, the daily challenge and progression
+ladder built on top of them, and **any difficulty-grade system in the app**
+(rejected twice: computing a grade from the score, and importing PianoML's own
+grades -- `difficulty` stays a user-assigned label).
 
-## 1. Harvest MusicXML from PianoML
+Also done, since it was most of what this file used to hold: the score library is
+harvested (Burgmüller op. 100 complete, Czerny's scattered studies, two beginner
+grade bands), imported, and browsable through the catalog's virtual folders
+(`personal`, `beginner-1`, `beginner-2`, `study/<composer>`).
 
-PianoML's library is not in its GitHub repo -- it is behind a public,
-unauthenticated API at `https://api.pianoml.org` (8047 public-domain scores
-against 4588 copyrighted). `tools/harvest-pianoml.mjs` (`npm run harvest`)
-pulls a collection into `data/library/<collection>/` with clean in-file metadata
-and an `index.json`, in three modes: one opus rebuilt in its own order, one
-composer ordered by grade, or a whole grade band of two-hand classical scores
-filtered on measurable defects. 457 beginner files are harvested
-(`beginners-grade-1`, `beginners-grade-2`). What is still open is the last step:
-getting a curated subset of them *into the catalog*, which today only accepts
-uploads through the UI.
+## 1. ii-V-I through the 12 keys
 
-Worth knowing before extending it:
+The one exercise idea still open, and pure generator territory: `musicKeys.ts`
+already spells chords out of any key, and walking the twelve keys is the same
+shape as Hanon's walk up the scale -- so it is a tab in `ExerciseSetup` plus a
+generator, nothing else.
 
-- `GET /score/search?keyword=&gradeStart=&gradeEnd=&offset=&limit=` caps at 50 per
-  page; `GET /score/{ownerId}/{id}/musicxml/{version}/{revision}` is the download
-  (the same path with a bare `{id}` is the upload route and answers 405 to a GET).
-- **Titles and composers come from the API JSON, not from the files**: the
-  downloads carry no `<work-title>` and no `<creator>` at all.
-- **The engravings are MIDI-derived and mostly not quantized**: the converter
-  kept bar lengths honest by changing the time signature every few measures (4/4,
-  then 5/4, then 15/8), and there are no dynamics or articulations. The notes and
-  their order are right, which is all `WaitEngine` needs, but 16 of the 25
-  Burgmüller études read badly (`meterConsistency` in each `index.json`). A
-  human-typeset source would beat this: `pnlong/PDMX` (a public-domain MusicXML
-  dataset scraped from MuseScore) is the next one to try.
-- Only the works are public domain; each engraving is somebody's upload, so
-  `data/` (gitignored) is where they stay rather than this public repo.
+## 2. Daily sight-reading
 
-## 2. Exercises more fun than Hanon
-
-Hanon is dull, and `ExerciseKind` was built so another drill is a tab plus a
-generator. Two directions, needing different work:
-
-- **Burgmüller op. 100 is harvested**: all 25 études, in order, in
-  `data/library/burgmuller-op-100/` (only 9 of them cleanly engraved, see idea 1),
-  so what is left is choosing how the app presents a fixed ordered collection --
-  a curated list, not a generator.
-- **Czerny has no complete opus on PianoML** (3 of the 100 exercises of op. 599,
-  single numbers of six other opuses), so `data/library/czerny-studies/` is 30
-  studies ordered by grade instead of one rebuilt collection -- and unlike the
-  Burgmüller files, these are cleanly engraved.
-- **ii-V-I through the 12 keys** is pure generator territory: `musicKeys.ts`
-  already spells chords out of any key, and walking the keys is the same shape as
-  Hanon's walk up the scale.
-
-## 3. Daily sight-reading
-
-Sight-reading is a separate skill from learning a piece: translate the page into
-gestures in real time, eyes never leaving the page. The app has nothing for it,
-and it is the one thing a daily habit buys quickly.
+Reading a piece never seen before, once, without stopping -- the opposite of
+every existing mode (no rewind, no loop, no section repeat), and the one skill
+the app does not train at all.
 
 The protocol, which the feature has to enforce rather than merely allow:
 
@@ -70,13 +36,50 @@ The protocol, which the feature has to enforce rather than merely allow:
 - A ridiculously slow tempo, slower than instinct.
 - Straight through without stopping: an error is not corrected and not replayed.
 
-Consequences for us: it is the opposite of every existing mode (no rewind, no
-loop, no section repeat), and it needs an endless supply of easy new scores --
-either the exercise generator, or idea 1 filtered to `gradeStart=1` and tracked so
-a score is never served twice.
+What is missing is the mode itself, plus remembering which scores have been served
+so one is never given twice.
 
-Material to look at: hymn and folk-song collections (simple four-part writing,
-mostly out of copyright, so actually harvestable), Bartók's Mikrokosmos vol. 1 and
-the Faber Piano Adventures sight-reading books (ideal material, both still in
-copyright -- reference only), and Sight Reading Factory as prior art for
-generating infinite material at an exact level.
+### Material: nothing is settled yet
+
+**The harvested beginner bands are unverified.** `beginner-1` and `beginner-2`
+hold ~136 pieces, but nothing in them has actually been played, and a first look
+says a good part of it is not beginner material at all. The tags mean "PianoML
+grade 0-1 / 1-2", and those grades are half human labels from pianosyllabus.com
+and half the output of a model whose own README reports 47% accuracy and a mean
+error of 0.8 grade. Sight-reading also wants something *far below* the player's
+level, which is stricter than "graded easy". So the first task here is to play a
+sample and find out what the bands are really worth -- everything below stays a
+candidate until then.
+
+Candidate sources, listed because listing costs nothing:
+
+- **Faber, *Piano Adventures Sight Reading Book*** (Nancy and Randall Faber;
+  Primer Level, then 1, 2A, 2B, 3A, 3B, 4, 5) -- designed for exactly this drill,
+  one short reading a day, each a small variation on a piece already learnt. Print
+  and PDF only: there is no MusicXML edition, so it can inspire the generator's
+  variation rules but cannot be imported.
+- **Bartók, *Mikrokosmos* vol. 1 and *For Children*** -- 24 pieces already
+  harvested in `study/bartok`, short, progressive and musically real. The most
+  promising of what we already hold.
+- **Nineteenth-century methods**, which do Faber's job and are out of copyright:
+  Köhler, Beyer, Duvernoy, Le Couppey, Türk, Diabelli, Streabbog, Gurlitt. The
+  harvester's `graded` mode takes a composer name, so each is one config entry.
+- **Hymnals and folk-song collections** -- simple four-part writing, huge volume,
+  mostly public domain. Also the easiest to sight-read badly, which is the point.
+- **`pnlong/PDMX`** -- 250k public-domain MusicXML scraped from MuseScore, human
+  typesets rather than MIDI conversions, with a metadata CSV searchable without
+  downloading the scores.
+- **Sight Reading Factory** -- prior art rather than a source: a paid service that
+  generates endless material at an exact level, which is what the generator would
+  be doing.
+- **Our own generator** -- the only one that can guarantee "never the same twice"
+  and an exact level. Needs reading-specific constraints (interval size, register,
+  fixed hand position) plus a mode that forbids replaying.
+
+## 3. Re-source the badly engraved études
+
+16 of the 25 Burgmüller are MIDI-derived conversions whose time signature changes
+every few bars (`meterConsistency` in each collection's `index.json`): playable,
+ugly to read. `pnlong/PDMX` (250k public-domain MusicXML scraped from MuseScore,
+human typesets, with a metadata CSV that can be searched without downloading the
+scores) is the source to try against them.
