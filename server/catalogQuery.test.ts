@@ -228,6 +228,17 @@ describe('queryCatalog sorting', () => {
   })
 })
 
+describe('queryCatalog, title order', () => {
+  it('orders numbered pieces numerically, so No. 10 comes after No. 9', () => {
+    const entries = [
+      entry('a', 'Op. 100 No. 10. Tendre Fleur', '2026-01-01T10:00:00.000Z'),
+      entry('b', 'Op. 100 No. 2. Arabesque', '2026-01-02T10:00:00.000Z'),
+      entry('c', 'Op. 100 No. 9. La Chasse', '2026-01-03T10:00:00.000Z'),
+    ]
+    expect(queryCatalog(entries, { sort: 'title' }).items.map((item) => item.id)).toEqual(['b', 'c', 'a'])
+  })
+})
+
 describe('queryCatalog, virtual folders', () => {
   function tagged(id: string, tags: string[], favorite = false): CatalogEntry {
     return { ...entry(id, `score-${id}`, `2026-02-01T10:00:00.000Z`), tags, favorite }

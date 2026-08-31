@@ -64,8 +64,11 @@ function comparatorFor(
   switch (sort) {
     case 'title':
       // Locale-aware and case-insensitive, so "elise" sorts next to "Elise"
-      // and accented titles land where a French reader expects them.
-      return (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || byRecent(a, b)
+      // and accented titles land where a French reader expects them. `numeric`
+      // is what makes a study collection readable: without it "No. 10" sorts
+      // before "No. 2", so a folder of numbered etudes comes back shuffled.
+      return (a, b) =>
+        a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true }) || byRecent(a, b)
     case 'lastPlayed':
       return (a, b) => {
         const left = progressOf(a)?.lastPlayedAt ?? ''

@@ -78,6 +78,8 @@ export interface CatalogEntryUpdate {
   favorite?: boolean
   /** The whole list; the server normalizes it before storing. */
   tags?: string[]
+  /** Set by the library importer only, to recognise a score it already added. */
+  sourceId?: string
 }
 
 export async function updateScoreEntry(id: string, update: CatalogEntryUpdate): Promise<CatalogEntry> {

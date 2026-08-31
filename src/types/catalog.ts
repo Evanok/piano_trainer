@@ -31,6 +31,14 @@ export interface CatalogEntry {
    */
   tags?: string[]
   /**
+   * Identifier of the score in the library it was harvested from (a PianoML
+   * score id), set by `tools/import-library.mjs` and absent on anything the
+   * player uploaded. It is the only stable identity across collections: the same
+   * PianoML score reaches two collections under two different titles, so an
+   * importer keyed on the title alone files it twice.
+   */
+  sourceId?: string
+  /**
    * How far this piece has been practised, joined onto the listing from the
    * shared practice history. Derived, never stored in catalog.json: it changes
    * every time the piece is played, and persisting it would only be a copy that

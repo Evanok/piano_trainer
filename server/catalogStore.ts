@@ -141,6 +141,7 @@ export interface CatalogEntryUpdate {
   /** The whole list, already normalized; an empty array puts the score in no
    *  folder at all, which is allowed (it then only shows under "all scores"). */
   tags?: string[]
+  sourceId?: string
 }
 
 /**
@@ -173,6 +174,9 @@ export function updateEntry(dataDir: string, id: string, update: CatalogEntryUpd
   }
   if (update.tags !== undefined) {
     entry.tags = update.tags
+  }
+  if (update.sourceId !== undefined) {
+    entry.sourceId = update.sourceId
   }
   writeCatalog(dataDir, entries)
   return entry
@@ -220,6 +224,7 @@ export async function addScore(
   filename: string,
   data: Uint8Array,
   tags?: string[],
+  sourceId?: string,
 ): Promise<StoredEntry> {
   const extension = extensionOf(filename)
   if (!extension) {
@@ -249,6 +254,7 @@ export async function addScore(
     // name the folders instead (the library importer does, so a harvested score
     // does not pretend to be one of the player's own).
     tags: tags && tags.length > 0 ? tags : [DEFAULT_TAG],
+    ...(sourceId ? { sourceId } : {}),
     filename: safeFilename,
     sizeBytes: data.byteLength,
     uploadedAt: new Date().toISOString(),

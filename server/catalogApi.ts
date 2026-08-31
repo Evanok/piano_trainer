@@ -119,6 +119,8 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, dataDir: 
   // Comma-separated, and normalized like every other tag write. Absent means the
   // default folder, which is what an upload from the app itself wants.
   const tags = normalizeTags((url.searchParams.get('tags') ?? '').split(','))
+  // Bookkeeping for the library importer; short and opaque, never displayed.
+  const sourceId = (url.searchParams.get('sourceId') ?? '').trim().slice(0, 64) || undefined
   if (!filename) {
     throw new HttpError(400, 'Missing ?filename= query parameter.')
   }
@@ -129,7 +131,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, dataDir: 
   if (data.byteLength === 0) {
     throw new HttpError(400, 'Empty file.')
   }
-  sendJson(res, 201, await addScore(dataDir, filename, data, tags))
+  sendJson(res, 201, await addScore(dataDir, filename, data, tags, sourceId))
 }
 
 // A metadata edit is a couple of short strings, nowhere near a score file --
@@ -153,7 +155,15 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     difficulty: rawDifficulty,
     favorite: rawFavorite,
     tags: rawTags,
-  } = payload as { title?: unknown; composer?: unknown; difficulty?: unknown; favorite?: unknown; tags?: unknown }
+    sourceId: rawSourceId,
+  } = payload as {
+    title?: unknown
+    composer?: unknown
+    difficulty?: unknown
+    favorite?: unknown
+    tags?: unknown
+    sourceId?: unknown
+  }
 
   const update: {
     title?: string
@@ -161,6 +171,7 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     difficulty?: ScoreDifficulty | null
     favorite?: boolean
     tags?: string[]
+    sourceId?: string
   } = {}
   if (rawTitle !== undefined) {
     if (typeof rawTitle !== 'string' || !rawTitle.trim()) {
@@ -195,12 +206,19 @@ async function handleUpdate(req: IncomingMessage, res: ServerResponse, dataDir: 
     // beside "jeux-video".
     update.tags = normalizeTags(rawTags)
   }
+  if (rawSourceId !== undefined) {
+    if (typeof rawSourceId !== 'string' || !rawSourceId.trim()) {
+      throw new HttpError(400, 'Source id must be a non-empty string.')
+    }
+    update.sourceId = rawSourceId.trim().slice(0, 64)
+  }
   if (
     update.title === undefined &&
     update.composer === undefined &&
     update.difficulty === undefined &&
     update.favorite === undefined &&
-    update.tags === undefined
+    update.tags === undefined &&
+    update.sourceId === undefined
   ) {
     throw new HttpError(400, 'Nothing to update: provide title, composer, difficulty, favorite and/or tags.')
   }

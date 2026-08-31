@@ -9,6 +9,7 @@ import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry
 import { getStreakStats } from '../engine/streak'
 import {
   CATALOG_SORTS,
+  DEFAULT_CATALOG_SORT,
   type CatalogBrowseState,
   type CatalogEntry,
   type CatalogPage,
@@ -227,6 +228,13 @@ export function ScoreLibrary({
 
   const handleSelectTag = (value: string) => {
     setTagFilter(value)
+    // A study folder is a collection with an order, and its titles start with
+    // that order ("Op. 100 No. 3. Pastorale"), so opening one lands on it rather
+    // than on upload order. Only from the default sort: an explicit choice of
+    // another order is never overridden, and the picker shows what happened.
+    if (value && sort === DEFAULT_CATALOG_SORT) {
+      setSort('title')
+    }
     // Another folder means another result set, so page 3 of the old one is
     // meaningless -- same rule as the search and the difficulty filter.
     setPage(1)
@@ -645,8 +653,15 @@ export function ScoreLibrary({
                       className="flex w-full min-w-0 items-center justify-between gap-4 text-left disabled:cursor-progress disabled:opacity-60"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium text-gray-900">{entry.title}</span>
+                        <span className="flex items-start gap-2">
+                          {/* Two lines, not one truncated one: a study
+                              collection's title carries the piece number at the
+                              *end* ("Mikrokosmos ... No. 88: Duet for Pipes"),
+                              so an ellipsis cuts off exactly the part that says
+                              which exercise this is. */}
+                          <span className="line-clamp-2 break-words text-sm font-medium text-gray-900">
+                            {entry.title}
+                          </span>
                           {entry.difficulty && (
                             <span
                               className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${DIFFICULTY_BADGE_CLASSES[entry.difficulty]}`}
