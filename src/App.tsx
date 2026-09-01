@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
-import { ExerciseSetup } from './pages/ExerciseSetup'
+import { ExerciseSetup, type SetupTab } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
@@ -111,6 +111,10 @@ function App() {
   const [practiceBackingTrack, setPracticeBackingTrack] = useState<PracticeBackingTrack | null>(null)
   const [practiceKeySignature, setPracticeKeySignature] = useState<PracticeKeySignature | null>(null)
   const [exerciseKind, setExerciseKind] = useState<ExerciseKind>('generated')
+  // Which tab ExerciseSetup opens on. Separate from exerciseKind because the
+  // reading quiz is a tab there but not an ExerciseKind, and kept here because
+  // ExerciseSetup is remounted from scratch on every visit.
+  const [setupTab, setSetupTab] = useState<SetupTab>('generated')
   const [exerciseSettings, setExerciseSettings] = useState<TrainingExerciseSettings>(DEFAULT_EXERCISE_SETTINGS)
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(DEFAULT_HANON_SETTINGS)
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
@@ -353,7 +357,7 @@ function App() {
         onSelectDevice={selectDevice}
         isSupported={isSupported}
         midiError={error}
-        initialExerciseKind={exerciseKind}
+        initialTab={setupTab}
         initialSettings={exerciseSettings}
         initialHanonSettings={hanonSettings}
         initialKeyboardAssistMode={exerciseKeyboardAssistMode}
@@ -361,6 +365,7 @@ function App() {
         onExerciseReady={startExercise}
         initialReadingSettings={readingSettings}
         onReadingReady={startReadingQuiz}
+        onTabChange={setSetupTab}
         onBack={handleBackToHome}
       />
     )

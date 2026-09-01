@@ -41,7 +41,7 @@ const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
  * build a MusicXML file and hand it to Practice, while a reading quiz has no
  * MIDI, no cursor and no WaitEngine, and goes to its own screen.
  */
-type SetupTab = ExerciseKind | 'reading'
+export type SetupTab = ExerciseKind | 'reading'
 
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
@@ -63,7 +63,7 @@ interface ExerciseSetupProps {
   onSelectDevice: (id: string) => void
   isSupported: boolean
   midiError: string | null
-  initialExerciseKind: ExerciseKind
+  initialTab: SetupTab
   initialReadingSettings: ReadingQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
@@ -75,6 +75,16 @@ interface ExerciseSetupProps {
     backingTrackEnabled: boolean,
   ) => void
   onReadingReady: (settings: ReadingQuizSettings) => void
+  /**
+   * Lifted to App the moment it changes, not only when a drill is started:
+   * this screen is remounted from scratch every time it is reached, so
+   * whichever tab was open has to be remembered outside it. 'reading' is the
+   * case that made this necessary -- the tab used to be seeded from
+   * ExerciseKind, which cannot hold it, so coming back from a quiz (by the
+   * screen's own back button or by the browser's) always landed on the
+   * keyboard-drill tab instead of the one the player left.
+   */
+  onTabChange: (tab: SetupTab) => void
   onBack: () => void
 }
 
@@ -84,7 +94,7 @@ export function ExerciseSetup({
   onSelectDevice,
   isSupported,
   midiError,
-  initialExerciseKind,
+  initialTab,
   initialReadingSettings,
   initialSettings,
   initialHanonSettings,
@@ -92,10 +102,15 @@ export function ExerciseSetup({
   initialBackingTrackEnabled,
   onExerciseReady,
   onReadingReady,
+  onTabChange,
   onBack,
 }: ExerciseSetupProps) {
   const [streak] = useState(() => getStreakStats())
-  const [tab, setTab] = useState<SetupTab>(initialExerciseKind)
+  const [tab, setTab] = useState<SetupTab>(initialTab)
+  const selectTab = (next: SetupTab) => {
+    setTab(next)
+    onTabChange(next)
+  }
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
@@ -180,7 +195,7 @@ export function ExerciseSetup({
             <button
               key={item.kind}
               type="button"
-              onClick={() => setTab(item.kind)}
+              onClick={() => selectTab(item.kind)}
               className={
                 tab === item.kind
                   ? 'flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm'
