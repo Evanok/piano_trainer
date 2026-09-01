@@ -218,7 +218,12 @@ keyboard either, so until it there was nothing the app could offer in that
 situation. It is a **tab in `ExerciseSetup`** (which drill to do is a setting,
 like Hanon) but **not an `ExerciseKind`**: the other two tabs build a MusicXML
 file for `Practice`, while this one has no cursor, no `WaitEngine` and no MIDI,
-and goes to its own screen (`SetupTab = ExerciseKind | 'reading'`).
+and goes to its own screen (`SetupTab = ExerciseKind | 'reading'`). `App` owns
+that tab (`setupTab`, lifted through `onTabChange` as soon as it changes, not
+only when a drill starts) because `ExerciseSetup` is remounted on every visit:
+seeding it from `ExerciseKind`, which cannot hold `'reading'`, sent every return
+from a quiz -- by the screen's own back button or by the browser's -- to the
+keyboard-drill tab instead of the one the player left.
 
 - **One score per round, one measure per question.** `createReadingRound` emits
   the whole round as a single MusicXML with one whole note per measure;
@@ -229,21 +234,28 @@ and goes to its own screen (`SetupTab = ExerciseKind | 'reading'`).
   hand-drawn SVG staff would be a second notation renderer to keep in step with
   the practice screen (and would need the Bravura glyphs for the clefs). The crop
   redraws the clef on every measure, which is what makes this work at all.
-- **Making one cropped measure fill the container took three fixes**, each
-  silent, and all three are the reason `applyStaffViewport` looks the way it
-  does. OSMD renders a whole *page* into the SVG with the cropped measure in its
+- **Making one cropped measure fill the container took four fixes**, each
+  silent, and all four are the reason `readingStaffViewport.ts` looks the way it
+  does (the box maths lives there, structurally typed and unit-tested, so
+  `ReadingStaff.tsx` only applies the answer to the SVG). OSMD renders a whole *page* into the SVG with the cropped measure in its
   top left corner, so untouched the staff occupies about a tenth of the screen
   whatever the container's size. Setting the SVG to `width/height: 100%` does
   nothing, because OSMD wraps it in a div it sizes itself, so the percentages
   resolve against nothing and the SVG keeps its page-sized layout box: it has to
   be given explicit pixels from the container. And the staffline's model box
-  (`GraphicSheet.MusicPages[0].MusicSystems[0].StaffLines[0].PositionAndShape`,
+  (`GraphicSheet.MusicPages[0].MusicSystems[0].StaffLines[i].PositionAndShape`,
   in OSMD units, 10px per unit times the zoom) is **not** the five lines centred
   on their middle, so building a window centred on it cut the top of the staff
   off. The viewBox is therefore the **union** of that model box and the drawn
   content's own `getBBox()`, which cannot clip whatever the model box turns out
   to mean, while still holding the scale roughly steady between questions since
-  the model box dominates it and does not follow the notes.
+  the model box dominates it and does not follow the notes. And there is one
+  staffline, and one `g.vf-measure` element, **per stave**: a grand staff round
+  (`clefMode: 'both'`) draws two of each, and a bass question's note lives
+  entirely on the second, so a window built from `StaffLines[0]` and
+  `querySelector('g.vf-measure')` left that note off screen and the question
+  looked like it had no note at all while a treble-only round was fine. Both are
+  unioned over all of them, never indexed at `[0]`.
 - **Ranges are diatonic, not chromatic.** `ledgerLevel` is how many ledger lines
   past the staff a note may go, and one ledger line is two diatonic positions, so
   every bound lives in a diatonic index space (`octave * 7 + step`) rather than
