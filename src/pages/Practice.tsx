@@ -1302,6 +1302,7 @@ export function Practice({
               wrongPitches={wrongPitches}
               rightHandPitches={expectedHandPitches.right}
               leftHandPitches={expectedHandPitches.left}
+              fingerByPitch={expectedHandPitches.fingerByPitch}
             />
           </div>
         )}
@@ -1555,6 +1556,7 @@ export function Practice({
           wrongPitches={wrongPitches}
           rightHandPitches={expectedHandPitches.right}
           leftHandPitches={expectedHandPitches.left}
+          fingerByPitch={expectedHandPitches.fingerByPitch}
         />
       )}
     </div>

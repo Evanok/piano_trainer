@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { NoteHand } from '../types/score'
+import type { NoteFinger, NoteHand } from '../types/score'
 
 const WHITE_OFFSETS = [0, 2, 4, 5, 7, 9, 11]
 
@@ -54,21 +54,31 @@ const KEY_FACES = {
    * as a rendering fault rather than as information. */
   whiteOutside: ['#eef1f6', '#dde3ea'],
   black: ['#3b4455', '#0c1119'],
+  /**
+   * The hand takes the WHOLE key rather than a strip along its bottom: at three
+   * visible octaves a key is about thirty pixels wide, and a twelve-pixel bar
+   * carrying a letter and a digit inside it was unreadable at arm's length,
+   * which is the only distance this screen is ever used from.
+   *
+   * So an expected key is painted in its hand's hue INSTEAD of yellow, not on
+   * top of it. Yellow's whole job was "press this", and blue/purple says that
+   * plus which hand, so nothing is lost by spending the key on the more
+   * specific answer -- yellow stays below for the scores whose hands are not
+   * knowable. Held (green) and wrong (red) still win over both: what just
+   * happened has to beat what to do next, and those two are also the only
+   * colours the sheet and the keyboard still have to agree on.
+   */
+  rightHand: ['#60a5fa', '#2563eb'],
+  leftHand: ['#c084fc', '#9333ea'],
 } as const
 
-/** The hand a key belongs to is a SECOND visual channel, deliberately not a
- * replacement for the yellow/green/red state colours above: a key still has to
- * read as expected/held/wrong first. It is drawn as a bar along the bottom of
- * the key, so it survives every state colour and works on black keys too (both
- * hues are dark enough to sit on white and light enough to sit on near-black,
- * with a white hairline separating the bar from the key itself). */
-const RIGHT_HAND_COLOR = '#2563eb'
-const LEFT_HAND_COLOR = '#9333ea'
-
-/** Below this, an R/L letter inside a bar segment is an unreadable smudge, so
- * the segment keeps its colour and drops the letter -- the case for black keys
- * (0.6 of a white key) and for a key both hands play (half a key each). */
-const HAND_LABEL_MIN_WIDTH_PX = 14
+/** The finger digit is sized off the key rather than fixed, since a key is
+ * between 26 and 48px wide depending on the container. Floored so the narrowest
+ * key still says something legible, capped so a wide desktop key does not turn
+ * into a poster. */
+const MIN_FINGER_LABEL_PX = 15
+const MAX_FINGER_LABEL_PX = 30
+const FINGER_LABEL_WIDTH_RATIO = 0.72
 
 function isWhiteKey(pitch: number): boolean {
   return WHITE_OFFSETS.includes(((pitch % 12) + 12) % 12)
@@ -105,6 +115,12 @@ interface VirtualKeyboardProps {
    * appears in both lists and gets a split bar. */
   rightHandPitches?: number[]
   leftHandPitches?: number[]
+  /** The finger the score names for a given expected pitch, for the files that
+   * carry one (MusicXML `<fingering>`; most do not, and most of those that do
+   * annotate only part of their notes). A pitch absent from this map simply
+   * shows no number, which is the ordinary case -- there is deliberately no
+   * fallback that computes a plausible fingering. */
+  fingerByPitch?: Record<number, NoteFinger>
   /**
    * Makes the keys answer taps, for the reading quiz's "tap the key" mode. Left
    * out during practice, where the keyboard is a mirror of what the MIDI
@@ -121,6 +137,7 @@ export function VirtualKeyboard({
   wrongPitches = [],
   rightHandPitches = [],
   leftHandPitches = [],
+  fingerByPitch = {},
   onKeyPress,
 }: VirtualKeyboardProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -166,6 +183,13 @@ export function VirtualKeyboard({
       return KEY_FACES.held
     }
     if (expectedPitches.includes(pitch)) {
+      const hands = handsFor(pitch)
+      if (hands.length === 1) {
+        return hands[0] === 'right' ? KEY_FACES.rightHand : KEY_FACES.leftHand
+      }
+      // Nothing to say about the hand (an unknowable layout) or too much (both
+      // staves write this key): yellow keeps meaning "press this, hand unsaid",
+      // and the both-hands case is painted as a split further down.
       return KEY_FACES.expected
     }
     if (isBlack) {
@@ -183,8 +207,15 @@ export function VirtualKeyboard({
     const resting = isBlack
       ? 'inset 0 1px 0 rgba(255,255,255,0.28), 0 3px 4px rgba(0,0,0,0.45)'
       : 'inset 0 -7px 7px -7px rgba(0,0,0,0.35)'
+    // A key both hands are written to play is split down the middle, right hue
+    // on the left half (the hand that comes from there on a keyboard) -- the
+    // vertical shading is layered over it so the key still catches the light.
+    const splitHands = splitHandFaces(pitch)
+    const background = splitHands
+      ? `linear-gradient(180deg, rgba(255,255,255,0.34) 0%, rgba(0,0,0,0.1) 100%), linear-gradient(90deg, ${splitHands[0]} 0 50%, ${splitHands[1]} 50% 100%)`
+      : `linear-gradient(180deg, ${top} 0%, ${bottom} 100%)`
     return {
-      background: `linear-gradient(180deg, ${top} 0%, ${bottom} 100%)`,
+      background,
       boxShadow: pressed ? 'inset 0 5px 7px -3px rgba(0,0,0,0.45)' : resting,
     }
   }
@@ -200,24 +231,50 @@ export function VirtualKeyboard({
     return hands
   }
 
-  const renderHandBar = (pitch: number, keyWidthPx: number, roundedClass: string) => {
-    const hands = handsFor(pitch)
-    if (hands.length === 0) {
+  /** The two hues of a key both hands play, or null for every ordinary key.
+   * Only while the key is merely expected: once it is held or wrong, its state
+   * owns the whole key and the hands have nothing left to add. */
+  const splitHandFaces = (pitch: number): [string, string] | null => {
+    if (wrongPitches.includes(pitch) || heldPitches.includes(pitch) || !expectedPitches.includes(pitch)) {
       return null
     }
-    const segmentWidthPx = keyWidthPx / hands.length
+    return handsFor(pitch).length === 2 ? [KEY_FACES.rightHand[1], KEY_FACES.leftHand[1]] : null
+  }
+
+  /**
+   * The finger the score names for the key, as big as the key can carry. No R/L
+   * letter beside it: the key's own colour already says the hand, and the
+   * letter was costing exactly the room the digit needed.
+   *
+   * It replaces the octave label on that key rather than sitting above it (see
+   * renderOctaveLabel): the label is a landmark for finding a position on a
+   * keyboard at rest, which is not what a highlighted key with a finger number
+   * on it is for.
+   */
+  const renderFingerLabel = (pitch: number, keyWidthPx: number, isBlack: boolean) => {
+    const finger = fingerByPitch[pitch]
+    if (finger === undefined || !expectedPitches.includes(pitch)) {
+      return null
+    }
+    const fontSizePx = Math.round(
+      Math.min(MAX_FINGER_LABEL_PX, Math.max(MIN_FINGER_LABEL_PX, keyWidthPx * FINGER_LABEL_WIDTH_RATIO)),
+    )
+    // Dark on yellow, white on every other face it can land on (blue, purple,
+    // green, red, near-black), so the digit reads whatever the key's state.
+    // A split key reports the yellow face but is painted in the two hand hues,
+    // so it belongs on the white side.
+    const onYellow = faceFor(pitch, isBlack) === KEY_FACES.expected && splitHandFaces(pitch) === null
     return (
-      <div className={`pointer-events-none absolute inset-x-0 bottom-0 flex h-3 overflow-hidden border-t border-white ${roundedClass}`}>
-        {hands.map((hand) => (
-          <div
-            key={hand}
-            className="flex flex-1 items-center justify-center text-[8px] font-bold leading-none text-white"
-            style={{ backgroundColor: hand === 'right' ? RIGHT_HAND_COLOR : LEFT_HAND_COLOR }}
-          >
-            {segmentWidthPx >= HAND_LABEL_MIN_WIDTH_PX ? (hand === 'right' ? 'R' : 'L') : null}
-          </div>
-        ))}
-      </div>
+      <span
+        className="pointer-events-none absolute inset-x-0 bottom-1 text-center font-bold leading-none"
+        style={{
+          fontSize: `${fontSizePx}px`,
+          color: onYellow ? '#1e293b' : '#ffffff',
+          textShadow: onYellow ? 'none' : '0 1px 2px rgba(0,0,0,0.45)',
+        }}
+      >
+        {finger}
+      </span>
     )
   }
 
@@ -226,7 +283,9 @@ export function VirtualKeyboard({
   // Without this, the keyboard scrolled to a different octave looks exactly
   // like the one it left.
   const renderOctaveLabel = (pitch: number) => {
-    if (!isC(pitch)) {
+    // A finger digit takes the same corner of the key and is the more urgent of
+    // the two, so the landmark yields to it for as long as the note is expected.
+    if (!isC(pitch) || (fingerByPitch[pitch] !== undefined && expectedPitches.includes(pitch))) {
       return null
     }
     if (pitch === MIDDLE_C) {
@@ -345,7 +404,7 @@ export function VirtualKeyboard({
             }}
           >
             {renderOctaveLabel(pitch)}
-            {renderHandBar(pitch, whiteKeyWidthPx, '')}
+            {renderFingerLabel(pitch, whiteKeyWidthPx, false)}
           </div>
         ))}
         {blackKeys.map((pitch) => (
@@ -360,7 +419,7 @@ export function VirtualKeyboard({
               ...keyStyle(pitch, true),
             }}
           >
-            {renderHandBar(pitch, whiteKeyWidthPx * 0.6, 'rounded-b-sm')}
+            {renderFingerLabel(pitch, whiteKeyWidthPx * 0.6, true)}
           </div>
         ))}
         {/* The dark fascia a real piano has above its keys: it reads as an

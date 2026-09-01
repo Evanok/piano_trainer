@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectHandStaff, selectHandStaves } from './ScoreParser'
+import { noteFinger, selectHandStaff, selectHandStaves } from './ScoreParser'
 
 // The staff objects only ever get compared by identity (a note's ParentStaff is
 // matched against the selected one), so plain strings stand in for them here --
@@ -78,5 +78,43 @@ describe('selectHandStaves', () => {
   it('answers nothing when there is no unambiguous pair of hands', () => {
     expect(selectHandStaves([{ name: 'Piano', staves: ['only'] }])).toBeUndefined()
     expect(selectHandStaves([{ name: 'Organ', staves: ['a', 'b', 'c'] }])).toBeUndefined()
+  })
+})
+
+// OSMD fills Note.Fingering from the file at parse time, so this only ever has
+// to read it -- and to refuse the values it cannot read as a plain finger.
+describe('noteFinger', () => {
+  it('reads a plain finger number', () => {
+    expect(noteFinger({ Fingering: { value: '1' } })).toBe(1)
+    expect(noteFinger({ Fingering: { value: '5' } })).toBe(5)
+    expect(noteFinger({ Fingering: { value: ' 3 ' } })).toBe(3)
+  })
+
+  it('says nothing for a note the score leaves unfingered', () => {
+    expect(noteFinger({})).toBeNull()
+    expect(noteFinger({ Fingering: undefined })).toBeNull()
+    expect(noteFinger({ Fingering: { value: '' } })).toBeNull()
+  })
+
+  // Real case, twice, in a downloaded Tchaikovsky: one element whose text is
+  // "43", meaning strike with 4 and substitute 3 while holding. Whichever
+  // convention the edition follows, the first digit is the finger that presses.
+  it('takes the striking finger out of a label naming several', () => {
+    expect(noteFinger({ Fingering: { value: '43' } })).toBe(4)
+    expect(noteFinger({ Fingering: { value: '4-3' } })).toBe(4)
+    expect(noteFinger({ Fingering: { value: '1-2-3' } })).toBe(1)
+  })
+
+  // All three shapes occur in the local corpus. Unlike "43" they name no
+  // striking finger to fall back on -- the circled form alone means an
+  // alternative, a substitution or the other hand depending on the edition --
+  // so a number under a key would be a guess dressed as an instruction.
+  it('refuses a value it cannot read as one piano finger', () => {
+    expect(noteFinger({ Fingering: { value: '\u2463' } })).toBeNull()
+    expect(noteFinger({ Fingering: { value: '(4-5)' } })).toBeNull()
+    expect(noteFinger({ Fingering: { value: 'etc.' } })).toBeNull()
+    expect(noteFinger({ Fingering: { value: '0' } })).toBeNull()
+    expect(noteFinger({ Fingering: { value: '6' } })).toBeNull()
+    expect(noteFinger({ Fingering: { value: '3rd' } })).toBeNull()
   })
 })

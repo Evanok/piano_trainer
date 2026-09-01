@@ -1,6 +1,6 @@
 import type { Instrument, Note, OpenSheetMusicDisplay, Staff } from 'opensheetmusicdisplay'
 import type { HandMode } from '../types/practice'
-import type { ExpectedEvent, NoteHand } from '../types/score'
+import type { ExpectedEvent, NoteFinger, NoteHand } from '../types/score'
 
 // OSMD's Note.halfTone uses its own internal octave convention (offset by
 // Pitch.OctaveXmlDifference = 3 from the MusicXML octave). +12 converts it to
@@ -76,6 +76,40 @@ function playableInstruments(osmd: OpenSheetMusicDisplay): Instrument[] {
   const instruments = osmd.Sheet?.Instruments ?? []
   const pianoInstruments = instruments.filter((instrument) => PIANO_INSTRUMENT_NAME_PATTERN.test(instrument.Name ?? ''))
   return pianoInstruments.length > 0 ? pianoInstruments : instruments
+}
+
+/**
+ * The finger the score names for a note, or null when it names none.
+ *
+ * OSMD fills `Note.Fingering` at parse time from
+ * `<notations><technical><fingering>`, so this reads the file's own answer and
+ * never computes one: a suggested fingering is an editorial decision, and one
+ * invented under the player's hand would be worse than the blank they get now.
+ *
+ * A label holding SEVERAL fingers ("43", "4-3", "1-2" -- one element whose text
+ * is two digits, not two elements) yields its FIRST one. Such a label is a
+ * substitution (strike with 4, swap to 3 while holding the key) or an
+ * editorial alternative, and under both readings the first digit is the finger
+ * that actually presses the key -- which is the only question a highlighted
+ * key asks. So there is nothing to guess at here, unlike the values below.
+ *
+ * Everything else is dropped: circled digits (~1% of the fingerings in the
+ * local corpus), parenthesised alternatives like "(4-5)", outright prose like
+ * "etc.". The circled form in particular means different things in different
+ * editions -- an alternative, a substitution, the other hand -- so it names no
+ * striking finger to fall back on the way "43" does.
+ *
+ * Structurally typed, not `Note`, so it is unit-testable without a loaded OSMD
+ * -- same reason selectHandStaff is generic.
+ */
+const FINGER_PATTERN = /^[1-5](?:[-\u2013/_ ]?[1-5])*$/
+
+export function noteFinger(note: { Fingering?: { value?: string } | null }): NoteFinger | null {
+  const value = note.Fingering?.value?.trim()
+  if (!value || !FINGER_PATTERN.test(value)) {
+    return null
+  }
+  return Number(value[0]) as NoteFinger
 }
 
 /**
@@ -173,8 +207,9 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: Han
         if (note.ParentStaff === handStaves.left) return 'left'
         return null
       })
+      const fingers = notes.map(noteFinger)
       const measureNumber = cursor.Iterator.CurrentMeasureIndex + 1
-      events.push({ index, pitches, measureNumber, hands })
+      events.push({ index, pitches, measureNumber, hands, fingers })
       index += 1
     }
     cursor.next()
