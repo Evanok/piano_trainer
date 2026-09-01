@@ -320,7 +320,7 @@ export function dailyMinutes(sessions: PracticeSessionRecord[], days: number, no
     const day = sessionDay(session)
     const existing = byDay.get(day) ?? { minutes: 0, sessionCount: 0, byActivity: emptyActivityMinutes() }
     const minutes = session.durationMs / 60000
-    existing.byActivity[session.source.kind] += minutes
+    existing.byActivity[activityOf(session.source)] += minutes
     byDay.set(day, {
       minutes: existing.minutes + minutes,
       sessionCount: existing.sessionCount + 1,
@@ -390,8 +390,22 @@ export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgres
   return Array.from(byKey.values()).sort((a, b) => b.lastPlayedAt.localeCompare(a.lastPlayedAt))
 }
 
-/** The three kinds of thing a session can be, straight from `SessionSource`. */
+/** The three kinds of thing practice time is reported as. */
 export type ActivityKind = 'score' | 'exercise' | 'reading'
+
+/**
+ * Which activity a session's time counts as.
+ *
+ * Not simply `source.kind`, because the note-order drill is a fourth kind of
+ * session but not a fourth kind of activity: the split exists to keep time at
+ * the keyboard apart from time on a phone with no piano in reach, and both
+ * screen drills are the same answer to that question. A row per drill would
+ * also grow every time one is added, and the per-drill breakdown is already in
+ * the session table, where each row carries the drill's own title.
+ */
+export function activityOf(source: PracticeSessionRecord['source']): ActivityKind {
+  return source.kind === 'sequence' ? 'reading' : source.kind
+}
 
 export interface ActivityTime {
   kind: ActivityKind
@@ -414,7 +428,7 @@ export function timeByActivity(sessions: PracticeSessionRecord[]): ActivityTime[
     order.map((kind) => [kind, { kind, totalMs: 0, sessionCount: 0 }]),
   )
   for (const session of sessions) {
-    const entry = totals.get(session.source.kind)
+    const entry = totals.get(activityOf(session.source))
     if (!entry) {
       continue
     }

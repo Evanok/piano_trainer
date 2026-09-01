@@ -5,6 +5,7 @@ import { ExerciseSetup, type SetupTab } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
+import { NoteSequenceQuiz } from './pages/NoteSequenceQuiz'
 import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
@@ -20,6 +21,7 @@ import type {
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
 import type { ReadingQuizSettings } from './types/reading'
+import type { NoteSequenceSettings } from './types/sequence'
 import type { SessionSource, SessionStats } from './types/session'
 import { DEFAULT_BROWSE_STATE, type CatalogBrowseState, type CatalogEntry } from './types/catalog'
 import type {
@@ -36,6 +38,7 @@ type Screen =
   | 'stats'
   | 'practice'
   | 'reading-quiz'
+  | 'sequence-quiz'
   | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
@@ -61,6 +64,17 @@ const DEFAULT_READING_SETTINGS: ReadingQuizSettings = {
   // Replaced by a fresh one per round in ReadingQuiz: a reading drill is only a
   // reading drill if the notes have not been seen in that order before.
   seed: 'reading',
+}
+
+const DEFAULT_NOTE_SEQUENCE_SETTINGS: NoteSequenceSettings = {
+  // Downwards: the note ABOVE another is the one direction everybody already
+  // knows by heart, musician or not.
+  direction: 'down',
+  distance: 'second',
+  questionCount: 20,
+  // Replaced by a fresh one per round in NoteSequenceQuiz, same as the reading
+  // quiz: a round that always asks the same questions drills nothing.
+  seed: 'sequence',
 }
 
 const DEFAULT_HANON_SETTINGS: HanonSettings = {
@@ -121,6 +135,7 @@ function App() {
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
   const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
+  const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(DEFAULT_NOTE_SEQUENCE_SETTINGS)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -334,6 +349,11 @@ function App() {
     setScreen('reading-quiz')
   }, [])
 
+  const startNoteSequenceQuiz = useCallback((settings: NoteSequenceSettings) => {
+    setSequenceSettings(settings)
+    setScreen('sequence-quiz')
+  }, [])
+
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
@@ -366,6 +386,8 @@ function App() {
         onExerciseReady={startExercise}
         initialReadingSettings={readingSettings}
         onReadingReady={startReadingQuiz}
+        initialSequenceSettings={sequenceSettings}
+        onSequenceReady={startNoteSequenceQuiz}
         onTabChange={setSetupTab}
         onBack={handleBackToHome}
       />
@@ -374,6 +396,10 @@ function App() {
 
   if (screen === 'reading-quiz') {
     return <ReadingQuiz settings={readingSettings} onBack={() => setScreen('exercise-setup')} />
+  }
+
+  if (screen === 'sequence-quiz') {
+    return <NoteSequenceQuiz settings={sequenceSettings} onBack={() => setScreen('exercise-setup')} />
   }
 
   if (screen === 'score-library') {

@@ -1,5 +1,6 @@
 import type { HandMode, PracticeMode } from './practice.ts'
 import type { ReadingQuizSettings } from './reading.ts'
+import type { NoteSequenceSettings } from './sequence.ts'
 import type { ExerciseRequest } from './training.ts'
 
 export interface ExerciseNoteStat {
@@ -71,6 +72,19 @@ export type SessionSource =
       kind: 'reading'
       title: string
       settings: ReadingQuizSettings
+    }
+  | {
+      /**
+       * The note-order drill: walking do re mi fa sol la si in either
+       * direction, with no staff and no piano. Its own kind rather than a
+       * flavour of `reading` because the settings have nothing in common, and
+       * the title a stats row shows is built from them. It is still reported
+       * as reading *time* (`activityOf`): the activity split separates the
+       * keyboard from the phone, not one screen drill from another.
+       */
+      kind: 'sequence'
+      title: string
+      settings: NoteSequenceSettings
     }
 
 /**

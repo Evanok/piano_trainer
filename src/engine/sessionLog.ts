@@ -1,5 +1,6 @@
 import type { PracticeSessionRecord } from '../types/session.ts'
 import type { ReadingQuizSettings } from '../types/reading.ts'
+import type { NoteSequenceSettings } from '../types/sequence.ts'
 import type { ExerciseRequest } from '../types/training.ts'
 
 /**
@@ -149,6 +150,27 @@ const CONTENT_LABELS: Record<string, string> = {
  * exerciseSessionTitle below: computed once, so the stats screen never needs to
  * know what a clef mode or a ledger level is.
  */
+/**
+ * "Note order - downwards, next note". Denormalized onto the record like every
+ * other session title, so the stats screen never has to know what the settings
+ * mean.
+ */
+export function sequenceSessionTitle(settings: NoteSequenceSettings): string {
+  const direction =
+    settings.direction === 'mixed'
+      ? 'both ways'
+      : settings.direction === 'down'
+        ? 'downwards'
+        : 'upwards'
+  const distance =
+    settings.distance === 'mixed'
+      ? 'seconds and thirds'
+      : settings.distance === 'third'
+        ? 'thirds'
+        : 'next note'
+  return `Note order - ${direction}, ${distance}`
+}
+
 export function readingSessionTitle(settings: ReadingQuizSettings): string {
   const clef =
     settings.clefMode === 'both'

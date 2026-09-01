@@ -51,7 +51,11 @@ const DEFAULT_SETTINGS: ReadingQuizSettings = {
   seed: 'reading',
 }
 
-const STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+/**
+ * The seven natural notes in scale order, which is the vocabulary every naming
+ * quiz answers in. Exported because the note-order drill walks the same ring.
+ */
+export const STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
 /**
  * Latin note names, which is what the quiz answers with. The rest of the app

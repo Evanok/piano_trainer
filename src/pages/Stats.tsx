@@ -51,12 +51,15 @@ const PRACTICE_MODE_LABELS: Record<string, string> = {
 }
 
 /**
- * A reading quiz has no practice mode at all (no score to navigate, no hands),
+ * A screen drill has no practice mode at all (no score to navigate, no hands),
  * so the column names the activity instead of leaving a blank cell.
  */
 function activityLabel(session: PracticeSessionRecord): string {
   if (session.source.kind === 'reading') {
     return 'Reading quiz'
+  }
+  if (session.source.kind === 'sequence') {
+    return 'Note order'
   }
   return session.practiceMode ? (PRACTICE_MODE_LABELS[session.practiceMode] ?? session.practiceMode) : '-'
 }
@@ -151,7 +154,7 @@ function buildComparison(recent: WindowSummary, allTime: WindowSummary): Compari
 const ACTIVITY_LABELS: Record<ActivityTime['kind'], string> = {
   score: 'Scores',
   exercise: 'Keyboard exercises',
-  reading: 'Reading quizzes',
+  reading: 'Reading and note order',
 }
 
 function ActivityLegend() {

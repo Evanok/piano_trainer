@@ -218,7 +218,8 @@ keyboard either, so until it there was nothing the app could offer in that
 situation. It is a **tab in `ExerciseSetup`** (which drill to do is a setting,
 like Hanon) but **not an `ExerciseKind`**: the other two tabs build a MusicXML
 file for `Practice`, while this one has no cursor, no `WaitEngine` and no MIDI,
-and goes to its own screen (`SetupTab = ExerciseKind | 'reading'`). `App` owns
+and goes to its own screen (`SetupTab = ExerciseKind | 'reading' | 'sequence'`,
+the last two being the screen drills). `App` owns
 that tab (`setupTab`, lifted through `onTabChange` as soon as it changes, not
 only when a drill starts) because `ExerciseSetup` is remounted on every visit:
 seeding it from `ExerciseKind`, which cannot hold `'reading'`, sent every return
@@ -302,6 +303,43 @@ keyboard-drill tab instead of the one the player left.
   does, so `notes.confusions` reads "shown a do, answered re", which is the most
   useful number the exercise produces.
 
+### Note-order drill (`engine/noteSequence.ts`, `pages/NoteSequenceQuiz.tsx`)
+
+The second keyboard-free drill: a note, an arrow, and the same seven name
+buttons. It exists because the sequence is only ever learned forwards, so going
+down from anything other than do means silently reciting from the start, which
+is what makes sight-reading slow.
+
+- **Every question jumps.** The note is drawn fresh each time, unrelated to the
+  one before, and never repeats the previous question's note. A chained round
+  (each question starting on the last answer) was built first and rejected on
+  use: knowing where the previous answer landed makes half of the next question
+  free, and walking the sequence in order is exactly the forwards recital the
+  drill exists to replace.
+- **Downwards is the default, and the only direction worth drilling.** Naming
+  the note *above* another is something everybody has by heart, musician or not,
+  so a round of it measures nothing. Upwards is still offered because a third up
+  (do to mi) is not memorised the way a second up is.
+- **The buttons are always shuffled here**, with no scale-order option, unlike
+  the reading quiz: in do-re-mi order "the next note up" is literally the button
+  to the right, so the whole drill would be answerable without knowing a name.
+- **The prompt is laid out the way the notes sit**: going up draws the unknown
+  above the known note, going down draws it below, and the arrow and the caption
+  each say it again. A single glyph is the one thing that must not be misread.
+- Its `SessionSource` kind is `'sequence'`, but its *time* is reported as
+  reading (`activityOf`, see below): the activity split separates the keyboard
+  from the phone, not one screen drill from another.
+
+**What the two screen drills share, and why each piece moved there**:
+`NamingQuizEngine` (all the scoring -- combo, first-try accuracy, response
+times, confusions) with `ReadingQuizEngine` adding only `answerPitch`, the one
+genuinely reading-specific thing; `useQuizSession` (record on open, heartbeat,
+record on unmount -- the cadence is what matters and it is easy to get subtly
+wrong, since a phone closes a tab with no cleanup); `NoteNameButtons` (the seven
+buttons *and* the number-row shortcut, which must answer the button at that
+position rather than a fixed note, or a shuffled order hands the counting back);
+and `RoundSummary`.
+
 ### Gamification (`ScoreHud.tsx`, `engine/grade.ts`, `engine/streak.ts`)
 
 `ScoreHud` is a deliberately colorful, prominent stat strip (combo / best combo / correct notes / errors) placed directly under the title, separate from the small gray utility-controls row below it -- an earlier plain-text version ("Combo: 3" inline among the other controls) was easy to miss entirely. `currentCombo`/`maxCombo` (session-best, reported in `SessionStats`) count consecutive events completed with zero errors, reset the instant a wrong note lands (not only when the event finally advances); `correctNoteCount` counts every correct keypress, including partial chord hits, not just completed events.
@@ -329,8 +367,13 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
 - **What is recorded and what is shown are two different sets** (`isCountedSession`/`countedSessions` in `sessionLog.ts`). Recording starts when the practice screen opens, so the log necessarily also holds screens that were merely opened; those are hidden from everything the player sees -- a session counts only if at least one key was pressed (right or wrong) and it either completed or lasted `MIN_COUNTED_SESSION_MS` (60s). A *finished* session always counts however short, since a generated 8-measure drill played cleanly in 45 seconds is real practice. This matters most for the streak: without the filter, opening a score and going straight back would earn a practice day. Applied in exactly two read paths -- `getStreakStats()` and the `view` memo in `Stats.tsx` -- so the table, chart, streak and every average agree; the store and the sync still carry the full log, and **nothing is ever deleted**, so the threshold can be revised later without having lost the excluded sessions.
 - **A session is one *piece* worked, a `PracticeBlock` is one *sitting*.** A record is created per visit to the practice screen, so a 45-minute sitting spread over three scores is three sessions -- the wrong unit for "how long do I practice". `groupPracticeBlocks` (in `statsAnalytics.ts`, gap `DEFAULT_BLOCK_GAP_MS` = 15 min) groups consecutive sessions into sittings, and the sitting is the unit for every headline number (`blockCount`, `blocksPerWeek`, `averageBlockMs`, `longestBlockMs`); session-level counts stay available as "pieces worked". The stats table lists sittings with their pieces nested underneath, expandable only when there is more than one (a single-piece sitting names it inline instead of costing a row that repeats itself). A block's `durationMs` is the **sum of its sessions' durations, not the wall-clock span** -- the breaks between pieces would otherwise count as practice and disagree with the per-day minutes chart. Changing the mode or hand mode mid-session keeps the same record (same id, same start), so it never splits a sitting.
 - **Practice time is reported split three ways, never merged** (`timeByActivity`,
-  rendered as "Where the time goes"): scores, keyboard exercises, and reading
-  quizzes, keyed off `source.kind`. Time at the keyboard and time naming notes on
+  rendered as "Where the time goes"): scores, keyboard exercises, and the screen
+  drills. The activity is `activityOf(source)`, **not** `source.kind` directly:
+  there are four session kinds and only three activities, since the note-order
+  drill counts as reading time. The split exists to keep time at the keyboard
+  apart from time on a phone with no piano in reach, and a row per drill would
+  grow every time one is added while the per-drill breakdown is already in the
+  session table, where each row carries the drill's own title. Time at the keyboard and time naming notes on
   a phone are different things, and a run of quizzes must not read as a run of
   playing. The streak is the opposite call and stays single, since the point of
   the quizzes is to keep practising on a day away from the piano. The kinds are

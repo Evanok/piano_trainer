@@ -12,6 +12,11 @@ import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
+  NoteSequenceDirection,
+  NoteSequenceDistance,
+  NoteSequenceSettings,
+} from '../types/sequence'
+import type {
   ReadingAnswerMode,
   ReadingNameOrder,
   ReadingClefMode,
@@ -42,15 +47,19 @@ const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
  * build a MusicXML file and hand it to Practice, while a reading quiz has no
  * MIDI, no cursor and no WaitEngine, and goes to its own screen.
  */
-export type SetupTab = ExerciseKind | 'reading'
+export type SetupTab = ExerciseKind | 'reading' | 'sequence'
 
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
   { kind: 'hanon', label: 'Hanon' },
   { kind: 'reading', label: 'Reading' },
+  { kind: 'sequence', label: 'Note order' },
 ]
 
 const READING_QUESTION_COUNTS = [10, 20, 30, 40]
+
+const SELECT_CLASS =
+  'rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none'
 
 /** "C4 (do)" -- the letter name the rest of the app uses, plus the quiz's own. */
 function readingNoteLabel(midi: number): string {
@@ -66,6 +75,7 @@ interface ExerciseSetupProps {
   midiError: string | null
   initialTab: SetupTab
   initialReadingSettings: ReadingQuizSettings
+  initialSequenceSettings: NoteSequenceSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
   initialKeyboardAssistMode: KeyboardAssistMode
@@ -76,6 +86,7 @@ interface ExerciseSetupProps {
     backingTrackEnabled: boolean,
   ) => void
   onReadingReady: (settings: ReadingQuizSettings) => void
+  onSequenceReady: (settings: NoteSequenceSettings) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -97,22 +108,29 @@ export function ExerciseSetup({
   midiError,
   initialTab,
   initialReadingSettings,
+  initialSequenceSettings,
   initialSettings,
   initialHanonSettings,
   initialKeyboardAssistMode,
   initialBackingTrackEnabled,
   onExerciseReady,
   onReadingReady,
+  onSequenceReady,
   onTabChange,
   onBack,
 }: ExerciseSetupProps) {
   const [streak] = useState(() => getStreakStats())
+  // The two tabs that build a MusicXML file and hand it to Practice. The other
+  // two are screen drills with no keyboard, so the MIDI device picker, the
+  // keyboard help and the backing track do not belong to them.
+  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon'
   const [tab, setTab] = useState<SetupTab>(initialTab)
   const selectTab = (next: SetupTab) => {
     setTab(next)
     onTabChange(next)
   }
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
+  const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
@@ -484,7 +502,7 @@ export function ExerciseSetup({
               back down. Both hands play it in parallel, an octave apart.
             </p>
           </section>
-        ) : (
+        ) : tab === 'reading' ? (
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-medium text-gray-900">Reading quiz</h2>
@@ -609,9 +627,92 @@ export function ExerciseSetup({
               Start reading quiz
             </button>
           </section>
+        ) : (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Note order</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Direction
+                <select
+                  value={sequenceSettings.direction}
+                  onChange={(event) =>
+                    setSequenceSettings((current) => ({
+                      ...current,
+                      direction: event.target.value as NoteSequenceDirection,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="down">Downwards only</option>
+                  <option value="mixed">Both ways</option>
+                  <option value="up">Upwards only</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  Downwards is the only one worth drilling: everybody already knows do re mi upwards
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Step
+                <select
+                  value={sequenceSettings.distance}
+                  onChange={(event) =>
+                    setSequenceSettings((current) => ({
+                      ...current,
+                      distance: event.target.value as NoteSequenceDistance,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="second">Next note (do, re, mi)</option>
+                  <option value="third">Skip one (do, mi, sol)</option>
+                  <option value="mixed">Both</option>
+                </select>
+                <span className="text-xs text-gray-500">Skipping one is how chords are read</span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes per round
+                <select
+                  value={sequenceSettings.questionCount}
+                  onChange={(event) =>
+                    setSequenceSettings((current) => ({
+                      ...current,
+                      questionCount: Number(event.target.value),
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              One note and an arrow: tap the note that comes next that way. Every question jumps to an unrelated
+              note, so nothing about it can be anticipated. The buttons are always shuffled here, otherwise "the
+              next note up" would just be the button on the right.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => onSequenceReady(sequenceSettings)}
+              className={`self-start ${PRIMARY_BUTTON}`}
+            >
+              Start note order drill
+            </button>
+          </section>
         )}
 
-        {tab !== 'reading' && (
+        {isKeyboardDrill(tab) && (
         <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm text-gray-700">
@@ -652,7 +753,7 @@ export function ExerciseSetup({
         </section>
         )}
 
-        {tab !== 'reading' && (
+        {isKeyboardDrill(tab) && (
         <section className={`flex w-full flex-col items-center gap-2 px-4 py-4 ${PAGE_CARD}`}>
           <p className="text-sm font-medium text-gray-700">MIDI keyboard</p>
           <MidiDevice
