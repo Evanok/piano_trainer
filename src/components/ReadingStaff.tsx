@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 
+import { drawnBox, staffViewBox } from './readingStaffViewport'
+
 /**
  * Draws ONE measure of a generated reading round at a time.
  *
@@ -26,100 +28,18 @@ interface ReadingStaffProps {
   onError?: (message: string) => void
 }
 
-/**
- * The viewport is the union of the staffline's own box (from OSMD's graphical
- * model, which does not depend on what the measure contains) and the box of
- * what was actually drawn, plus a little air, applied as the SVG's viewBox.
- *
- * Three things went wrong before this shape, all worth remembering:
- *  - OSMD renders a whole page into that SVG and puts the cropped measure in
- *    its top left corner, so left alone the staff occupies a tenth of the
- *    screen whatever the container's size.
- *  - Sizing the SVG with width/height 100% does nothing: OSMD wraps it in a div
- *    it sizes itself, so the percentages resolve against nothing and the SVG
- *    keeps its page-sized layout box. It has to be given explicit pixels.
- *  - The staffline's model box is NOT the five lines centred on their middle
- *    (it covers the staffline's whole region), so treating it as such and
- *    centring a window on it cut the top of the staff off. Uniting it with the
- *    drawn content's box makes clipping impossible whatever it turns out to be.
- *
- * The union still holds the scale roughly steady from question to question,
- * since the staffline's box dominates it and does not follow the notes.
- */
-const VIEW_VERTICAL_PADDING_FRACTION = 0.12
-const VIEW_HORIZONTAL_PADDING_FRACTION = 0.05
-
-interface Box {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-function boxOf(element: Element | null): Box | null {
-  if (!element) {
-    return null
-  }
-  try {
-    const box = (element as SVGGraphicsElement).getBBox()
-    return box.width > 0 && box.height > 0 ? box : null
-  } catch {
-    // getBBox throws on an element that is not rendered yet.
-    return null
-  }
-}
-
-function union(a: Box | null, b: Box | null): Box | null {
-  if (!a || !b) {
-    return a ?? b
-  }
-  const x = Math.min(a.x, b.x)
-  const y = Math.min(a.y, b.y)
-  return {
-    x,
-    y,
-    width: Math.max(a.x + a.width, b.x + b.width) - x,
-    height: Math.max(a.y + a.height, b.y + b.height) - y,
-  }
-}
-
-// OSMD lays a page out in its own abstract units, rendered at 10px per unit
-// before the zoom multiplier, and the SVG's user coordinates are those pixels.
-const OSMD_PIXELS_PER_UNIT = 10
-
-function modelStaffBox(osmd: OpenSheetMusicDisplay | null): Box | null {
-  const shape = osmd?.GraphicSheet?.MusicPages?.[0]?.MusicSystems?.[0]?.StaffLines?.[0]?.PositionAndShape
-  if (!shape) {
-    return null
-  }
-  const scale = OSMD_PIXELS_PER_UNIT * (osmd?.Zoom ?? 1)
-  const box = {
-    x: shape.AbsolutePosition.x * scale,
-    y: shape.AbsolutePosition.y * scale,
-    width: shape.Size.width * scale,
-    height: shape.Size.height * scale,
-  }
-  return box.width > 0 && box.height > 0 ? box : null
-}
-
 function applyStaffViewport(osmd: OpenSheetMusicDisplay | null, container: HTMLDivElement | null): void {
   const svg = container?.querySelector('svg')
   if (!container || !svg) {
     return
   }
-  const drawn = boxOf(svg.querySelector('g.vf-measure')) ?? boxOf(svg)
-  const box = union(modelStaffBox(osmd), drawn)
-  if (!box) {
+  const viewBox = staffViewBox(osmd, drawnBox(svg))
+  if (!viewBox) {
     return
   }
-  const padX = box.width * VIEW_HORIZONTAL_PADDING_FRACTION
-  const padY = box.height * VIEW_VERTICAL_PADDING_FRACTION
-  svg.setAttribute(
-    'viewBox',
-    `${box.x - padX} ${box.y - padY} ${box.width + padX * 2} ${box.height + padY * 2}`,
-  )
+  svg.setAttribute('viewBox', viewBox)
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
-  // Explicit pixels, not percentages: see the note above.
+  // Explicit pixels, not percentages: see readingStaffViewport.ts.
   svg.setAttribute('width', String(container.clientWidth))
   svg.setAttribute('height', String(container.clientHeight))
   const wrapper = svg.parentElement

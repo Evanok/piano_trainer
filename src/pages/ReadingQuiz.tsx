@@ -1,23 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { isGuest } from '../api/auth'
+import { NoteNameButtons } from '../components/NoteNameButtons'
 import { ReadingStaff } from '../components/ReadingStaff'
 import type { ReadingStaffHandle } from '../components/ReadingStaff'
+import { RoundSummary } from '../components/RoundSummary'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
-import { computeGrade } from '../engine/grade'
 import { ReadingQuizEngine } from '../engine/ReadingQuizEngine'
-import { createReadingRound, LATIN_NAMES, readingRange } from '../engine/readingQuiz'
+import { createReadingRound, readingRange } from '../engine/readingQuiz'
 import { createSessionId, readingSessionTitle } from '../engine/sessionLog'
-import { saveSession } from '../engine/sessionStore'
-import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON, SECONDARY_BUTTON } from '../theme'
-import type { ReadingAnswerResult } from '../engine/ReadingQuizEngine'
+import { useQuizSession } from '../hooks/useQuizSession'
+import type { QuizSessionFrame } from '../hooks/useQuizSession'
+import { PAGE_BACKGROUND, PAGE_CARD } from '../theme'
+import type { QuizAnswerResult } from '../engine/ReadingQuizEngine'
 import type { PracticeSessionRecord } from '../types/session'
 import type { ReadingQuizSettings } from '../types/reading'
-
-const STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
-
-// Same cadence as the practice screen: a phone leaves by having its tab killed,
-// which runs no cleanup, so the record has to already be on disk.
-const SESSION_HEARTBEAT_MS = 15000
 
 // How long a wrong answer stays marked on the button that was pressed. The
 // question itself does not advance, so this is feedback, not a delay.
@@ -50,21 +45,17 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
   const [staffError, setStaffError] = useState<string | null>(null)
   const wrongTimeoutRef = useRef<number | null>(null)
 
-  const sessionIdRef = useRef(createSessionId())
-  const sessionStartedAtRef = useRef(new Date().toISOString())
-  const sessionCompletedRef = useRef(false)
-
   const question = engineRef.current.currentQuestion
 
-  const buildSessionRecord = (completed: boolean): PracticeSessionRecord => {
+  const buildSessionRecord = (frame: QuizSessionFrame): PracticeSessionRecord => {
     const engine = engineRef.current
     const endedAt = Date.now()
     return {
-      id: sessionIdRef.current,
-      startedAt: sessionStartedAtRef.current,
+      id: frame.id,
+      startedAt: frame.startedAt,
       endedAt: new Date(endedAt).toISOString(),
-      durationMs: endedAt - Date.parse(sessionStartedAtRef.current),
-      completed,
+      durationMs: endedAt - Date.parse(frame.startedAt),
+      completed: frame.completed,
       // No practiceMode and no handMode: a quiz navigates nothing and is played
       // with no hands on a keyboard.
       source: {
@@ -82,31 +73,16 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
     }
   }
 
-  const persistSession = (completed: boolean) => {
-    // A guest reads the owner's history rather than building one, exactly as on
-    // the practice screen.
-    if (isGuest()) {
-      return
-    }
-    if (sessionCompletedRef.current) {
-      return
-    }
-    sessionCompletedRef.current = completed
-    saveSession(buildSessionRecord(completed))
-  }
+  const { persist: persistSession, startNewSession } = useQuizSession(buildSessionRecord)
 
-  useEffect(() => {
-    persistSession(false)
-    const heartbeat = setInterval(() => persistSession(false), SESSION_HEARTBEAT_MS)
-    return () => {
-      clearInterval(heartbeat)
-      persistSession(false)
+  useEffect(
+    () => () => {
       if (wrongTimeoutRef.current !== null) {
         clearTimeout(wrongTimeoutRef.current)
       }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    },
+    [],
+  )
 
   // Each question is one measure of the round's single score.
   useEffect(() => {
@@ -121,7 +97,7 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
     setRevealed(false)
   }
 
-  const applyResult = (result: ReadingAnswerResult, markWrong: () => void) => {
+  const applyResult = (result: QuizAnswerResult, markWrong: () => void) => {
     setState(engineRef.current.state)
     if (result === 'wrong') {
       setRevealed(true)
@@ -162,26 +138,8 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
     )
   }
 
-  // Desktop shortcut: the seven answers on the number row, in scale order. Only
-  // in name mode -- a key on the piano has no number-row equivalent.
-  useEffect(() => {
-    if (settings.answerMode === 'key') {
-      return
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      const index = Number(event.key) - 1
-      if (Number.isInteger(index) && index >= 0 && index < STEPS.length) {
-        handleAnswer(STEPS[index])
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  })
-
   const startNewRound = () => {
-    sessionIdRef.current = createSessionId()
-    sessionStartedAtRef.current = new Date().toISOString()
-    sessionCompletedRef.current = false
+    startNewSession()
     clearFeedback()
     setRoundSeed(createSessionId())
   }
@@ -246,62 +204,15 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
             onKeyPress={handleAnswerPitch}
           />
         ) : (
-        <div className="grid grid-cols-7 gap-1.5">
-          {STEPS.map((step, index) => {
-            const isWrong = wrongSteps.includes(step)
-            const isAnswer = revealed && question?.step === step
-            return (
-              <button
-                key={step}
-                type="button"
-                onClick={() => handleAnswer(step)}
-                disabled={state.completed}
-                className={`rounded-lg border py-4 text-base font-semibold shadow-sm transition-colors disabled:opacity-50 ${
-                  isWrong
-                    ? 'border-rose-300 bg-rose-100 text-rose-700'
-                    : isAnswer
-                      ? 'border-emerald-400 bg-emerald-100 text-emerald-700'
-                      : 'border-indigo-200 bg-white text-gray-800 hover:bg-indigo-50'
-                }`}
-              >
-                {LATIN_NAMES[index]}
-              </button>
-            )
-          })}
-        </div>
+          <NoteNameButtons
+            order={round.nameOrder}
+            wrongSteps={wrongSteps}
+            answerStep={revealed ? (question?.step ?? null) : null}
+            disabled={state.completed}
+            onAnswer={handleAnswer}
+          />
         )}
       </main>
-    </div>
-  )
-}
-
-function RoundSummary({
-  successPercent,
-  errorCount,
-  total,
-  onReplay,
-  onBack,
-}: {
-  successPercent: number
-  errorCount: number
-  total: number
-  onReplay: () => void
-  onBack: () => void
-}) {
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-white/95 p-6 text-center">
-      <div className="text-6xl font-bold text-amber-600">{computeGrade(successPercent)}</div>
-      <p className="text-sm text-gray-600">
-        {successPercent}% first-try over {total} notes, {errorCount} wrong answer{errorCount === 1 ? '' : 's'}
-      </p>
-      <div className="flex gap-2">
-        <button type="button" onClick={onReplay} className={PRIMARY_BUTTON}>
-          New round
-        </button>
-        <button type="button" onClick={onBack} className={SECONDARY_BUTTON}>
-          Back
-        </button>
-      </div>
     </div>
   )
 }

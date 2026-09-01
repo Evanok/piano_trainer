@@ -15,28 +15,47 @@ import type {
   ReadingAnswerMode,
   ReadingClefMode,
   ReadingLedgerLevel,
+  ReadingNameOrder,
   ReadingQuestion,
   ReadingQuizSettings,
 } from '../types/reading'
 
-export type { ReadingAnswerMode, ReadingClefMode, ReadingLedgerLevel, ReadingQuestion, ReadingQuizSettings }
+export type {
+  ReadingAnswerMode,
+  ReadingClefMode,
+  ReadingLedgerLevel,
+  ReadingNameOrder,
+  ReadingQuestion,
+  ReadingQuizSettings,
+}
 
 export interface ReadingRound {
   questions: ReadingQuestion[]
   file: File
+  /**
+   * The steps the seven name buttons carry, left to right. Part of the round
+   * rather than of the screen so it is drawn from the round's own seed, stays
+   * put for every question of that round, and rerolls when the round does.
+   */
+  nameOrder: string[]
 }
 
 export const DEFAULT_READING_QUESTION_COUNT = 20
 
 const DEFAULT_SETTINGS: ReadingQuizSettings = {
   answerMode: 'name',
+  nameOrder: 'scale',
   clefMode: 'treble',
   ledgerLevel: 1,
   questionCount: DEFAULT_READING_QUESTION_COUNT,
   seed: 'reading',
 }
 
-const STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+/**
+ * The seven natural notes in scale order, which is the vocabulary every naming
+ * quiz answers in. Exported because the note-order drill walks the same ring.
+ */
+export const STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
 /**
  * Latin note names, which is what the quiz answers with. The rest of the app
@@ -48,6 +67,56 @@ export const LATIN_NAMES = ['do', 're', 'mi', 'fa', 'sol', 'la', 'si']
 export function latinNameOf(step: string): string {
   const index = STEPS.indexOf(step.toUpperCase())
   return index < 0 ? step : LATIN_NAMES[index]
+}
+
+/**
+ * Whether counting N buttons along still means counting N notes along.
+ *
+ * That is the shortcut a shuffled order exists to remove, and it survives more
+ * than the plain do-re-mi order: every rotation of it keeps every gap, the
+ * reversal does too, and so does any ladder built on a constant step (do fa si
+ * mi la re sol steps by a fourth each time). All of them share one property --
+ * the gap between neighbouring buttons, counted around the seven notes, is the
+ * same everywhere -- so that is what is tested and rejected, rather than
+ * listing the arrangements.
+ */
+export function isCountableOrder(order: readonly string[]): boolean {
+  if (order.length < 3) {
+    return true
+  }
+  const gapAt = (i: number) => (STEPS.indexOf(order[i + 1]) - STEPS.indexOf(order[i]) + 7) % 7
+  const first = gapAt(0)
+  for (let i = 1; i < order.length - 1; i += 1) {
+    if (gapAt(i) !== first) {
+      return false
+    }
+  }
+  return true
+}
+
+// Under 1% of the 5040 arrangements are countable, so a couple of rerolls is
+// always enough in practice; the cap only exists so this cannot spin.
+const SHUFFLE_ATTEMPTS = 16
+
+/**
+ * The seven steps in an order no interval arithmetic can walk. Seeded from the
+ * round, so the same round always shows the same buttons and a replay does not.
+ */
+export function shuffleNameOrder(seed: string): string[] {
+  const rng = createSeededRng(`${seed}:names`)
+  let order = [...STEPS]
+  for (let attempt = 0; attempt < SHUFFLE_ATTEMPTS; attempt += 1) {
+    order = [...STEPS]
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rng() * (i + 1))
+      ;[order[i], order[j]] = [order[j], order[i]]
+    }
+    if (!isCountableOrder(order)) {
+      return order
+    }
+  }
+  // Never reached with the current rng, and still not the scale order.
+  return ['G', 'C', 'A', 'E', 'B', 'D', 'F']
 }
 
 /** "do4", the latin name plus the octave, for stats that do judge the octave. */
@@ -273,5 +342,6 @@ export function createReadingRound(settings: Partial<ReadingQuizSettings>): Read
       generateReadingQuizMusicXml(questions, sanitized.clefMode),
       'reading-quiz',
     ),
+    nameOrder: sanitized.nameOrder === 'shuffled' ? shuffleNameOrder(sanitized.seed) : [...STEPS],
   }
 }

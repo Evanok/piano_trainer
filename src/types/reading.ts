@@ -26,8 +26,23 @@ export type ReadingLedgerLevel = 0 | 1 | 2 | 3
  */
 export type ReadingAnswerMode = 'name' | 'key'
 
+/**
+ * The order of the seven name buttons, in `name` mode.
+ *
+ * 'scale' is do re mi fa sol la si, which reads naturally but lets a note be
+ * answered without being read: knowing where one name sits on the staff, a note
+ * two positions below it is two buttons to the left, so the drill can be played
+ * by counting intervals instead of naming notes. 'shuffled' rerolls the order
+ * once per round, which breaks that arithmetic without making the exercise
+ * harder in any other way, since finding a name on screen still means knowing
+ * which name to look for.
+ */
+export type ReadingNameOrder = 'scale' | 'shuffled'
+
 export interface ReadingQuizSettings {
   answerMode: ReadingAnswerMode
+  /** Only read in `name` mode: `key` mode answers on a piano keyboard. */
+  nameOrder: ReadingNameOrder
   clefMode: ReadingClefMode
   ledgerLevel: ReadingLedgerLevel
   questionCount: number
