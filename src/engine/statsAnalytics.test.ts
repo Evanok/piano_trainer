@@ -332,7 +332,7 @@ describe('timeByActivity', () => {
   const readingSource = {
     kind: 'reading' as const,
     title: 'Reading - treble clef',
-    settings: { answerMode: 'name' as const, clefMode: 'treble' as const, ledgerLevel: 1 as const, questionCount: 20, seed: 'x' },
+    settings: { answerMode: 'name' as const, nameOrder: 'scale' as const, clefMode: 'treble' as const, ledgerLevel: 1 as const, questionCount: 20, seed: 'x' },
   }
 
   it('keeps reading time apart from time at the keyboard', () => {

@@ -5,15 +5,13 @@ import type { ReadingStaffHandle } from '../components/ReadingStaff'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { computeGrade } from '../engine/grade'
 import { ReadingQuizEngine } from '../engine/ReadingQuizEngine'
-import { createReadingRound, LATIN_NAMES, readingRange } from '../engine/readingQuiz'
+import { createReadingRound, latinNameOf, readingRange } from '../engine/readingQuiz'
 import { createSessionId, readingSessionTitle } from '../engine/sessionLog'
 import { saveSession } from '../engine/sessionStore'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON, SECONDARY_BUTTON } from '../theme'
 import type { ReadingAnswerResult } from '../engine/ReadingQuizEngine'
 import type { PracticeSessionRecord } from '../types/session'
 import type { ReadingQuizSettings } from '../types/reading'
-
-const STEPS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
 // Same cadence as the practice screen: a phone leaves by having its tab killed,
 // which runs no cleanup, so the record has to already be on disk.
@@ -162,16 +160,18 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
     )
   }
 
-  // Desktop shortcut: the seven answers on the number row, in scale order. Only
-  // in name mode -- a key on the piano has no number-row equivalent.
+  // Desktop shortcut: the number row answers the button at that position, not a
+  // fixed note. Anything else would hand back the interval arithmetic a
+  // shuffled order exists to remove. Only in name mode -- a key on the piano
+  // has no number-row equivalent.
   useEffect(() => {
     if (settings.answerMode === 'key') {
       return
     }
     const onKeyDown = (event: KeyboardEvent) => {
       const index = Number(event.key) - 1
-      if (Number.isInteger(index) && index >= 0 && index < STEPS.length) {
-        handleAnswer(STEPS[index])
+      if (Number.isInteger(index) && index >= 0 && index < round.nameOrder.length) {
+        handleAnswer(round.nameOrder[index])
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -247,7 +247,7 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
           />
         ) : (
         <div className="grid grid-cols-7 gap-1.5">
-          {STEPS.map((step, index) => {
+          {round.nameOrder.map((step) => {
             const isWrong = wrongSteps.includes(step)
             const isAnswer = revealed && question?.step === step
             return (
@@ -264,7 +264,7 @@ export function ReadingQuiz({ settings, onBack }: ReadingQuizProps) {
                       : 'border-indigo-200 bg-white text-gray-800 hover:bg-indigo-50'
                 }`}
               >
-                {LATIN_NAMES[index]}
+                {latinNameOf(step)}
               </button>
             )
           })}

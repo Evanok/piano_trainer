@@ -54,6 +54,7 @@ const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
 
 const DEFAULT_READING_SETTINGS: ReadingQuizSettings = {
   answerMode: 'name',
+  nameOrder: 'scale',
   clefMode: 'treble',
   ledgerLevel: 1,
   questionCount: 20,

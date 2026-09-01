@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createReadingRound, generateReadingQuizMusicXml, latinNameOf, pitchLabel } from './readingQuiz'
+import {
+  createReadingRound,
+  generateReadingQuizMusicXml,
+  isCountableOrder,
+  latinNameOf,
+  pitchLabel,
+  shuffleNameOrder,
+} from './readingQuiz'
 import { ReadingQuizEngine } from './ReadingQuizEngine'
 
 function measureDurations(xml: string): number[][] {
@@ -176,5 +183,67 @@ describe('ReadingQuizEngine', () => {
     })
     expect(stats.responseCount).toBe(1)
     expect(stats.averageResponseMs).toBe(500)
+  })
+})
+
+
+const SCALE_ORDER = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+
+describe('isCountableOrder', () => {
+  it('catches the plain scale order and every rotation of it', () => {
+    expect(isCountableOrder(SCALE_ORDER)).toBe(true)
+    // mi fa sol la si do re: every neighbour is still one note apart.
+    expect(isCountableOrder(['E', 'F', 'G', 'A', 'B', 'C', 'D'])).toBe(true)
+  })
+
+  it('catches the reversal, and a ladder built on any other constant step', () => {
+    expect(isCountableOrder([...SCALE_ORDER].reverse())).toBe(true)
+    // do fa si mi la re sol: a fourth every time, so counting still works.
+    expect(isCountableOrder(['C', 'F', 'B', 'E', 'A', 'D', 'G'])).toBe(true)
+  })
+
+  it('clears an order whose gaps differ', () => {
+    expect(isCountableOrder(['G', 'C', 'A', 'E', 'B', 'D', 'F'])).toBe(false)
+  })
+})
+
+describe('shuffleNameOrder', () => {
+  it('is a permutation of the seven notes, and the same one for the same seed', () => {
+    const order = shuffleNameOrder('round-1')
+    expect([...order].sort()).toEqual([...SCALE_ORDER].sort())
+    expect(shuffleNameOrder('round-1')).toEqual(order)
+  })
+
+  it('never lands on an order the player can count along', () => {
+    for (let i = 0; i < 500; i += 1) {
+      expect(isCountableOrder(shuffleNameOrder(`seed-${i}`))).toBe(false)
+    }
+  })
+
+  it('rerolls between rounds', () => {
+    const orders = new Set(Array.from({ length: 20 }, (_, i) => shuffleNameOrder(`s${i}`).join('')))
+    expect(orders.size).toBeGreaterThan(10)
+  })
+})
+
+describe('createReadingRound, name button order', () => {
+  it('keeps the scale order unless the setting asks otherwise', () => {
+    expect(createReadingRound({ seed: 'a' }).nameOrder).toEqual(SCALE_ORDER)
+    expect(createReadingRound({ seed: 'a', nameOrder: 'scale' }).nameOrder).toEqual(SCALE_ORDER)
+  })
+
+  it('shuffles from the round seed, so a replayed round shows the same buttons', () => {
+    const first = createReadingRound({ seed: 'a', nameOrder: 'shuffled' })
+    const again = createReadingRound({ seed: 'a', nameOrder: 'shuffled' })
+    const other = createReadingRound({ seed: 'b', nameOrder: 'shuffled' })
+    expect(first.nameOrder).not.toEqual(SCALE_ORDER)
+    expect(again.nameOrder).toEqual(first.nameOrder)
+    expect(other.nameOrder).not.toEqual(first.nameOrder)
+  })
+
+  it('does not change which notes are asked', () => {
+    const scale = createReadingRound({ seed: 'a', nameOrder: 'scale' })
+    const shuffled = createReadingRound({ seed: 'a', nameOrder: 'shuffled' })
+    expect(shuffled.questions).toEqual(scale.questions)
   })
 })

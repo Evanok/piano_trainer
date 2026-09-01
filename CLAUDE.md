@@ -274,6 +274,18 @@ keyboard-drill tab instead of the one the player left.
   `onKeyPress` prop is deliberately optional and unused during practice, where
   the keyboard mirrors the MIDI keyboard and must not become a way to play notes
   with a finger.
+- **The seven name buttons can be shuffled** (`ReadingNameOrder`, a setting, off
+  by default). In scale order they let the round be answered without reading
+  anything: knowing where one name sits on the staff, a note two positions below
+  it is two buttons to the left, so the drill becomes interval arithmetic. The
+  shuffle is drawn once per round from the round's own seed (`ReadingRound.
+  nameOrder`, so it is stable while the round lasts, replays identically, and
+  rerolls with the round), and `isCountableOrder` rejects every arrangement the
+  counting still walks: not just do-re-mi, but each of its rotations, the
+  reversal, and any ladder on a constant step (do fa si mi la re sol). Under 1%
+  of the 5040 arrangements are rejected, so rerolling is cheap. The number-row
+  shortcut answers **the button at that position**, not a fixed note, or it
+  would hand the arithmetic straight back.
 - **A wrong answer does not advance and names the right note.** The question
   stays until it is answered correctly, and the correct button turns green after
   the first miss: a quiz that only ever says "no" teaches nothing. Accuracy

@@ -13,6 +13,7 @@ import type { MidiDeviceInfo } from '../types/midi'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
   ReadingAnswerMode,
+  ReadingNameOrder,
   ReadingClefMode,
   ReadingLedgerLevel,
   ReadingQuizSettings,
@@ -512,6 +513,30 @@ export function ExerciseSetup({
                     : 'Tap the name, the octave does not count'}
                 </span>
               </label>
+
+              {readingSettings.answerMode === 'name' ? (
+                <label className="flex flex-col gap-1 text-sm text-gray-700">
+                  Note name buttons
+                  <select
+                    value={readingSettings.nameOrder}
+                    onChange={(event) =>
+                      setReadingSettings((current) => ({
+                        ...current,
+                        nameOrder: event.target.value as ReadingNameOrder,
+                      }))
+                    }
+                    className="rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+                  >
+                    <option value="scale">In order (do re mi fa sol la si)</option>
+                    <option value="shuffled">Shuffled every round</option>
+                  </select>
+                  <span className="text-xs text-gray-500">
+                    {readingSettings.nameOrder === 'shuffled'
+                      ? 'No counting: a note two steps down is not two buttons left'
+                      : 'Easy to find, but answerable by counting intervals'}
+                  </span>
+                </label>
+              ) : null}
 
               <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Clef
