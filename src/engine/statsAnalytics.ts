@@ -396,15 +396,16 @@ export type ActivityKind = 'score' | 'exercise' | 'reading'
 /**
  * Which activity a session's time counts as.
  *
- * Not simply `source.kind`, because the note-order drill is a fourth kind of
- * session but not a fourth kind of activity: the split exists to keep time at
- * the keyboard apart from time on a phone with no piano in reach, and both
- * screen drills are the same answer to that question. A row per drill would
+ * Not simply `source.kind`: there are five kinds of session and only three
+ * activities, because the screen drills (note order, chords) are not each their
+ * own kind of practice. The split exists to keep time at the keyboard apart
+ * from time on a phone with no piano in reach, and every screen drill is the
+ * same answer to that question. A row per drill would
  * also grow every time one is added, and the per-drill breakdown is already in
  * the session table, where each row carries the drill's own title.
  */
 export function activityOf(source: PracticeSessionRecord['source']): ActivityKind {
-  return source.kind === 'sequence' ? 'reading' : source.kind
+  return source.kind === 'sequence' || source.kind === 'chord' ? 'reading' : source.kind
 }
 
 export interface ActivityTime {

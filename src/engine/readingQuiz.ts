@@ -132,13 +132,13 @@ export function pitchLabel(midi: number): string {
  * geometry is diatonic -- one step on the staff is one of these -- so every
  * range bound here is expressed in this space rather than in semitones.
  */
-function diatonicIndex(step: string, octave: number): number {
+export function diatonicIndex(step: string, octave: number): number {
   return octave * 7 + STEPS.indexOf(step)
 }
 
 const SEMITONE_OF_STEP = [0, 2, 4, 5, 7, 9, 11]
 
-function pitchAtDiatonicIndex(index: number): Pitch {
+export function pitchAtDiatonicIndex(index: number): Pitch {
   const octave = Math.floor(index / 7)
   const stepIndex = index - octave * 7
   return {

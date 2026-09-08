@@ -4,8 +4,13 @@ Open ideas, one or two sentences each.
 
 Dropped or done, never to be re-proposed: the position scrubber (done as
 `LoopRangeBar`), MIDI file import (rejected -- MusicXML only), the note-naming
-and note-to-key quizzes (done as the reading quiz's two answer modes), the
-keyboard-free quizzes beyond those two, the daily challenge and progression
+and note-to-key quizzes (done as the reading quiz's two answer modes),
+**keyboard-free quizzes that only rename notes** (naming is covered twice over,
+so a screen drill now has to teach something the reading quiz does not in order
+to earn a tab -- the chord quiz does, see below, and that is the bar), **any
+screen drill answered by tapping the virtual keyboard** (rejected on use: the
+keys are too small to hit reliably, and the name-button drills are the ones
+actually played), the daily challenge and progression
 ladder built on top of them, and **any difficulty-grade system in the app**
 (rejected twice: computing a grade from the score, and importing PianoML's own
 grades -- `difficulty` stays a user-assigned label).
@@ -15,14 +20,51 @@ harvested (Burgmüller op. 100 complete, Czerny's scattered studies, two beginne
 grade bands), imported, and browsable through the catalog's virtual folders
 (`personal`, `beginner-1`, `beginner-2`, `study/<composer>`).
 
-## 1. ii-V-I through the 12 keys
+## 1. Chord quiz: the rest of the ladder
 
-The one exercise idea still open, and pure generator territory: `musicKeys.ts`
+Level 1 is built (`engine/chordQuiz.ts`, `pages/ChordQuiz.tsx`, lesson in
+`components/ChordLesson.tsx`): the seven diatonic triads of do major, root
+position, no accidental, answered with three quality buttons. The remaining
+three rungs each add exactly one variable, and each wants its own section in
+`ChordLesson` -- the lesson is what makes the level passable, so a rung without
+one is not finished.
+
+2. **Root + quality, written accidentals, no key signature.** The point is not
+   the accidentals, it is that they break the correlation level 1 lives with: in
+   do major a chord on re *is* minor, so the root gives the quality away and
+   asking for both asks the same thing twice. With re major and fa minor
+   possible, the root becomes a real question, and the augmented triad exists
+   for the first time (a fourth button, which `chordQualitiesInPlay` already
+   derives from the material rather than hardcoding). Lesson: the two thirds,
+   wide-then-narrow against narrow-then-wide, counted in semitones.
+3. **+ inversions.** The hard rung, and the one that matters at the keyboard:
+   which of the three notes is the root when the stack is not in root position.
+   The answer stays root + quality, never the inversion itself -- naming the
+   right root on an inverted chord already proves the inversion was resolved,
+   so asking for it separately costs a tap and measures nothing. Split the
+   summary's accuracy *by* inversion instead; that is the useful number.
+   Lesson: root position is three consecutive staff positions, an inversion is
+   the one with a gap in it, and where the gap sits says which note moved.
+4. **+ a real key signature.** Not decoration: the altered note becomes
+   *implicit*, and reading a mi-flat because the piece is in si-flat major is a
+   different act from reading a written flat in front of the note. That is the
+   skill this rung exists for. It also opens the roman numerals as a question in
+   their own right ("in la major, which chord is IV"), which is the phone-side
+   twin of the ii-V-I generator below -- drill the knowledge away from home,
+   play it on return.
+
+Two things deliberately off this ladder: **spread voicings** (a level 5 at best;
+three notes inside the octave is what a triad looks like while it is being
+learnt), and **a keyboard-answer mode**, per the rejection above.
+
+## 2. ii-V-I through the 12 keys
+
+Still open, and pure generator territory: `musicKeys.ts`
 already spells chords out of any key, and walking the twelve keys is the same
 shape as Hanon's walk up the scale -- so it is a tab in `ExerciseSetup` plus a
 generator, nothing else.
 
-## 2. Daily sight-reading
+## 3. Daily sight-reading
 
 Reading a piece never seen before, once, without stopping -- the opposite of
 every existing mode (no rewind, no loop, no section repeat), and the one skill
@@ -76,7 +118,7 @@ Candidate sources, listed because listing costs nothing:
   and an exact level. Needs reading-specific constraints (interval size, register,
   fixed hand position) plus a mode that forbids replaying.
 
-## 3. Re-source the badly engraved études
+## 4. Re-source the badly engraved études
 
 16 of the 25 Burgmüller are MIDI-derived conversions whose time signature changes
 every few bars (`meterConsistency` in each collection's `index.json`): playable,

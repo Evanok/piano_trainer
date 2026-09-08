@@ -218,8 +218,8 @@ keyboard either, so until it there was nothing the app could offer in that
 situation. It is a **tab in `ExerciseSetup`** (which drill to do is a setting,
 like Hanon) but **not an `ExerciseKind`**: the other two tabs build a MusicXML
 file for `Practice`, while this one has no cursor, no `WaitEngine` and no MIDI,
-and goes to its own screen (`SetupTab = ExerciseKind | 'reading' | 'sequence'`,
-the last two being the screen drills). `App` owns
+and goes to its own screen (`SetupTab = ExerciseKind | 'reading' | 'sequence' |
+'chords'`, the last three being the screen drills). `App` owns
 that tab (`setupTab`, lifted through `onTabChange` as soon as it changes, not
 only when a drill starts) because `ExerciseSetup` is remounted on every visit:
 seeding it from `ExerciseKind`, which cannot hold `'reading'`, sent every return
@@ -330,14 +330,70 @@ is what makes sight-reading slow.
   reading (`activityOf`, see below): the activity split separates the keyboard
   from the phone, not one screen drill from another.
 
-**What the two screen drills share, and why each piece moved there**:
+### Chord-reading drill (`engine/chordQuiz.ts`, `engine/ChordQuizEngine.ts`, `pages/ChordQuiz.tsx`, `components/ChordLesson.tsx`)
+
+The third screen drill: a triad drawn on a staff, named with three quality
+buttons (major / minor / diminished). Structurally it *is* the reading quiz --
+one MusicXML for the whole round, one chord per measure, one OSMD instance with
+`ReadingStaff` cropping to the current measure -- so the only new code is the
+generator, the quality answer, and the lesson. It is level 1 of a four-rung
+ladder whose remaining rungs are specified in IDEA.md.
+
+- **Without accidentals there is no shape to recognise, and that changes what
+  the drill teaches.** Every root-position triad of do major is the same
+  drawing: three notes on three consecutive staff positions. Do-mi-sol and
+  re-fa-la are indistinguishable as pictures, so the quality cannot be read off
+  the spacing -- it is read off *which* notes they are. What level 1 trains is
+  therefore the table of the seven triads of the key, which is the foundation of
+  harmony rather than a pattern-matching trick, but the two are not the same
+  exercise and the code says so rather than claiming otherwise.
+- **The quality is the only question, because the root would be the same
+  question.** In do major a chord on re *is* minor: root and quality are not
+  independent, so asking for both asks once. `ChordQuestion.step` still carries
+  the root (it is the field `NamingQuizEngine` judges, so the inherited
+  `answer()` already asks for it) and nothing calls it yet -- rung 2, which adds
+  written accidentals, is what makes it a real question.
+- **The buttons come from the material, not from a constant.**
+  `chordQualitiesInPlay()` derives them from the diatonic table, so the
+  augmented button appears by itself on a rung that can produce one, and no
+  round ever shows a button that cannot be the answer (which would tell the
+  player what is coming).
+- **Where the roots start decides whether the chords fit on the staff.** A
+  root-position triad occupies five consecutive diatonic positions, so
+  `ROOT_BASE` picks an octave of roots per clef such that all seven triads stay
+  within the staff plus at most one ledger line -- which is why the bass roots
+  start on sol, not on do (roots do3..si3 would put the top of the si chord
+  three positions above the staff). Unit-tested against the staff lines, since
+  the failure is a chord floating off the top of a cropped measure.
+- **Clefs are offered one at a time**, unlike the reading quiz's `both`: a
+  grand-staff round would ask "which clef is this" on top of "which chord is
+  this", and the drill is about the second. Reading chords in the bass clef is
+  its own exercise, which is why the choice exists at all.
+- **A miss reveals the chord's full name** ("re minor -- the ii of do major"),
+  not just the right button. The degree is never asked for and is shown every
+  time it is revealed, because that is the label the same chord carries
+  everywhere else. Accuracy counts first attempts only, so revealing costs no
+  stat -- the same trade the reading quiz makes.
+- **The lesson is part of the feature, not documentation.** `ChordLesson` sits
+  in the setup tab, open by default, and holds the table the drill is asking
+  about -- grouped as *three majors (do fa sol), three minors (re mi la), one
+  diminished (si)*, since that is one thing to remember instead of seven, plus
+  what a triad looks like on the staff, why the qualities fall where they do,
+  and how to work the drill. Its rows are built from the generator's own table,
+  so the lesson cannot drift from what is asked. **Every later rung needs its
+  own section there**: a level whose lesson does not exist is not finished.
+
+**What the three screen drills share, and why each piece moved there**:
 `NamingQuizEngine` (all the scoring -- combo, first-try accuracy, response
-times, confusions) with `ReadingQuizEngine` adding only `answerPitch`, the one
-genuinely reading-specific thing; `useQuizSession` (record on open, heartbeat,
+times, confusions) with `ReadingQuizEngine` adding only `answerPitch` and
+`ChordQuizEngine` only `answerQuality`, one genuinely drill-specific method
+each; `useQuizSession` (record on open, heartbeat,
 record on unmount -- the cadence is what matters and it is easy to get subtly
 wrong, since a phone closes a tab with no cleanup); `NoteNameButtons` (the seven
 buttons *and* the number-row shortcut, which must answer the button at that
-position rather than a fixed note, or a shuffled order hands the counting back);
+position rather than a fixed note, or a shuffled order hands the counting back
+-- `ChordQualityButtons` is its three-button sibling, deliberately never
+shuffled, since three qualities carry no counting shortcut to remove);
 and `RoundSummary`.
 
 ### Gamification (`ScoreHud.tsx`, `engine/grade.ts`, `engine/streak.ts`)
@@ -369,8 +425,8 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
 - **Practice time is reported split three ways, never merged** (`timeByActivity`,
   rendered as "Where the time goes"): scores, keyboard exercises, and the screen
   drills. The activity is `activityOf(source)`, **not** `source.kind` directly:
-  there are four session kinds and only three activities, since the note-order
-  drill counts as reading time. The split exists to keep time at the keyboard
+  there are five session kinds and only three activities, since the note-order
+  and chord drills both count as reading time. The split exists to keep time at the keyboard
   apart from time on a phone with no piano in reach, and a row per drill would
   grow every time one is added while the per-drill breakdown is already in the
   session table, where each row carries the drill's own title. Time at the keyboard and time naming notes on

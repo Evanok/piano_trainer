@@ -1,3 +1,4 @@
+import type { ChordQuizSettings } from '../types/chord.ts'
 import type { PracticeSessionRecord } from '../types/session.ts'
 import type { ReadingQuizSettings } from '../types/reading.ts'
 import type { NoteSequenceSettings } from '../types/sequence.ts'
@@ -169,6 +170,14 @@ export function sequenceSessionTitle(settings: NoteSequenceSettings): string {
         ? 'thirds'
         : 'next note'
   return `Note order - ${direction}, ${distance}`
+}
+
+/**
+ * "Chords - triads of do major, treble clef". Denormalized onto the record like
+ * every other session title.
+ */
+export function chordSessionTitle(settings: ChordQuizSettings): string {
+  return `Chords - triads of do major, ${settings.clefMode === 'bass' ? 'bass' : 'treble'} clef`
 }
 
 export function readingSessionTitle(settings: ReadingQuizSettings): string {

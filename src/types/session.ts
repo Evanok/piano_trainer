@@ -1,3 +1,4 @@
+import type { ChordQuizSettings } from './chord.ts'
 import type { HandMode, PracticeMode } from './practice.ts'
 import type { ReadingQuizSettings } from './reading.ts'
 import type { NoteSequenceSettings } from './sequence.ts'
@@ -72,6 +73,19 @@ export type SessionSource =
       kind: 'reading'
       title: string
       settings: ReadingQuizSettings
+    }
+  | {
+      /**
+       * The chord-reading drill: a triad drawn on a staff, named by its
+       * quality. Its own kind for the same reason `sequence` is one -- the
+       * settings share nothing with the other drills' and the stats row's
+       * title is built from them -- and, like `sequence`, it is reported as
+       * reading *time* (`activityOf`), since the activity split separates the
+       * keyboard from the phone rather than one screen drill from another.
+       */
+      kind: 'chord'
+      title: string
+      settings: ChordQuizSettings
     }
   | {
       /**

@@ -61,6 +61,9 @@ function activityLabel(session: PracticeSessionRecord): string {
   if (session.source.kind === 'sequence') {
     return 'Note order'
   }
+  if (session.source.kind === 'chord') {
+    return 'Chords'
+  }
   return session.practiceMode ? (PRACTICE_MODE_LABELS[session.practiceMode] ?? session.practiceMode) : '-'
 }
 

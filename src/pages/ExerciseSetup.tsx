@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { isGuest } from '../api/auth'
+import { ChordLesson } from '../components/ChordLesson'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
@@ -10,6 +11,7 @@ import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
+import type { ChordClefMode, ChordQuizSettings } from '../types/chord'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
   NoteSequenceDirection,
@@ -47,13 +49,14 @@ const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
  * build a MusicXML file and hand it to Practice, while a reading quiz has no
  * MIDI, no cursor and no WaitEngine, and goes to its own screen.
  */
-export type SetupTab = ExerciseKind | 'reading' | 'sequence'
+export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords'
 
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
   { kind: 'hanon', label: 'Hanon' },
   { kind: 'reading', label: 'Reading' },
   { kind: 'sequence', label: 'Note order' },
+  { kind: 'chords', label: 'Chords' },
 ]
 
 const READING_QUESTION_COUNTS = [10, 20, 30, 40]
@@ -76,6 +79,7 @@ interface ExerciseSetupProps {
   initialTab: SetupTab
   initialReadingSettings: ReadingQuizSettings
   initialSequenceSettings: NoteSequenceSettings
+  initialChordSettings: ChordQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
   initialKeyboardAssistMode: KeyboardAssistMode
@@ -87,6 +91,7 @@ interface ExerciseSetupProps {
   ) => void
   onReadingReady: (settings: ReadingQuizSettings) => void
   onSequenceReady: (settings: NoteSequenceSettings) => void
+  onChordReady: (settings: ChordQuizSettings) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -109,6 +114,7 @@ export function ExerciseSetup({
   initialTab,
   initialReadingSettings,
   initialSequenceSettings,
+  initialChordSettings,
   initialSettings,
   initialHanonSettings,
   initialKeyboardAssistMode,
@@ -116,6 +122,7 @@ export function ExerciseSetup({
   onExerciseReady,
   onReadingReady,
   onSequenceReady,
+  onChordReady,
   onTabChange,
   onBack,
 }: ExerciseSetupProps) {
@@ -131,6 +138,7 @@ export function ExerciseSetup({
   }
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
+  const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
@@ -627,6 +635,69 @@ export function ExerciseSetup({
               Start reading quiz
             </button>
           </section>
+        ) : tab === 'chords' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Chord quiz</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Clef
+                <select
+                  value={chordSettings.clefMode}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      clefMode: event.target.value as ChordClefMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="treble">Treble</option>
+                  <option value="bass">Bass</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  One clef at a time: mixing them asks "which clef" on top of "which chord"
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Chords per round
+                <select
+                  value={chordSettings.questionCount}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      questionCount: Number(event.target.value),
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Three notes stacked on the staff: say whether the chord is major, minor or diminished. The seven
+              chords of do major, root position, no sharps and no flats -- so the answer is decided entirely by
+              which note is at the bottom. The lesson below is the table it is asking about.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => onChordReady(chordSettings)}
+              className={`self-start ${PRIMARY_BUTTON}`}
+            >
+              Start chord quiz
+            </button>
+          </section>
         ) : (
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
@@ -711,6 +782,8 @@ export function ExerciseSetup({
             </button>
           </section>
         )}
+
+        {tab === 'chords' && <ChordLesson />}
 
         {isKeyboardDrill(tab) && (
         <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>

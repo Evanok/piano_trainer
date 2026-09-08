@@ -5,6 +5,7 @@ import { ExerciseSetup, type SetupTab } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
+import { ChordQuiz } from './pages/ChordQuiz'
 import { NoteSequenceQuiz } from './pages/NoteSequenceQuiz'
 import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
@@ -20,6 +21,7 @@ import type {
   PracticeSourceKind,
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
+import type { ChordQuizSettings } from './types/chord'
 import type { ReadingQuizSettings } from './types/reading'
 import type { NoteSequenceSettings } from './types/sequence'
 import type { SessionSource, SessionStats } from './types/session'
@@ -39,6 +41,7 @@ type Screen =
   | 'practice'
   | 'reading-quiz'
   | 'sequence-quiz'
+  | 'chord-quiz'
   | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
@@ -75,6 +78,13 @@ const DEFAULT_NOTE_SEQUENCE_SETTINGS: NoteSequenceSettings = {
   // Replaced by a fresh one per round in NoteSequenceQuiz, same as the reading
   // quiz: a round that always asks the same questions drills nothing.
   seed: 'sequence',
+}
+
+const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
+  clefMode: 'treble',
+  questionCount: 20,
+  // Replaced by a fresh one per round in ChordQuiz, same as the other drills.
+  seed: 'chords',
 }
 
 const DEFAULT_HANON_SETTINGS: HanonSettings = {
@@ -136,6 +146,7 @@ function App() {
   const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(DEFAULT_NOTE_SEQUENCE_SETTINGS)
+  const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(DEFAULT_CHORD_SETTINGS)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -354,6 +365,11 @@ function App() {
     setScreen('sequence-quiz')
   }, [])
 
+  const startChordQuiz = useCallback((settings: ChordQuizSettings) => {
+    setChordSettings(settings)
+    setScreen('chord-quiz')
+  }, [])
+
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
@@ -388,6 +404,8 @@ function App() {
         onReadingReady={startReadingQuiz}
         initialSequenceSettings={sequenceSettings}
         onSequenceReady={startNoteSequenceQuiz}
+        initialChordSettings={chordSettings}
+        onChordReady={startChordQuiz}
         onTabChange={setSetupTab}
         onBack={handleBackToHome}
       />
@@ -400,6 +418,10 @@ function App() {
 
   if (screen === 'sequence-quiz') {
     return <NoteSequenceQuiz settings={sequenceSettings} onBack={() => setScreen('exercise-setup')} />
+  }
+
+  if (screen === 'chord-quiz') {
+    return <ChordQuiz settings={chordSettings} onBack={() => setScreen('exercise-setup')} />
   }
 
   if (screen === 'score-library') {
