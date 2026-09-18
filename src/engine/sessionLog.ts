@@ -177,7 +177,10 @@ export function sequenceSessionTitle(settings: NoteSequenceSettings): string {
  * every other session title.
  */
 export function chordSessionTitle(settings: ChordQuizSettings): string {
-  return `Chords - triads of do major, ${settings.clefMode === 'bass' ? 'bass' : 'treble'} clef`
+  const asked = settings.answerMode === 'quality' ? 'quality only' : 'name the chord'
+  const stack = settings.stackMode === 'root' ? 'root position' : 'with inversions'
+  const accidentals = settings.accidentalMode === 'all' ? 'with accidentals' : 'do major'
+  return `Chords - ${asked}, ${accidentals}, ${stack}, ${settings.clefMode === 'bass' ? 'bass' : 'treble'} clef`
 }
 
 export function readingSessionTitle(settings: ReadingQuizSettings): string {

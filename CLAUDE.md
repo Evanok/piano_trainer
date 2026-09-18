@@ -332,56 +332,150 @@ is what makes sight-reading slow.
 
 ### Chord-reading drill (`engine/chordQuiz.ts`, `engine/ChordQuizEngine.ts`, `pages/ChordQuiz.tsx`, `components/ChordLesson.tsx`)
 
-The third screen drill: a triad drawn on a staff, named with three quality
-buttons (major / minor / diminished). Structurally it *is* the reading quiz --
+The third screen drill: an inverted triad drawn on a staff, and buttons to name
+it. Structurally it *is* the reading quiz --
 one MusicXML for the whole round, one chord per measure, one OSMD instance with
 `ReadingStaff` cropping to the current measure -- so the only new code is the
-generator, the quality answer, and the lesson. It is level 1 of a four-rung
-ladder whose remaining rungs are specified in IDEA.md.
+generator, the quality answer, and the lesson. Two further rungs (written
+accidentals, then a real key signature) are specified in IDEA.md.
 
-- **Without accidentals there is no shape to recognise, and that changes what
-  the drill teaches.** Every root-position triad of do major is the same
-  drawing: three notes on three consecutive staff positions. Do-mi-sol and
-  re-fa-la are indistinguishable as pictures, so the quality cannot be read off
-  the spacing -- it is read off *which* notes they are. What level 1 trains is
-  therefore the table of the seven triads of the key, which is the foundation of
-  harmony rather than a pattern-matching trick, but the two are not the same
-  exercise and the code says so rather than claiming otherwise.
-- **The quality is the only question, because the root would be the same
-  question.** In do major a chord on re *is* minor: root and quality are not
-  independent, so asking for both asks once. `ChordQuestion.step` still carries
-  the root (it is the field `NamingQuizEngine` judges, so the inherited
-  `answer()` already asks for it) and nothing calls it yet -- rung 2, which adds
-  written accidentals, is what makes it a real question.
+- **The four settings are independent axes, not levels** -- accidentals,
+  stacking, what is answered, clef -- and **two of them decide whether the
+  exercise asks anything at all**. That framing was arrived at by building the
+  restricted version first and watching it fail twice, so it is worth keeping.
+- **`accidentalMode: 'none'` makes the quality un-measurable, which is why it is
+  not the real drill.** With no accidental, every root-position triad of do
+  major is the same drawing -- do-mi-sol and re-fa-la are indistinguishable as
+  pictures -- so the quality cannot be read off the spacing and can only be
+  recited from a seven-row table. That table is **not a rule**: it holds inside
+  do major and nowhere else, and presenting it as the lesson taught a player
+  something false (sol is not "a major chord"; *in do major* the chord on sol is
+  major). `'all'` frees root and quality apart -- sol major and sol minor both
+  come up -- so the only thing that answers is measuring the gap between the
+  bottom two notes, which is the method that survives a change of key. Keep
+  `'none'` as a warm-up, never as the default teaching.
+- **Root position alone makes the drill pointless in `chord` mode, so the
+  default inverts** (`ChordStackMode`, `'all'`). With the chords never inverted
+  the root is the bottom note, so naming the chord is naming the bottom note --
+  the reading quiz with two notes drawn on top. This was argued from the start,
+  conceded when it was asked for anyway, and then confirmed by *playing* it, so
+  it is settled: the fix is inversions, not accidentals (with those you still
+  read the bottom note, plus an accidental). `'root'` survives as a setting
+  because `quality` mode is still a real question there -- reading the bottom
+  note and recalling its quality is one recall step more than naming it -- and
+  because it is how the table itself is learnt. **The general lesson, recorded
+  in IDEA.md: a change that makes the material harder is not the same as one
+  that makes the question deeper, and only the second earns a rung.**
+- **One rule covers every inversion, and it is a property the tests assert
+  rather than a comment**: root position is two stacked thirds (three evenly
+  spaced staff positions), any inversion opens exactly one fourth-wide gap in
+  the stack, and **the note immediately above that gap is the root**.
+  `STACK_OFFSETS` holds the three shapes in diatonic steps from the root (note
+  that for inversions 1 and 2 the root's own position is not in the stack at
+  all -- it appears an octave up, at +7), and `chordQuiz.test.ts` verifies the
+  gap rule over all 42 placements. That rule is the whole difference between
+  this drill and the reading quiz, so `ChordLesson` teaches it as section 2.
+- **Each (clef, inversion) draws from one ascending run of seven roots**
+  (`baseRootFor`), not from a per-chord placement. An inverted stack is taller
+  and sits higher above its root, so the octave keeping do4-mi4-sol4 on the
+  staff does not keep mi4-sol4-do5 on it -- the base is therefore per
+  inversion, chosen so the whole run centres in the clef's window
+  (`NOTE_WINDOW`: staff plus one ledger line either side). Centring each
+  *chord* independently was tried first and looked arbitrary, because it was:
+  it put the do chord an octave above the other six. The unit test that every
+  note of every placement stays within one ledger line of the staff is what
+  guards the cropped measure from clipping, and it is the reason no browser is
+  needed to trust the register.
+- **Two answer modes, and they are two questions rather than two phrasings of
+  one** (`ChordAnswerMode`). `chord` (the default) taps the chord's own name
+  among the seven note names, which is the operation performed when playing a
+  piece written on chords -- "that is a sol chord" -- and it is the mode the
+  drill exists for. `quality` taps major/minor/diminished, the narrower drill
+  over one column of the table. Naming the root *is* naming the chord here,
+  because in do major the root decides the quality (a stack on sol can only be
+  sol major), so asking for both would ask once -- and it needs no
+  chord-specific engine code at all: `NamingQuizEngine.answer` already judges
+  `question.step`, which is why that field is named `step`. **That shortcut is
+  also why naming the chord is restricted to natural roots** (`chordPlacements`
+  filters on `answerMode`): seven name buttons cannot say "fa sharp". The
+  quality answer has no such limit and therefore sees the whole material, which
+  makes it the mode where accidentals are actually exercised. Giving the name
+  answer the full twelve roots means drawing a subset of candidate buttons --
+  see IDEA.md. The inversion is never asked for
+  either, for the same reason: naming the right root on an inverted chord
+  already proves the inversion was resolved. It is named in the reveal, and
+  splitting the summary's accuracy by inversion is the open follow-up.
+- **The seven name buttons are in scale order here, with no shuffle option**,
+  unlike the reading quiz. The shuffle exists there to stop a note being found
+  by counting buttons from a known one; the trade is worse here, since the
+  answer is a chord's name learnt as a whole and finding it among seven familiar
+  positions is part of naming it fast. `ChordRound.nameOrder` still carries the
+  order, so a later rung can change it without touching the screen.
 - **The buttons come from the material, not from a constant.**
   `chordQualitiesInPlay()` derives them from the diatonic table, so the
   augmented button appears by itself on a rung that can produce one, and no
   round ever shows a button that cannot be the answer (which would tell the
   player what is coming).
-- **Where the roots start decides whether the chords fit on the staff.** A
-  root-position triad occupies five consecutive diatonic positions, so
-  `ROOT_BASE` picks an octave of roots per clef such that all seven triads stay
-  within the staff plus at most one ledger line -- which is why the bass roots
-  start on sol, not on do (roots do3..si3 would put the top of the si chord
-  three positions above the staff). Unit-tested against the staff lines, since
-  the failure is a chord floating off the top of a cropped measure.
+- **An accidental never moves a note**, it is a symbol on a notehead, so the
+  per-inversion run of seven root *letters* is unaffected by `accidentalMode`
+  and so is the window check with it. That is why adding accidentals cost the
+  placement code nothing: `PLACEMENTS` just gained the alteration and quality
+  dimensions on top of the same runs.
+- **A quality is obtained by altering the third and fifth, never by changing a
+  letter** (`spellTriad`): the three letters are fixed by the stack, so each
+  alteration is just the gap between what `QUALITY_INTERVALS` requires and what
+  the natural letters already give. Two spellings are refused -- anything
+  needing a double accidental, and the four notes that cross a natural half-step
+  (`AWKWARD_SPELLINGS`: mi♯, si♯, fa♭, do♭). The cost is visible and tested: fa
+  diminished and mi/la/si augmented cannot be drawn on a natural root at all.
+  Respelling them is not an option, since a triad must stay three letters two
+  apart or it stops looking like a chord.
 - **Clefs are offered one at a time**, unlike the reading quiz's `both`: a
   grand-staff round would ask "which clef is this" on top of "which chord is
   this", and the drill is about the second. Reading chords in the bass clef is
   its own exercise, which is why the choice exists at all.
+- **The third step of reading a chord -- finding the keys -- is shown, never
+  asked.** Once the chord is named its keys are determined, so there is no
+  knowledge left to test, only the physical mapping; and answering by tapping a
+  virtual keyboard was rejected on use as too imprecise. So the reveal renders a
+  `VirtualKeyboard` with the three keys lit, and only once the answer is out, so
+  it can never give it away.
 - **A miss reveals the chord's full name** ("re minor -- the ii of do major"),
-  not just the right button. The degree is never asked for and is shown every
+  not just the right button. The degree is appended only for do major's own
+  seven (`ChordQuestion.degree` is null otherwise): a degree names a chord's
+  place in a key, so printing one for sol minor would name a key the round is
+  not in. The degree is never asked for and is shown every
   time it is revealed, because that is the label the same chord carries
   everywhere else. Accuracy counts first attempts only, so revealing costs no
   stat -- the same trade the reading quiz makes.
-- **The lesson is part of the feature, not documentation.** `ChordLesson` sits
-  in the setup tab, open by default, and holds the table the drill is asking
-  about -- grouped as *three majors (do fa sol), three minors (re mi la), one
-  diminished (si)*, since that is one thing to remember instead of seven, plus
-  what a triad looks like on the staff, why the qualities fall where they do,
-  and how to work the drill. Its rows are built from the generator's own table,
-  so the lesson cannot drift from what is asked. **Every later rung needs its
-  own section there**: a level whose lesson does not exist is not finished.
+- **`ChordDiagram.tsx` hand-draws a staff in SVG, and that is not a second
+  notation renderer.** The reading quiz's own note says a hand-drawn staff would
+  be one, and would need the Bravura glyphs for its clefs -- both true of
+  *notation*, neither true of these: they are diagrams. They carry a bracketed
+  interval, a highlighted root and a name under each notehead, none of which a
+  score renderer draws; they must lay out identically beside each other to be
+  compared; they are static; and they have **no clef at all**, which is exactly
+  why no music font is needed. Positions are staff steps with 0 = the bottom
+  line, the same diatonic counting the generator uses, so a third is 2 and a
+  fourth is 3.
+- **The lesson is part of the feature, and it teaches a method rather than a
+  table.** `ChordLesson` sits in the setup tab, open by default, and its order
+  was earned the hard way: what a chord's name is made of (root + quality,
+  independent), how to measure the quality (4 semitones major, 3 minor), how to
+  do that counting on white keys (**one fact**: mi-fa and si-do are the only
+  adjacent white pairs, so "does one of them fall between the bottom two notes"
+  answers it), how to find the root in an inversion, and *only then* do major's
+  seven -- explicitly as what the method produces, not as something to learn. An
+  earlier version led with the table grouped as "do fa sol major, re mi la
+  minor, si diminished" and a player rightly called it rote nonsense; that
+  ordering is the mistake not to repeat. The inversion section **derives** its
+  rule rather than stating it: a triad is a ring of three steps (third, third,
+  fourth), an inversion only chooses where to cut the ring, and the fourth is by
+  definition the step from the fifth back to the root -- so the note above the
+  visible gap is the root, always, and there is one rule rather than three
+  cases. It is drawn as three diagrams plus a fully worked example, because
+  being told the rule twice in prose is what had already failed. Its rows are built from the generator's
+  own table so the lesson cannot drift from what is asked.
 
 **What the three screen drills share, and why each piece moved there**:
 `NamingQuizEngine` (all the scoring -- combo, first-try accuracy, response

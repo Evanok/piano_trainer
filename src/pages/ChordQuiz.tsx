@@ -1,5 +1,12 @@
 /**
- * The chord-reading drill: a triad on a staff, and one button per quality.
+ * The chord-reading drill: a triad on a staff, and buttons to name it.
+ *
+ * Two answer modes, and they are two different questions rather than two ways
+ * of asking one. `chord` taps the chord's own name among the seven -- what
+ * playing a piece written on chords actually asks for, and the one the drill
+ * exists for. `quality` taps major/minor/diminished, the narrower drill. The
+ * engine needs no branch for the first: `NamingQuizEngine.answer` already
+ * judges the question's root, which is what naming the chord means in do major.
  *
  * The same screen as the reading quiz, minus the piano keyboard: no MIDI, no
  * cursor, no WaitEngine, one OSMD instance for the whole round with the current
@@ -10,12 +17,14 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChordQualityButtons } from '../components/ChordQualityButtons'
+import { NoteNameButtons } from '../components/NoteNameButtons'
 import { ReadingStaff } from '../components/ReadingStaff'
 import type { ReadingStaffHandle } from '../components/ReadingStaff'
 import { RoundSummary } from '../components/RoundSummary'
+import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { ChordQuizEngine } from '../engine/ChordQuizEngine'
 import type { QuizAnswerResult } from '../engine/ChordQuizEngine'
-import { chordQualityLabel, createChordRound } from '../engine/chordQuiz'
+import { chordInversionLabel, chordQualityLabel, createChordRound } from '../engine/chordQuiz'
 import { latinNameOf } from '../engine/readingQuiz'
 import { chordSessionTitle, createSessionId } from '../engine/sessionLog'
 import { useQuizSession } from '../hooks/useQuizSession'
@@ -33,9 +42,34 @@ interface ChordQuizProps {
   onBack: () => void
 }
 
-/** "re minor -- the ii of do major", the answer as it is worth remembering. */
+const ALTER_SIGNS: Record<number, string> = { [-1]: '♭', 0: '', 1: '♯' }
+
+/** "sol♯", the root as it is spoken: the letter carries its own accidental. */
+function chordRootLabel(question: ChordQuestion): string {
+  return `${latinNameOf(question.step)}${ALTER_SIGNS[question.rootAlter] ?? ''}`
+}
+
+/**
+ * "re mineur, 1st inversion -- the ii of do major": the answer as it is worth
+ * remembering. The position is named even when it is root, because a miss on an
+ * inverted chord is usually a miss about *which note was the root*, and being
+ * told the stack was in root position is the other half of that lesson.
+ *
+ * The degree is only appended for do major's own seven. A chord with an
+ * accidental has no degree here, and printing one would name a key the round is
+ * not in.
+ */
 function chordAnswerLabel(question: ChordQuestion): string {
-  return `${latinNameOf(question.step)} ${chordQualityLabel(question.quality)} — the ${question.degree} of do major`
+  const name = `${chordRootLabel(question)} ${chordQualityLabel(question.quality)}`
+  const degree = question.degree === null ? '' : ` — the ${question.degree} of do major`
+  return `${name}, ${chordInversionLabel(question.inversion)}${degree}`
+}
+
+/** "sol – si♭ – ré", bottom to top: the three keys, spelled. */
+function chordNotesLabel(question: ChordQuestion): string {
+  return question.notes
+    .map((note) => `${latinNameOf(note.step)}${ALTER_SIGNS[note.alter] ?? ''}`)
+    .join(' – ')
 }
 
 export function ChordQuiz({ settings, onBack }: ChordQuizProps) {
@@ -52,6 +86,7 @@ export function ChordQuiz({ settings, onBack }: ChordQuizProps) {
   // Every wrong answer given to the CURRENT question, so several misses all
   // stay marked rather than only the last one.
   const [wrongQualities, setWrongQualities] = useState<ChordQuality[]>([])
+  const [wrongSteps, setWrongSteps] = useState<string[]>([])
   const [revealed, setRevealed] = useState(false)
   const [staffError, setStaffError] = useState<string | null>(null)
   const wrongTimeoutRef = useRef<number | null>(null)
@@ -102,36 +137,57 @@ export function ChordQuiz({ settings, onBack }: ChordQuizProps) {
     }
   }, [question])
 
-  const handleAnswer = (quality: ChordQuality) => {
-    const engine = engineRef.current
-    if (engine.state.completed) {
-      return
-    }
-    const result: QuizAnswerResult = engine.answerQuality(quality)
-    setState(engine.state)
+  const clearFeedback = () => {
+    setWrongQualities([])
+    setWrongSteps([])
+    setRevealed(false)
+  }
+
+  const applyResult = (result: QuizAnswerResult, markWrong: () => void) => {
+    setState(engineRef.current.state)
     if (result === 'wrong') {
       setRevealed(true)
-      setWrongQualities((current) => (current.includes(quality) ? current : [...current, quality]))
+      markWrong()
       if (wrongTimeoutRef.current !== null) {
         clearTimeout(wrongTimeoutRef.current)
       }
       wrongTimeoutRef.current = window.setTimeout(() => {
         setWrongQualities([])
+        setWrongSteps([])
         wrongTimeoutRef.current = null
       }, WRONG_FLASH_MS)
       return
     }
-    setWrongQualities([])
-    setRevealed(false)
+    clearFeedback()
     if (result === 'done') {
       persistSession(true)
     }
   }
 
+  const handleAnswerQuality = (quality: ChordQuality) => {
+    const engine = engineRef.current
+    if (engine.state.completed) {
+      return
+    }
+    applyResult(engine.answerQuality(quality), () =>
+      setWrongQualities((current) => (current.includes(quality) ? current : [...current, quality])),
+    )
+  }
+
+  /** Naming the chord: the inherited answer, which judges the root's letter. */
+  const handleAnswerStep = (step: string) => {
+    const engine = engineRef.current
+    if (engine.state.completed) {
+      return
+    }
+    applyResult(engine.answer(step), () =>
+      setWrongSteps((current) => (current.includes(step) ? current : [...current, step])),
+    )
+  }
+
   const startNewRound = () => {
     startNewSession()
-    setWrongQualities([])
-    setRevealed(false)
+    clearFeedback()
     setRoundSeed(createSessionId())
   }
 
@@ -171,9 +227,10 @@ export function ChordQuiz({ settings, onBack }: ChordQuizProps) {
             <ReadingStaff ref={staffRef} source={round.file} onError={setStaffError} />
           )}
           {revealed && question ? (
-            <p className="absolute inset-x-0 bottom-0 bg-emerald-50/95 px-4 py-2 text-center text-sm font-medium text-emerald-800">
-              {chordAnswerLabel(question)}
-            </p>
+            <div className="absolute inset-x-0 bottom-0 bg-emerald-50/95 px-4 py-2 text-center">
+              <p className="text-sm font-medium text-emerald-800">{chordAnswerLabel(question)}</p>
+              <p className="text-xs text-emerald-700">{chordNotesLabel(question)}</p>
+            </div>
           ) : null}
           {state.completed ? (
             <RoundSummary
@@ -187,13 +244,39 @@ export function ChordQuiz({ settings, onBack }: ChordQuizProps) {
           ) : null}
         </div>
 
-        <ChordQualityButtons
-          qualities={round.qualities}
-          wrongQualities={wrongQualities}
-          answerQuality={revealed ? (question?.quality ?? null) : null}
-          disabled={state.completed}
-          onAnswer={handleAnswer}
-        />
+        {/*
+          The third step of reading a chord -- finding the keys -- is SHOWN,
+          never asked. Once the chord is named its keys are determined, so there
+          is no knowledge left to test, only the physical mapping; and tapping a
+          virtual keyboard was rejected as too imprecise to answer with. It
+          appears only once the answer is out, so it can never give it away.
+        */}
+        {revealed && question ? (
+          <VirtualKeyboard
+            lowestPitch={question.notes[0].midi}
+            highestPitch={question.notes[question.notes.length - 1].midi}
+            expectedPitches={question.notes.map((note) => note.midi)}
+            heldPitches={[]}
+          />
+        ) : null}
+
+        {settings.answerMode === 'quality' ? (
+          <ChordQualityButtons
+            qualities={round.qualities}
+            wrongQualities={wrongQualities}
+            answerQuality={revealed ? (question?.quality ?? null) : null}
+            disabled={state.completed}
+            onAnswer={handleAnswerQuality}
+          />
+        ) : (
+          <NoteNameButtons
+            order={round.nameOrder}
+            wrongSteps={wrongSteps}
+            answerStep={revealed ? (question?.step ?? null) : null}
+            disabled={state.completed}
+            onAnswer={handleAnswerStep}
+          />
+        )}
       </main>
     </div>
   )

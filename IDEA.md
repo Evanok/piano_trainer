@@ -22,36 +22,61 @@ grade bands), imported, and browsable through the catalog's virtual folders
 
 ## 1. Chord quiz: the rest of the ladder
 
-Level 1 is built (`engine/chordQuiz.ts`, `pages/ChordQuiz.tsx`, lesson in
-`components/ChordLesson.tsx`): the seven diatonic triads of do major, root
-position, no accidental, answered with three quality buttons. The remaining
-three rungs each add exactly one variable, and each wants its own section in
-`ChordLesson` -- the lesson is what makes the level passable, so a rung without
-one is not finished.
+Built (`engine/chordQuiz.ts`, `pages/ChordQuiz.tsx`, lesson in
+`components/ChordLesson.tsx`): four independent axes -- accidentals, stacking,
+what is answered, clef -- over triads in every quality and inversion. **Not
+levels.** Levels were the original plan and were wrong: they bundle variables
+that the player has every reason to combine freely, and they make a restricted
+starting point look like a curriculum rather than what it is.
 
-2. **Root + quality, written accidentals, no key signature.** The point is not
-   the accidentals, it is that they break the correlation level 1 lives with: in
-   do major a chord on re *is* minor, so the root gives the quality away and
-   asking for both asks the same thing twice. With re major and fa minor
-   possible, the root becomes a real question, and the augmented triad exists
-   for the first time (a fourth button, which `chordQualitiesInPlay` already
-   derives from the material rather than hardcoding). Lesson: the two thirds,
-   wide-then-narrow against narrow-then-wide, counted in semitones.
-3. **+ inversions.** The hard rung, and the one that matters at the keyboard:
-   which of the three notes is the root when the stack is not in root position.
-   The answer stays root + quality, never the inversion itself -- naming the
-   right root on an inverted chord already proves the inversion was resolved,
-   so asking for it separately costs a tap and measures nothing. Split the
-   summary's accuracy *by* inversion instead; that is the useful number.
-   Lesson: root position is three consecutive staff positions, an inversion is
-   the one with a gap in it, and where the gap sits says which note moved.
-4. **+ a real key signature.** Not decoration: the altered note becomes
+**Two restrictions each produced a fake exercise, and both were found by
+playing it rather than by reasoning.** Root position makes naming the chord
+identical to naming the bottom note, so that mode asked nothing -- inversions
+fixed it. And no-accidentals makes every letter carry exactly one possible
+chord, so the quality could be recited from a seven-row table instead of
+measured -- and worse, the lesson presented that table as a rule, which taught a
+player that "sol is a major chord". Accidentals fixed that one. Both restrictions
+are still available as warm-ups; neither is a default worth teaching from.
+
+The general lesson, and the one to apply to everything below: **a change that
+makes the material harder is not the same as a change that makes the question
+deeper, and only the second is worth building.** A restriction is also never
+neutral -- it silently invents rules that only hold inside it, and the lesson
+has to say so out loud.
+
+What is left:
+
+2. **Naming a chord on an altered root.** Today the name answer is restricted to
+   the seven natural letters, because seven buttons cannot say "fa sharp", so
+   accidentals are only fully exercised in the quality answer. Fixing it means
+   drawing a subset of candidate buttons (below), and it is the one place that
+   idea is actually needed.
+3. **Splitting the round summary's accuracy by inversion and by quality.** The
+   answer deliberately never asks which inversion it was, but reporting it is
+   the one thing the drill can tell you that you cannot feel while playing.
+4. **Arpeggios: the same three notes written in sequence rather than stacked.**
+   Directly useful, since the pieces actually being played are full of them and
+   contain almost no block chords -- recognising that a six-note run is a sol
+   chord in second inversion is the same skill on material already in the
+   repertoire. Same generator, different note emission.
+5. **+ a real key signature.** Not decoration: the altered note becomes
    *implicit*, and reading a mi-flat because the piece is in si-flat major is a
    different act from reading a written flat in front of the note. That is the
    skill this rung exists for. It also opens the roman numerals as a question in
    their own right ("in la major, which chord is IV"), which is the phone-side
    twin of the ii-V-I generator below -- drill the knowledge away from home,
    play it on return.
+
+**When a rung has too many possible answers, draw a subset of candidates rather
+than every one of them** -- naming a chord on any root is twelve roots times four qualities,
+which is not a keypad. The right answer is always in the lot, and the drawn
+distractors have to be indistinguishable from it *a priori*: drawn from the same
+pool by the same rule, and ideally including the near-misses the confusion stats
+show are actually being mixed up. Drawn carelessly, a subset leaks the answer
+(one plausible candidate among five absurd ones is not a question) and turns the
+drill into elimination, which is easier than recall -- so this is a fallback for
+a keypad that cannot exist, not an improvement on one that can. The natural-root
+name answer does not need it: seven names is the reading quiz's own keypad.
 
 Two things deliberately off this ladder: **spread voicings** (a level 5 at best;
 three notes inside the octave is what a triad looks like while it is being

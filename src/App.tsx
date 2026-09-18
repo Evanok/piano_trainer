@@ -81,6 +81,13 @@ const DEFAULT_NOTE_SEQUENCE_SETTINGS: NoteSequenceSettings = {
 }
 
 const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
+  // Naming the chord, not just its quality: that is the question a piece
+  // written on chords actually asks.
+  answerMode: 'chord',
+  accidentalMode: 'none',
+  // Inverted from the start: root position alone makes naming the chord the
+  // same question as naming the bottom note (see ChordStackMode).
+  stackMode: 'all',
   clefMode: 'treble',
   questionCount: 20,
   // Replaced by a fresh one per round in ChordQuiz, same as the other drills.

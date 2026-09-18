@@ -11,7 +11,13 @@ import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
-import type { ChordClefMode, ChordQuizSettings } from '../types/chord'
+import type {
+  ChordAccidentalMode,
+  ChordAnswerMode,
+  ChordClefMode,
+  ChordQuizSettings,
+  ChordStackMode,
+} from '../types/chord'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
   NoteSequenceDirection,
@@ -644,6 +650,72 @@ export function ExerciseSetup({
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Answer with
+                <select
+                  value={chordSettings.answerMode}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      answerMode: event.target.value as ChordAnswerMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="chord">Which chord (do, re, mi...)</option>
+                  <option value="quality">Quality only (major, minor, dim)</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {chordSettings.answerMode === 'quality'
+                    ? 'Three buttons: is the stack major, minor or diminished'
+                    : 'Name the chord itself, which is what a piece written on chords asks for'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Accidentals
+                <select
+                  value={chordSettings.accidentalMode}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      accidentalMode: event.target.value as ChordAccidentalMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="none">None (do major only)</option>
+                  <option value="all">Sharps and flats</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {chordSettings.accidentalMode === 'all'
+                    ? 'Sol major and sol minor can both come up: the quality has to be measured'
+                    : 'One chord per letter, so the quality can be recited instead of measured'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Stacking
+                <select
+                  value={chordSettings.stackMode}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      stackMode: event.target.value as ChordStackMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="all">With inversions</option>
+                  <option value="root">Root position only</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {chordSettings.stackMode === 'root'
+                    ? 'The root is the bottom note, so naming the chord is just reading it'
+                    : 'The root moves inside the stack and has to be found -- see the lesson'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Clef
                 <select
                   value={chordSettings.clefMode}
@@ -685,9 +757,14 @@ export function ExerciseSetup({
             </div>
 
             <p className="text-xs leading-5 text-gray-500">
-              Three notes stacked on the staff: say whether the chord is major, minor or diminished. The seven
-              chords of do major, root position, no sharps and no flats -- so the answer is decided entirely by
-              which note is at the bottom. The lesson below is the table it is asking about.
+              Three notes stacked on the staff: say which chord it is. The four settings are independent, and two
+              of them decide whether the exercise asks anything at all. <strong>Accidentals</strong> is the one
+              that matters most: with none, each letter carries a single possible chord, so the quality can be
+              recited from a table; with sharps and flats, sol major and sol minor can both come up and you have
+              to actually measure the gap between the bottom two notes -- which is the only method that survives
+              a change of key. <strong>Stacking</strong> does the same for the root: in root position it is the
+              bottom note and there is nothing to find. Naming the chord keeps its root natural, since seven
+              buttons cannot say "fa sharp"; the quality answer has no such limit and sees the whole material.
             </p>
 
             <button
