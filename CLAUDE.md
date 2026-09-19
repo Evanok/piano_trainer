@@ -507,11 +507,15 @@ IDEA.md.
 - **The lesson is part of the feature, and it teaches a method rather than a
   table.** `ChordLesson` sits in the setup tab, open by default, and its order
   was earned the hard way: what a chord's name is made of (root + quality,
-  independent), how to measure the quality (4 semitones major, 3 minor), how to
-  do that counting on white keys (**one fact**: mi-fa and si-do are the only
-  adjacent white pairs, so "does one of them fall between the bottom two notes"
-  answers it), how to find the root in an inversion, and *only then* do major's
-  seven -- explicitly as what the method produces, not as something to learn. An
+  independent), how to measure the quality (4 semitones major, 3 minor,
+  **between the root and the note two letters above it** -- "the two bottom
+  notes" is only true in root position, and putting it that way taught a player
+  to read an inverted stack's own bottom interval instead), how to do that
+  counting with no piano in reach (**one fact**: mi-fa and si-do are the only
+  adjacent white pairs, so "is one of them inside these three letters" answers
+  it with no counting at all; `HalfStepKeyboard` draws the one octave that fact
+  lives on, since the drill is meant to be playable on a phone), how to find the
+  root in an inversion, and *only then* do major's seven -- explicitly as what the method produces, not as something to learn. An
   earlier version led with the table grouped as "do fa sol major, re mi la
   minor, si diminished" and a player rightly called it rote nonsense; that
   ordering is the mistake not to repeat. The inversion section **derives** its
@@ -520,7 +524,12 @@ IDEA.md.
   definition the step from the fifth back to the root -- so the note above the
   visible gap is the root, always, and there is one rule rather than three
   cases. It is drawn as three diagrams plus a fully worked example, because
-  being told the rule twice in prose is what had already failed. Its rows are built from the generator's
+  being told the rule twice in prose is what had already failed. **The lesson
+  also states out loud that the staff cannot show the quality** -- a major third
+  and a minor third are the identical drawing -- because section 4 legitimately
+  teaches judging narrow-versus-wide by eye to find the root, and without that
+  boundary the obvious generalisation ("it looks narrow, so minor") is wrong and
+  was actually made. Its rows are built from the generator's
   own table so the lesson cannot drift from what is asked.
 
 **What the three screen drills share, and why each piece moved there**:

@@ -16,6 +16,18 @@
  * key, forever), how to do that counting on white keys, how to find the root
  * when the stack is inverted, and only then the table -- presented as what the
  * method produces rather than as something to memorise.
+ *
+ * **Two corrections found by a player getting a chord wrong, both worth not
+ * undoing.** The quality was described as "the gap between the two bottom
+ * notes", which is only true in root position: on sol - do - mi the two bottom
+ * notes are the wide gap and say nothing, and the lesson was committing
+ * exactly the sin it warns about -- stating as a rule something that holds only
+ * under a restriction. It now says the root and the note two letters above it.
+ * And nothing said out loud that **the staff cannot show the quality at all**
+ * (a major third and a minor third are the same drawing), while section 4 does
+ * teach judging narrow-versus-wide by eye to find the root -- so the reasonable
+ * conclusion was that a narrow-looking gap means minor. That is now the first
+ * thing section 2 says, and section 4 says what its own eyeballing is for.
  */
 import { useState } from 'react'
 import { ChordDiagram } from './ChordDiagram'
@@ -52,6 +64,101 @@ const QUALITY_ROWS: Array<{ quality: ChordQuality; example: string }> = [
   { quality: 'diminished', example: 'do mi♭ sol♭' },
   { quality: 'augmented', example: 'do mi sol♯' },
 ]
+
+/** One octave of keys, do to do, with the two seams where white keys touch. */
+const WHITE_NAMES = ['do', 're', 'mi', 'fa', 'sol', 'la', 'si', 'do']
+/** Index of the white key a black key sits AFTER. The two missing ones (2 and
+ * 6) are the whole point of the drawing: mi–fa and si–do have none. */
+const BLACK_AFTER = [0, 1, 3, 4, 5]
+const WHITE_W = 24
+const WHITE_H = 68
+const PAD = 4
+
+/**
+ * A keyboard for a player who does not have one.
+ *
+ * The method in section 3 rests on a fact about the instrument -- mi–fa and
+ * si–do are the only two places where two white keys touch -- and the drill is
+ * deliberately playable on a phone with no piano in reach, which is exactly
+ * where that fact is hardest to check. So the one octave it concerns is drawn
+ * here, with the two seams marked, and then it can be forgotten.
+ *
+ * Hand-drawn for the same reason `ChordDiagram` is: it is a diagram, not an
+ * instrument. `VirtualKeyboard` is 88 keys that scroll, follow the notes and
+ * carry the app's state colours -- none of which belongs in a static picture of
+ * a rule.
+ */
+function HalfStepKeyboard() {
+  const width = PAD * 2 + WHITE_NAMES.length * WHITE_W
+  const seamX = (index: number) => PAD + (index + 1) * WHITE_W
+  return (
+    <svg
+      viewBox={`0 -16 ${width} ${WHITE_H + 42}`}
+      className="w-full max-w-[22rem] self-center"
+      role="img"
+      aria-label="One octave of a piano keyboard, with the mi-fa and si-do seams marked"
+    >
+      {WHITE_NAMES.map((name, index) => (
+        <rect
+          key={`${name}-${index}`}
+          x={PAD + index * WHITE_W}
+          y={0}
+          width={WHITE_W - 1}
+          height={WHITE_H}
+          rx={2}
+          fill="#ffffff"
+          stroke="#cbd5e1"
+        />
+      ))}
+      {BLACK_AFTER.map((index) => (
+        <rect
+          key={index}
+          x={seamX(index) - 8}
+          y={0}
+          width={15}
+          height={42}
+          rx={2}
+          fill="#334155"
+        />
+      ))}
+      {/* The two seams with no black key over them, which is the whole fact. */}
+      {[2, 6].map((index) => (
+        <g key={index}>
+          <line
+            x1={seamX(index)}
+            y1={0}
+            x2={seamX(index)}
+            y2={WHITE_H}
+            stroke="#f59e0b"
+            strokeWidth={3}
+          />
+          <text
+            x={seamX(index)}
+            y={-5}
+            textAnchor="middle"
+            fontSize={9}
+            fontWeight={600}
+            fill="#b45309"
+          >
+            {index === 2 ? 'mi–fa' : 'si–do'}
+          </text>
+        </g>
+      ))}
+      {WHITE_NAMES.map((name, index) => (
+        <text
+          key={`${name}-${index}-label`}
+          x={PAD + index * WHITE_W + (WHITE_W - 1) / 2}
+          y={WHITE_H + 14}
+          textAnchor="middle"
+          fontSize={9}
+          fill="#475569"
+        >
+          {name}
+        </text>
+      ))}
+    </svg>
+  )
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -92,10 +199,26 @@ export function ChordLesson() {
             </p>
           </Section>
 
-          <Section title="2. The quality: measure the bottom gap">
+          <Section title="2. The quality: measure the root and its third">
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
+              First, the thing the staff will never tell you: <strong>the drawing does not show the
+              quality</strong>. do→mi (major) and re→fa (minor) are the exact same picture -- two
+              positions apart, noteheads touching. The difference between them is one key on a
+              piano and nothing at all on paper. So a gap that <em>looks</em> narrow tells you it is
+              a third rather than a fourth, which is about the inversion; it never tells you major
+              or minor.
+            </p>
             <p className="text-xs leading-5 text-gray-600">
-              Look at the <strong>two bottom notes only</strong> and count the semitones between
-              them -- a semitone is one key to the next, black keys included.
+              What is measured is the <strong>root and the note two letters above it</strong>: do→mi
+              for a do chord, re→fa for a re chord. In root position those happen to be the two
+              bottom notes, which is why it is usually put that way -- but once the stack is
+              inverted they are not. On sol – do – mi the two bottom notes are sol and do, which is
+              the wide gap, and it says nothing about the quality: the root is do (section 4), so
+              the pair to read is do→mi.
+            </p>
+            <p className="text-xs leading-5 text-gray-600">
+              Count the semitones between that pair -- a semitone is one key to the next, black keys
+              included.
             </p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[20rem] text-left text-xs">
@@ -134,23 +257,34 @@ export function ChordLesson() {
             </p>
           </Section>
 
-          <Section title="3. Counting semitones when everything is white">
+          <Section title="3. Counting it without a piano in front of you">
             <p className="text-xs leading-5 text-gray-600">
-              On white keys there are no accidentals to read, so the count has to come from
-              somewhere else. It comes from <strong>one single fact</strong>:
+              Counting four keys off a page, with no keyboard in reach, is miserable -- and it is
+              not what this asks for. <strong>You never count anything.</strong> You ask one
+              yes/no question about three letters, which works on a bus. It comes from{' '}
+              <strong>one single fact</strong>:
             </p>
             <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-900">
               There are only <strong>two</strong> places where two white keys touch with no black key
               between them: <strong>mi–fa</strong> and <strong>si–do</strong>. Everywhere else there
               is a black key in between.
             </p>
+            <HalfStepKeyboard />
             <p className="text-xs leading-5 text-gray-600">
-              So looking at the bottom two notes of a chord, ask: <strong>does mi–fa or si–do fall
-              between them?</strong> If yes, the gap is one semitone shorter -- 3, minor. If no, it
-              is 4, major.
+              That picture is here so you never need the real thing: the two amber seams are the
+              only two places on the whole instrument where it happens, and once that is in, the
+              keyboard can go.
             </p>
             <p className="text-xs leading-5 text-gray-600">
-              Check it: the chord on <strong>re</strong> is re–fa, and re-<em>mi–fa</em> is in there,
+              So take the root and its third, say the three letters they span, and ask:{' '}
+              <strong>is mi–fa or si–do one of the two pairs inside them?</strong> If yes, the gap
+              is one semitone shorter -- 3, minor. If no, it is 4, major. Three letters, one
+              question, no counting.
+            </p>
+            <p className="text-xs leading-5 text-gray-600">
+              Check it: the chord on <strong>do</strong> is do–mi, so the letters are do-re-mi and
+              the pairs inside are do-re and re-mi -- neither is one of the two, so 4, major. The
+              chord on <strong>re</strong> is re–fa, and re-<em>mi–fa</em> is in there,
               so 3, minor. The chord on <strong>fa</strong> is fa–la, fa-sol-la, neither pair, so 4,
               major. The chord on <strong>si</strong> is si–re, and <em>si–do</em>-re is in there, so
               3; and its top is re–fa, which catches <em>mi–fa</em>, so 3 as well -- both small, which
@@ -216,7 +350,9 @@ export function ChordLesson() {
             </p>
 
             <p className="text-xs leading-5 text-gray-600">
-              And you can see which is which without counting anything:
+              And you can see which is which without counting anything -- this is about{' '}
+              <strong>third versus fourth</strong>, which is what finds the root. It says nothing
+              about major versus minor: see the red box in section 2.
             </p>
             <ul className="flex list-disc flex-col gap-1 pl-4 text-xs leading-5 text-gray-600">
               <li>
