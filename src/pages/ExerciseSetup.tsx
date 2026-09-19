@@ -138,6 +138,9 @@ export function ExerciseSetup({
   // keyboard help and the backing track do not belong to them.
   const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon'
   const [tab, setTab] = useState<SetupTab>(initialTab)
+  // The only tab that carries a lesson, and so the only one that wants the
+  // extra width a desktop has.
+  const hasSideLesson = tab === 'chords'
   const selectTab = (next: SetupTab) => {
     setTab(next)
     onTabChange(next)
@@ -211,8 +214,19 @@ export function ExerciseSetup({
 
   return (
     <div className={`min-h-screen ${PAGE_BACKGROUND}`}>
-      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-12">
-        <header className="flex flex-col items-center gap-3 text-center">
+      {/*
+        The lesson is long, and it is the one thing on this screen that a big
+        screen genuinely helps with -- so the chords tab widens the page and
+        puts the lesson BESIDE the settings instead of far below them. Every
+        other tab is settings only and keeps the narrow readable column, since
+        stretching a column of <select>s across a desktop helps nobody.
+      */}
+      <div
+        className={`mx-auto flex w-full flex-col gap-8 px-6 py-12 ${
+          hasSideLesson ? 'max-w-2xl lg:max-w-[88rem]' : 'max-w-2xl'
+        }`}
+      >
+        <header className="flex w-full max-w-3xl flex-col items-center gap-3 self-center text-center">
           <div className="flex w-full items-center justify-between gap-4">
             <button type="button" onClick={onBack} className="text-sm font-medium text-indigo-600 hover:underline">
               Home
@@ -223,7 +237,7 @@ export function ExerciseSetup({
           <StreakBadges streak={streak} className="justify-center" />
         </header>
 
-        <div className="flex w-full gap-2 rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
+        <div className="flex w-full max-w-3xl gap-2 self-center rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
           {EXERCISE_TABS.map((item) => (
             <button
               key={item.kind}
@@ -240,6 +254,18 @@ export function ExerciseSetup({
           ))}
         </div>
 
+        {/*
+          `contents` on every other tab so the single-column flex layout is
+          untouched: only the chords tab becomes a two-column grid, and only
+          from `lg` up.
+        */}
+        <div
+          className={
+            hasSideLesson
+              ? 'grid w-full gap-8 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start'
+              : 'contents'
+          }
+        >
         {tab === 'generated' ? (
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
@@ -523,7 +549,7 @@ export function ExerciseSetup({
               <span className="text-xs text-gray-500">No piano needed</span>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Answer with
                 <select
@@ -861,6 +887,7 @@ export function ExerciseSetup({
         )}
 
         {tab === 'chords' && <ChordLesson />}
+        </div>
 
         {isKeyboardDrill(tab) && (
         <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
