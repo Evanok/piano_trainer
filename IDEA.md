@@ -10,7 +10,8 @@ so a screen drill now has to teach something the reading quiz does not in order
 to earn a tab -- the chord quiz does, see below, and that is the bar), **any
 screen drill answered by tapping the virtual keyboard** (rejected on use: the
 keys are too small to hit reliably, and the name-button drills are the ones
-actually played), the daily challenge and progression
+actually played -- note that answering on a REAL MIDI keyboard is a different
+proposition and is built, as the chord drill's `play` step), the daily challenge and progression
 ladder built on top of them, and **any difficulty-grade system in the app**
 (rejected twice: computing a grade from the score, and importing PianoML's own
 grades -- `difficulty` stays a user-assigned label).
@@ -46,11 +47,13 @@ has to say so out loud.
 
 What is left:
 
-2. **Naming a chord on an altered root.** Today the name answer is restricted to
+2. **Naming a chord on an altered root.** Today the root step is restricted to
    the seven natural letters, because seven buttons cannot say "fa sharp", so
-   accidentals are only fully exercised in the quality answer. Fixing it means
-   drawing a subset of candidate buttons (below), and it is the one place that
-   idea is actually needed.
+   accidentals are only fully exercised in the quality and play steps. A subset
+   of candidate buttons (below) was the planned fix, but the step split makes a
+   cheaper one available and it should be tried first: a second tiny keypad of
+   three buttons (♭ / ♮ / ♯) between the letter and the quality, which asks the
+   same question with no distractors to draw and no elimination to leak.
 3. **Splitting the round summary's accuracy by inversion and by quality.** The
    answer deliberately never asks which inversion it was, but reporting it is
    the one thing the drill can tell you that you cannot feel while playing.
@@ -80,7 +83,23 @@ name answer does not need it: seven names is the reading quiz's own keypad.
 
 Two things deliberately off this ladder: **spread voicings** (a level 5 at best;
 three notes inside the octave is what a triad looks like while it is being
-learnt), and **a keyboard-answer mode**, per the rejection above.
+learnt), and **answering by tapping the virtual keyboard**, per the rejection
+above -- which is about the on-screen keys, not about playing the chord: that is
+the `play` step, and it is built.
+
+**What the drill asks is a list of steps, not a mode** (`ChordAnswerStep`: root,
+quality, play, any combination, always in that order). The alternative -- one
+tap naming both the root and the quality -- was rejected before it was built,
+because twelve roots times four qualities is not a keypad and would have needed
+the subset rule below, which is a fallback rather than an improvement. Two small
+keypads ask the same question without it, in the order the chord is actually
+read (the root first: on an inverted stack the bottom interval is not the
+chord's own third, so the quality cannot be measured until the root is found),
+and a miss then says *which* of the two was missed. The `play` step is the one
+place a screen drill touches real hardware, and it is deliberately a plain
+setting rather than something detected: it costs the stats nothing (a fat finger
+is not a misreading) and is untimed, because what it trains is the mapping from
+a written stack to a position under the hands, not a reading speed.
 
 ## 2. ii-V-I through the 12 keys
 

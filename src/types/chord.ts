@@ -27,18 +27,34 @@ export type ChordQuality = 'major' | 'minor' | 'diminished' | 'augmented'
 export type ChordClefMode = 'treble' | 'bass'
 
 /**
- * What the round asks for.
+ * One thing a question asks for. They compose: a round asks for the root, the
+ * quality, the chord played on a real keyboard, or any combination of the
+ * three, always in that order.
  *
- * `chord` names the chord itself -- one tap among the seven note names, since
- * in do major the root decides the quality, so "sol" IS "sol major". That is
- * the operation actually performed when reading a piece written on chords, and
- * it is the mode this drill exists for.
+ * Three independent steps rather than one four-valued mode, for two reasons.
+ * Naming a chord outright in a single tap ("sol minor") needs a keypad of
+ * twelve roots times four qualities, which is not a keypad -- it would have to
+ * be answered by drawing a subset of candidates, and a subset turns recall into
+ * elimination (see IDEA.md). Two taps keep both keypads small and real. And the
+ * two are genuinely different operations, read in this order: the root is found
+ * by locating the fourth-wide gap in the stack, and only once it is known can
+ * the quality be measured, since the bottom interval of an INVERTED stack is
+ * not the chord's own third. Asking them one at a time also says WHICH of the
+ * two was missed, which one combined tap never can.
  *
- * `quality` asks only whether the stack is major, minor or diminished. Fewer
- * buttons and a different question: it drills the quality column of the table
- * without requiring the bottom note to be read precisely.
+ * `play` is the third step and the only one that wants a MIDI keyboard. Once
+ * the chord is named its keys are determined, so there is no knowledge left to
+ * test -- but the mapping from a written stack to a position under the hands is
+ * exactly what is worth memorising, so this step is practice rather than
+ * assessment, and costs the stats nothing (see `ChordQuizEngine`). It is a
+ * plain setting and is deliberately NOT gated on a device being detected: the
+ * player knows whether a piano is within reach, and a drill that silently drops
+ * a step because a keyboard was plugged in late is worse than one that waits.
  */
-export type ChordAnswerMode = 'chord' | 'quality'
+export type ChordAnswerStep = 'root' | 'quality' | 'play'
+
+/** The steps in the only order they are ever asked in. */
+export const CHORD_ANSWER_STEPS: ChordAnswerStep[] = ['root', 'quality', 'play']
 
 /**
  * Which position the triad is stacked in. 0 is root position, 1 and 2 are the
@@ -49,8 +65,8 @@ export type ChordInversion = 0 | 1 | 2
 /**
  * Whether a round inverts its chords.
  *
- * This is the setting that decides whether the drill asks anything at all in
- * `chord` answer mode. In root position the bottom note *is* the root, so
+ * This is the setting that decides whether the drill asks anything at all once
+ * the root is what is asked for. In root position the bottom note *is* the root, so
  * naming the chord is naming the bottom note -- the reading quiz with two extra
  * notes drawn on top. Inverted, the root is somewhere else in the stack and has
  * to be found, which is both a real question and the thing that actually blocks
@@ -75,7 +91,11 @@ export type ChordStackMode = 'root' | 'all'
 export type ChordAccidentalMode = 'none' | 'all'
 
 export interface ChordQuizSettings {
-  answerMode: ChordAnswerMode
+  /**
+   * What each question asks for, in order. Never empty: a round that asks
+   * nothing is not a round.
+   */
+  answerSteps: ChordAnswerStep[]
   accidentalMode: ChordAccidentalMode
   stackMode: ChordStackMode
   clefMode: ChordClefMode
@@ -104,8 +124,8 @@ export interface ChordQuestion {
    * The root's letter name.
    *
    * Named `step` because that is the field `NamingQuizEngine` judges, so the
-   * inherited "name the note" answer needs no chord-specific code at all: it
-   * IS the `chord` answer mode.
+   * inherited "name the note" answer needs no chord-specific code at all: it IS
+   * the `root` step.
    */
   step: string
   /** The root's own accidental: -1 flat, 0 natural, +1 sharp. */

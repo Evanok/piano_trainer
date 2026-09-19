@@ -9,11 +9,12 @@ import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
 import { midiToNoteName } from '../engine/noteNames'
 import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
+import { CHORD_ANSWER_STEPS } from '../types/chord'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type {
   ChordAccidentalMode,
-  ChordAnswerMode,
+  ChordAnswerStep,
   ChordClefMode,
   ChordQuizSettings,
   ChordStackMode,
@@ -66,6 +67,18 @@ const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
 ]
 
 const READING_QUESTION_COUNTS = [10, 20, 30, 40]
+
+/**
+ * The three things a chord question can ask for, in the order they are asked.
+ * Checkboxes rather than one four-valued picker: they are independent, and a
+ * single tap naming both the root and the quality would need a keypad of
+ * twelve roots times four qualities (see `ChordAnswerStep`).
+ */
+const CHORD_STEP_CHOICES: { step: ChordAnswerStep; label: string }[] = [
+  { step: 'root', label: 'Which chord (do, re, mi...)' },
+  { step: 'quality', label: 'Quality (major, minor, dim)' },
+  { step: 'play', label: 'Play it on the piano' },
+]
 
 const SELECT_CLASS =
   'rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none'
@@ -148,6 +161,26 @@ export function ExerciseSetup({
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
+
+  /**
+   * Check or uncheck one step. The last one cannot be unchecked -- a round that
+   * asks nothing is not a round -- and the order is the generator's own
+   * (`CHORD_ANSWER_STEPS`), not the order the boxes were ticked in.
+   */
+  const toggleChordStep = (step: ChordAnswerStep) => {
+    setChordSettings((current) => {
+      const wanted = new Set(current.answerSteps)
+      if (wanted.has(step)) {
+        if (wanted.size === 1) {
+          return current
+        }
+        wanted.delete(step)
+      } else {
+        wanted.add(step)
+      }
+      return { ...current, answerSteps: CHORD_ANSWER_STEPS.filter((entry) => wanted.has(entry)) }
+    })
+  }
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
@@ -671,31 +704,35 @@ export function ExerciseSetup({
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-medium text-gray-900">Chord quiz</h2>
-              <span className="text-xs text-gray-500">No piano needed</span>
+              <span className="text-xs text-gray-500">
+                {chordSettings.answerSteps.includes('play') ? 'MIDI keyboard needed' : 'No piano needed'}
+              </span>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm text-gray-700">
-                Answer with
-                <select
-                  value={chordSettings.answerMode}
-                  onChange={(event) =>
-                    setChordSettings((current) => ({
-                      ...current,
-                      answerMode: event.target.value as ChordAnswerMode,
-                    }))
-                  }
-                  className={SELECT_CLASS}
-                >
-                  <option value="chord">Which chord (do, re, mi...)</option>
-                  <option value="quality">Quality only (major, minor, dim)</option>
-                </select>
+              <fieldset className="flex flex-col gap-1 text-sm text-gray-700 sm:col-span-2">
+                <legend className="mb-1">Each chord asks for</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {CHORD_STEP_CHOICES.map((choice) => {
+                    const checked = chordSettings.answerSteps.includes(choice.step)
+                    return (
+                      <label key={choice.step} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleChordStep(choice.step)}
+                          className="h-4 w-4"
+                        />
+                        <span>{choice.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
                 <span className="text-xs text-gray-500">
-                  {chordSettings.answerMode === 'quality'
-                    ? 'Three buttons: is the stack major, minor or diminished'
-                    : 'Name the chord itself, which is what a piece written on chords asks for'}
+                  Asked one at a time, in that order -- so a miss says which of the two was missed. Playing it
+                  needs a MIDI keyboard, and is yours to pick: nothing here checks whether one is plugged in.
                 </span>
-              </label>
+              </fieldset>
 
               <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Accidentals
@@ -783,14 +820,17 @@ export function ExerciseSetup({
             </div>
 
             <p className="text-xs leading-5 text-gray-500">
-              Three notes stacked on the staff: say which chord it is. The four settings are independent, and two
-              of them decide whether the exercise asks anything at all. <strong>Accidentals</strong> is the one
+              Three notes stacked on the staff: say which chord it is. The settings are independent, and two of
+              them decide whether the exercise asks anything at all. <strong>Accidentals</strong> is the one
               that matters most: with none, each letter carries a single possible chord, so the quality can be
               recited from a table; with sharps and flats, sol major and sol minor can both come up and you have
               to actually measure the gap between the bottom two notes -- which is the only method that survives
               a change of key. <strong>Stacking</strong> does the same for the root: in root position it is the
-              bottom note and there is nothing to find. Naming the chord keeps its root natural, since seven
-              buttons cannot say "fa sharp"; the quality answer has no such limit and sees the whole material.
+              bottom note and there is nothing to find. Asking for the chord's name keeps its root natural,
+              since seven buttons cannot say "fa sharp"; a round that only asks for the quality (or only for the
+              chord played) has no such limit and sees the whole material. <strong>Play it</strong> adds a last
+              step on a real keyboard: the three keys, at the octave they are written, which is what turns a
+              name into a position under the hands.
             </p>
 
             <button

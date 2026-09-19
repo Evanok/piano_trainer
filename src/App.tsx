@@ -82,8 +82,9 @@ const DEFAULT_NOTE_SEQUENCE_SETTINGS: NoteSequenceSettings = {
 
 const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
   // Naming the chord, not just its quality: that is the question a piece
-  // written on chords actually asks.
-  answerMode: 'chord',
+  // written on chords actually asks. The quality and the played chord are added
+  // on top of it from the setup screen (see ChordAnswerStep).
+  answerSteps: ['root'],
   accidentalMode: 'none',
   // Inverted from the start: root position alone makes naming the chord the
   // same question as naming the bottom note (see ChordStackMode).
@@ -428,7 +429,18 @@ function App() {
   }
 
   if (screen === 'chord-quiz') {
-    return <ChordQuiz settings={chordSettings} onBack={() => setScreen('exercise-setup')} />
+    return (
+      <ChordQuiz
+        settings={chordSettings}
+        onNoteEvent={onNoteEvent}
+        devices={devices}
+        selectedDeviceId={selectedDeviceId}
+        onSelectDevice={selectDevice}
+        isSupported={isSupported}
+        midiError={error}
+        onBack={() => setScreen('exercise-setup')}
+      />
+    )
   }
 
   if (screen === 'score-library') {

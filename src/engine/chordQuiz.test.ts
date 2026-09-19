@@ -14,7 +14,9 @@ import {
 import { ChordQuizEngine } from './ChordQuizEngine'
 import { diatonicIndex } from './readingQuiz'
 import { chordSessionTitle } from './sessionLog'
-import type { ChordClefMode } from '../types/chord'
+import type { ChordClefMode, ChordQuizSettings } from '../types/chord'
+
+type Material = Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>
 
 /** Total <duration> per measure: a measure whose durations do not add up does
  * not throw in OSMD, it just renders wrong -- the same trap hanonGenerator's
@@ -44,9 +46,10 @@ const NATURAL_PITCH_CLASSES = [0, 2, 4, 5, 7, 9, 11]
 const STEPS_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
 /** The original material: do major's seven, no accidental anywhere. */
-const DIATONIC = { stackMode: 'all', accidentalMode: 'none', answerMode: 'chord' } as const
-/** Everything the generator can draw, which only the quality answer can take. */
-const EVERYTHING = { stackMode: 'all', accidentalMode: 'all', answerMode: 'quality' } as const
+const DIATONIC: Material = { stackMode: 'all', accidentalMode: 'none', answerSteps: ['root'] }
+/** Everything the generator can draw, which only a round that does not ask for
+ * the root by letter can take. */
+const EVERYTHING: Material = { stackMode: 'all', accidentalMode: 'all', answerSteps: ['quality'] }
 
 describe('diatonicTriadOf', () => {
   it('names the seven triads of C major, with three majors, three minors and one diminished', () => {
@@ -252,7 +255,7 @@ describe('accidentals', () => {
       seed: 'free',
       questionCount: 60,
       accidentalMode: 'all',
-      answerMode: 'quality',
+      answerSteps: ['quality'],
     })
     expect(free.questions.some((q) => q.notes.some((n) => n.alter !== 0))).toBe(true)
     // A chord outside do major has no degree in it: inventing one would name a
@@ -268,7 +271,7 @@ describe('accidentals', () => {
       seed: 'named',
       questionCount: 60,
       accidentalMode: 'all',
-      answerMode: 'chord',
+      answerSteps: ['root'],
     })
     // The seven name buttons cannot say "fa sharp", so the root stays natural
     // -- the thirds and fifths still move, which is what frees the quality.
@@ -380,7 +383,7 @@ describe('answer modes', () => {
 
   it('judges the chord by its root, which is the inherited answer', () => {
     const round = createChordRound({ seed: 'root', questionCount: 3 })
-    const engine = new ChordQuizEngine(round.questions)
+    const engine = new ChordQuizEngine(round.questions, ['root'])
     const question = round.questions[0]
     const wrongStep = question.step === 'C' ? 'D' : 'C'
     expect(engine.answer(wrongStep)).toBe('wrong')
@@ -390,26 +393,36 @@ describe('answer modes', () => {
     expect(engine.answer(round.questions[1].step.toLowerCase())).toBe('correct')
   })
 
-  it('names the two modes apart in the session title', () => {
+  it('names what the round asked for in the session title', () => {
     expect(chordSessionTitle({
-        answerMode: 'chord',
+        answerSteps: ['root'],
         accidentalMode: 'none',
         stackMode: 'all',
         clefMode: 'treble',
         questionCount: 20,
         seed: 's',
       })).toBe(
-      'Chords - name the chord, do major, with inversions, treble clef',
+      'Chords - name, do major, with inversions, treble clef',
     )
     expect(chordSessionTitle({
-        answerMode: 'quality',
+        answerSteps: ['quality'],
         accidentalMode: 'all',
         stackMode: 'root',
         clefMode: 'bass',
         questionCount: 20,
         seed: 's',
       })).toBe(
-      'Chords - quality only, with accidentals, root position, bass clef',
+      'Chords - quality, with accidentals, root position, bass clef',
+    )
+    expect(chordSessionTitle({
+        answerSteps: ['root', 'quality', 'play'],
+        accidentalMode: 'all',
+        stackMode: 'all',
+        clefMode: 'treble',
+        questionCount: 20,
+        seed: 's',
+      })).toBe(
+      'Chords - name + quality + played, with accidentals, with inversions, treble clef',
     )
   })
 })
@@ -418,7 +431,7 @@ describe('ChordQuizEngine', () => {
   const round = createChordRound({ seed: 'engine', questionCount: 3 })
 
   it('advances on the right quality and holds on a wrong one', () => {
-    const engine = new ChordQuizEngine(round.questions)
+    const engine = new ChordQuizEngine(round.questions, ['quality'])
     const first = engine.currentQuestion
     expect(first).not.toBeNull()
     const wrong = first?.quality === 'major' ? 'minor' : 'major'
@@ -430,7 +443,7 @@ describe('ChordQuizEngine', () => {
   })
 
   it('counts first attempts only, and reports the confusion by name', () => {
-    const engine = new ChordQuizEngine(round.questions)
+    const engine = new ChordQuizEngine(round.questions, ['quality'])
     for (const question of round.questions) {
       const wrong = question.quality === 'major' ? 'minor' : 'major'
       engine.answerQuality(wrong)
@@ -446,7 +459,7 @@ describe('ChordQuizEngine', () => {
   })
 
   it('reports done on the last right answer', () => {
-    const engine = new ChordQuizEngine(round.questions)
+    const engine = new ChordQuizEngine(round.questions, ['quality'])
     const results = round.questions.map((question) => engine.answerQuality(question.quality))
     expect(results.slice(0, -1).every((result) => result === 'correct')).toBe(true)
     expect(results[results.length - 1]).toBe('done')

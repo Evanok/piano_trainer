@@ -9,6 +9,7 @@ import {
   summarizeAllTime,
   summarizeRecent,
   summarizeScores,
+  activityOf,
   timeByActivity,
 } from './statsAnalytics'
 import type { ExerciseSessionStats, PracticeSessionRecord } from '../types/session'
@@ -367,5 +368,30 @@ describe('timeByActivity', () => {
 
   it('reports every kind even with no sessions at all', () => {
     expect(timeByActivity([]).map((entry) => entry.kind)).toEqual(['score', 'exercise', 'reading'])
+  })
+
+  it('counts a chord round as reading, unless it asked for the chord to be played', () => {
+    const chordSettings = {
+      accidentalMode: 'none' as const,
+      stackMode: 'all' as const,
+      clefMode: 'treble' as const,
+      questionCount: 20,
+      seed: 'x',
+    }
+    const named = {
+      kind: 'chord' as const,
+      title: 'Chords - name',
+      settings: { ...chordSettings, answerSteps: ['root' as const] },
+    }
+    const played = {
+      kind: 'chord' as const,
+      title: 'Chords - name + played',
+      settings: { ...chordSettings, answerSteps: ['root' as const, 'play' as const] },
+    }
+    expect(activityOf(named)).toBe('reading')
+    // The play step happens at a real keyboard, so it is not phone time.
+    expect(activityOf(played)).toBe('exercise')
+    // A record written before the steps existed must still be readable.
+    expect(activityOf({ ...named, settings: chordSettings as never })).toBe('reading')
   })
 })

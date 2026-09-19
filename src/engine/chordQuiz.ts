@@ -20,29 +20,31 @@
  * than a pattern-matching trick, but it is worth being clear that they are not
  * the same exercise.
  *
- * **The root and the quality are one answer, not two.** In C major a chord on
- * re *is* minor, so naming the root names the chord -- which is why the `chord`
- * answer mode is a single tap among the seven note names and needs no
- * chord-specific engine code at all (`NamingQuizEngine.answer` already judges
- * `question.step`). Asking for both would be asking the same question twice.
- * That correlation is what written accidentals (the next rung, IDEA.md) break.
+ * **The root and the quality are one answer only while there is no
+ * accidental.** In C major a chord on re *is* minor, so naming the root names
+ * the chord, and the `root` step needs no chord-specific engine code at all
+ * (`NamingQuizEngine.answer` already judges `question.step`). Written
+ * accidentals break that correlation -- sol major and sol minor both come up --
+ * and then the two have to be asked one after the other, which is what
+ * `ChordAnswerStep` is for.
  *
- * **Root position alone makes the `chord` mode worthless, which is why the
+ * **Root position alone makes the `root` step worthless, which is why the
  * default inverts.** With the chords never inverted, the root is the bottom
  * note, so naming the chord is naming the bottom note and the drill is the
  * reading quiz with two notes drawn on top -- confirmed by playing it, not
  * predicted. Inverting moves the root into the middle or the top of the stack,
- * so it has to be found; `quality` mode survives root position because reading
- * the bottom note and recalling its quality is one recall step more than
- * naming it.
+ * so it has to be found; the `quality` step survives root position because
+ * reading the bottom note and recalling its quality is one recall step more
+ * than naming it.
  */
 import { createMusicXmlFile, createSeededRng, xmlEscape } from './musicKeys'
 import type { Pitch } from './musicKeys'
 import { asMusicXmlPitch } from './musicKeys'
-import { diatonicIndex, pitchAtDiatonicIndex, STEPS } from './readingQuiz'
+import { diatonicIndex, latinNameOf, pitchAtDiatonicIndex, STEPS } from './readingQuiz'
+import { CHORD_ANSWER_STEPS } from '../types/chord'
 import type {
   ChordAccidentalMode,
-  ChordAnswerMode,
+  ChordAnswerStep,
   ChordClefMode,
   ChordInversion,
   ChordNote,
@@ -54,7 +56,7 @@ import type {
 
 export type {
   ChordAccidentalMode,
-  ChordAnswerMode,
+  ChordAnswerStep,
   ChordClefMode,
   ChordInversion,
   ChordNote,
@@ -88,14 +90,22 @@ export interface ChordRound {
    * rung can reorder them without touching the screen.
    */
   nameOrder: string[]
+  /**
+   * What each question asks for, in order, already sanitized. Carried on the
+   * round rather than re-read from the settings so the screen's step machine
+   * and the generator's own material filter (`chordPlacements`) can never
+   * disagree about what is being asked.
+   */
+  steps: ChordAnswerStep[]
 }
 
 export const DEFAULT_CHORD_QUESTION_COUNT = 20
 
 const DEFAULT_SETTINGS: ChordQuizSettings = {
   // Naming the chord is what reading a piece written on chords asks for, so it
-  // is the default; the quality-only mode is the narrower drill.
-  answerMode: 'chord',
+  // is the step every round starts with; the quality and the played chord are
+  // added on top of it rather than replacing it.
+  answerSteps: ['root'],
   accidentalMode: 'none',
   // Inverted by default, because root position alone asks nothing in `chord`
   // mode: the bottom note is the answer. See ChordStackMode.
@@ -118,6 +128,34 @@ const QUALITY_LABELS: Record<ChordQuality, string> = {
 
 export function chordQualityLabel(quality: ChordQuality): string {
   return QUALITY_LABELS[quality]
+}
+
+const ALTER_SIGNS: Record<number, string> = { [-1]: '♭', 0: '', 1: '♯' }
+
+/**
+ * "sol♯", the root as it is spoken: the letter carries its own accidental.
+ *
+ * These three labels live here rather than in the screen because the engine
+ * needs them too (a played chord is recorded under its own name), and two
+ * spellings of the same chord drifting apart between the screen and the stats
+ * is exactly the kind of thing nobody notices for months.
+ */
+export function chordRootLabel(question: Pick<ChordQuestion, 'step' | 'rootAlter'>): string {
+  return `${latinNameOf(question.step)}${ALTER_SIGNS[question.rootAlter] ?? ''}`
+}
+
+/** "sol♯ minor": root then quality, which is the whole name of a chord. */
+export function chordName(
+  question: Pick<ChordQuestion, 'step' | 'rootAlter' | 'quality'>,
+): string {
+  return `${chordRootLabel(question)} ${chordQualityLabel(question.quality)}`
+}
+
+/** "sol – si♭ – re", bottom to top: the three keys, spelled. */
+export function chordNotesLabel(question: Pick<ChordQuestion, 'notes'>): string {
+  return question.notes
+    .map((note) => `${latinNameOf(note.step)}${ALTER_SIGNS[note.alter] ?? ''}`)
+    .join(' – ')
 }
 
 /** The gap in semitones between the three notes, for each quality. */
@@ -228,6 +266,22 @@ function spellTriad(
 const NOTE_WINDOW: Record<ChordClefMode, { low: number; high: number }> = {
   treble: { low: diatonicIndex('C', 4), high: diatonicIndex('A', 5) },
   bass: { low: diatonicIndex('E', 2), high: diatonicIndex('C', 4) },
+}
+
+/**
+ * The same window as MIDI pitches, for the keyboard the `play` step answers on.
+ *
+ * It is the CLEF's register, not the chord's own range, and that is the point:
+ * the step asks for the exact octave, so opening the keyboard on the three keys
+ * being asked for would answer it. Derived from the window the generator draws
+ * in rather than written out again, so the two cannot drift.
+ */
+export function chordNoteWindowPitches(clefMode: ChordClefMode): { low: number; high: number } {
+  const window = NOTE_WINDOW[clefMode]
+  return {
+    low: pitchAtDiatonicIndex(window.low).midi,
+    high: pitchAtDiatonicIndex(window.high).midi,
+  }
 }
 
 /**
@@ -362,14 +416,15 @@ for (const clefMode of ['treble', 'bass'] as const) {
  * The chords a round with these settings draws from.
  *
  * `accidentalMode: 'none'` keeps only the chords with no accidental anywhere,
- * which is exactly do major's seven. And naming the chord is restricted to
- * natural roots whatever the mode, because the seven name buttons cannot say
- * "fa sharp" -- the quality answer has no such limit, so that is the mode where
- * the whole material is in play.
+ * which is exactly do major's seven. And a round that asks for the ROOT is
+ * restricted to natural ones whatever the mode, because the seven name buttons
+ * cannot say "fa sharp" -- a round that does not ask for it has no such limit,
+ * so the quality-only and play-only rounds are where the whole material is in
+ * play.
  */
 export function chordPlacements(
   clefMode: ChordClefMode,
-  settings: Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerMode'>,
+  settings: Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>,
 ): ChordPlacement[] {
   return PLACEMENTS[clefMode].filter((entry) => {
     if (settings.stackMode === 'root' && entry.inversion !== 0) {
@@ -378,7 +433,7 @@ export function chordPlacements(
     if (settings.accidentalMode === 'none' && !entry.diatonic) {
       return false
     }
-    return !(settings.answerMode === 'chord' && entry.rootAlter !== 0)
+    return !(settings.answerSteps.includes('root') && entry.rootAlter !== 0)
   })
 }
 
@@ -389,7 +444,7 @@ export function chordRoots(clefMode: ChordClefMode): number[] {
       chordPlacements(clefMode, {
         stackMode: 'root',
         accidentalMode: 'none',
-        answerMode: 'chord',
+        answerSteps: ['root'],
       }).map((entry) => entry.root),
     ),
   ].sort((a, b) => a - b)
@@ -399,9 +454,27 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value))
 }
 
+/**
+ * The steps in canonical order, deduplicated, never empty.
+ *
+ * The order is the generator's, not the caller's: the root is found before the
+ * quality can be measured on an inverted stack, and the chord cannot be played
+ * before it is named. A checkbox list has no order of its own to respect, and
+ * an empty one is a round that asks nothing -- which falls back to the root.
+ */
+function sanitizeSteps(steps: ChordAnswerStep[] | undefined): ChordAnswerStep[] {
+  const wanted = new Set(steps ?? [])
+  const ordered = CHORD_ANSWER_STEPS.filter((step) => wanted.has(step))
+  return ordered.length > 0 ? ordered : ['root']
+}
+
 function sanitize(settings: Partial<ChordQuizSettings>): ChordQuizSettings {
   const merged = { ...DEFAULT_SETTINGS, ...settings }
-  return { ...merged, questionCount: clamp(Math.round(merged.questionCount), 1, 60) }
+  return {
+    ...merged,
+    answerSteps: sanitizeSteps(merged.answerSteps),
+    questionCount: clamp(Math.round(merged.questionCount), 1, 60),
+  }
 }
 
 function noteAt(index: number, alter: number): ChordNote {
@@ -565,5 +638,6 @@ export function createChordRound(settings: Partial<ChordQuizSettings>): ChordRou
     ),
     qualities: chordQualitiesInPlay(),
     nameOrder: [...STEPS],
+    steps: sanitized.answerSteps,
   }
 }

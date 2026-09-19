@@ -1,4 +1,4 @@
-import type { ChordQuizSettings } from '../types/chord.ts'
+import type { ChordAnswerStep, ChordQuizSettings } from '../types/chord.ts'
 import type { PracticeSessionRecord } from '../types/session.ts'
 import type { ReadingQuizSettings } from '../types/reading.ts'
 import type { NoteSequenceSettings } from '../types/sequence.ts'
@@ -176,8 +176,17 @@ export function sequenceSessionTitle(settings: NoteSequenceSettings): string {
  * "Chords - triads of do major, treble clef". Denormalized onto the record like
  * every other session title.
  */
+const CHORD_STEP_LABELS: Record<ChordAnswerStep, string> = {
+  root: 'name',
+  quality: 'quality',
+  play: 'played',
+}
+
 export function chordSessionTitle(settings: ChordQuizSettings): string {
-  const asked = settings.answerMode === 'quality' ? 'quality only' : 'name the chord'
+  // "name + quality + played": what the round asked for, in the order it asked.
+  // Written out from the steps rather than from a mode name, since the same
+  // round can ask for one, two or three things.
+  const asked = settings.answerSteps.map((step) => CHORD_STEP_LABELS[step]).join(' + ')
   const stack = settings.stackMode === 'root' ? 'root position' : 'with inversions'
   const accidentals = settings.accidentalMode === 'all' ? 'with accidentals' : 'do major'
   return `Chords - ${asked}, ${accidentals}, ${stack}, ${settings.clefMode === 'bass' ? 'bass' : 'treble'} clef`

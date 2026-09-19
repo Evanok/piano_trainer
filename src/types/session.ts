@@ -76,12 +76,13 @@ export type SessionSource =
     }
   | {
       /**
-       * The chord-reading drill: a triad drawn on a staff, named by its
-       * quality. Its own kind for the same reason `sequence` is one -- the
-       * settings share nothing with the other drills' and the stats row's
-       * title is built from them -- and, like `sequence`, it is reported as
-       * reading *time* (`activityOf`), since the activity split separates the
-       * keyboard from the phone rather than one screen drill from another.
+       * The chord-reading drill: a triad drawn on a staff, named and -- when
+       * the round asks for it -- played. Its own kind for the same reason
+       * `sequence` is one: the settings share nothing with the other drills'
+       * and the stats row's title is built from them. Unlike `sequence` its
+       * *time* is not always reading time: a round carrying the `play` step is
+       * spent at a real keyboard, so `activityOf` reads the settings rather
+       * than the kind alone.
        */
       kind: 'chord'
       title: string

@@ -403,9 +403,20 @@ export type ActivityKind = 'score' | 'exercise' | 'reading'
  * same answer to that question. A row per drill would
  * also grow every time one is added, and the per-drill breakdown is already in
  * the session table, where each row carries the drill's own title.
+ *
+ * The one exception is the chord drill's `play` step, which asks for the chord
+ * on a real keyboard: a round that includes it is time spent AT the piano, and
+ * reporting it as reading time would answer the split's own question wrongly.
+ * So that round counts as a keyboard exercise -- the settings decide, not the
+ * kind, because the same drill is both things depending on how it was set up.
  */
 export function activityOf(source: PracticeSessionRecord['source']): ActivityKind {
-  return source.kind === 'sequence' || source.kind === 'chord' ? 'reading' : source.kind
+  if (source.kind === 'chord') {
+    // Optional-chained on purpose: a record written before the steps existed
+    // carries the old settings shape, and the stats screen must still read it.
+    return source.settings.answerSteps?.includes('play') ? 'exercise' : 'reading'
+  }
+  return source.kind === 'sequence' ? 'reading' : source.kind
 }
 
 export interface ActivityTime {

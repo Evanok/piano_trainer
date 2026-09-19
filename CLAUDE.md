@@ -335,13 +335,16 @@ is what makes sight-reading slow.
 The third screen drill: an inverted triad drawn on a staff, and buttons to name
 it. Structurally it *is* the reading quiz --
 one MusicXML for the whole round, one chord per measure, one OSMD instance with
-`ReadingStaff` cropping to the current measure -- so the only new code is the
-generator, the quality answer, and the lesson. Two further rungs (written
-accidentals, then a real key signature) are specified in IDEA.md.
+`ReadingStaff` cropping to the current measure -- so the new code is the
+generator, the step machine, and the lesson. It is the one screen drill that can
+*optionally* want a real keyboard (the `play` step below); with that step off it
+is keyboard-free like the other two, which is why it still counts as reading
+time in `activityOf`. A further rung (a real key signature) is specified in
+IDEA.md.
 
-- **The four settings are independent axes, not levels** -- accidentals,
-  stacking, what is answered, clef -- and **two of them decide whether the
-  exercise asks anything at all**. That framing was arrived at by building the
+- **The settings are independent axes, not levels** -- accidentals, stacking,
+  what is answered (up to three steps, see below), clef -- and **two of them
+  decide whether the exercise asks anything at all**. That framing was arrived at by building the
   restricted version first and watching it fail twice, so it is worth keeping.
 - **`accidentalMode: 'none'` makes the quality un-measurable, which is why it is
   not the real drill.** With no accidental, every root-position triad of do
@@ -386,25 +389,68 @@ accidentals, then a real key signature) are specified in IDEA.md.
   note of every placement stays within one ledger line of the staff is what
   guards the cropped measure from clipping, and it is the reason no browser is
   needed to trust the register.
-- **Two answer modes, and they are two questions rather than two phrasings of
-  one** (`ChordAnswerMode`). `chord` (the default) taps the chord's own name
-  among the seven note names, which is the operation performed when playing a
-  piece written on chords -- "that is a sol chord" -- and it is the mode the
-  drill exists for. `quality` taps major/minor/diminished, the narrower drill
-  over one column of the table. Naming the root *is* naming the chord here,
-  because in do major the root decides the quality (a stack on sol can only be
-  sol major), so asking for both would ask once -- and it needs no
-  chord-specific engine code at all: `NamingQuizEngine.answer` already judges
-  `question.step`, which is why that field is named `step`. **That shortcut is
-  also why naming the chord is restricted to natural roots** (`chordPlacements`
-  filters on `answerMode`): seven name buttons cannot say "fa sharp". The
-  quality answer has no such limit and therefore sees the whole material, which
-  makes it the mode where accidentals are actually exercised. Giving the name
-  answer the full twelve roots means drawing a subset of candidate buttons --
-  see IDEA.md. The inversion is never asked for
-  either, for the same reason: naming the right root on an inverted chord
-  already proves the inversion was resolved. It is named in the reveal, and
-  splitting the summary's accuracy by inversion is the open follow-up.
+- **A question is asked in up to three steps, not answered in one tap**
+  (`ChordAnswerStep`: `root`, `quality`, `play`, checkboxes in `ExerciseSetup`
+  and always asked in that order). `root` taps the chord's own name among the
+  seven note names, which is the operation performed when playing a piece
+  written on chords -- "that is a sol chord" -- and it is the step the drill
+  exists for; `quality` taps major/minor/diminished; `play` plays the three
+  keys on a real MIDI keyboard. Four things are worth knowing before touching
+  this:
+  - **The alternative was a single tap naming both** ("sol minor"), and it was
+    rejected on the ladder's own rule: twelve roots times four qualities is not
+    a keypad, so it would have to draw a subset of candidate buttons, which
+    turns recall into elimination (IDEA.md). Two taps keep both keypads small
+    and real, they are genuinely two operations (find the root by the
+    fourth-wide gap; measure the quality, which on an *inverted* stack can only
+    be done once the root is known -- hence the order), and asking them apart
+    is the only way to know **which of the two** was missed.
+  - **Naming the root still IS naming the chord while there is no accidental**,
+    because in do major the root decides the quality, and it needs no
+    chord-specific engine code: `NamingQuizEngine.answer` judges
+    `question.step`, which is why that field is named `step`. That shortcut is
+    also why **a round that asks for the root is restricted to natural ones**
+    (`chordPlacements` filters on `answerSteps`): seven name buttons cannot say
+    "fa sharp". A quality-only or play-only round has no such limit and sees
+    the whole material. Giving the name answer the full twelve roots means
+    drawing a subset of candidates -- see IDEA.md; decomposing into a letter
+    plus an accidental keypad would be the cheaper fix and is not built.
+  - **The `play` step costs the stats nothing, deliberately.** Once the chord is
+    named its keys are determined, so there is no knowledge left to test, only
+    the physical mapping -- it is practice, not assessment, and it is the one
+    step that binds a written stack to a position under the hands. So a wrong
+    key does not advance and is shown in red, but it is not an error and cannot
+    cost the first-try credit of a chord that *was* read correctly (a fat
+    finger is not a misreading), and the step is **not timed** either: the
+    response clock stops as it is entered (`NamingQuizEngine.stopResponseClock`),
+    so seconds spent hunting for keys never land in the round's reading times.
+    It judges the **exact octave**, which is the whole point of it. The chord
+    itself is judged by a `WaitEngine` holding one expected event -- the
+    practice screen's own code, so any order and the chord tolerance come free.
+  - **It is a plain setting, never gated on a device being detected.** The
+    player knows whether a piano is in reach; a drill that silently drops a step
+    because the keyboard was plugged in late is worse than one that waits. The
+    `MidiDevice` picker is rendered beside the step so an absent device says so
+    instead of the screen appearing frozen.
+
+  Multi-step is the only thing `ChordQuizEngine` adds to `NamingQuizEngine`
+  (`judge`'s `advance` parameter: a sub-answer counts as a correct tap, but
+  answered/first-try/combo/response-time stay per *question*). The inversion is
+  never asked for, for the same reason it never was: naming the right root on an
+  inverted chord already proves the inversion was resolved. It is named in the
+  reveal, and splitting the summary's accuracy by inversion is the open
+  follow-up.
+- **A miss reveals only what the step it was given at asked for.** Revealing
+  "re minor" on a missed root would hand the quality step its answer, and
+  spelling out the three notes would hand over both -- so the full name and the
+  note list only appear once nothing is left to leak. For the same reason the
+  `play` step does not highlight its keys until they are revealed: the
+  highlight also drives the keyboard's follow-the-notes scroll, so lighting
+  them would point at them even off screen, and the keyboard opens on the
+  **clef's** register (`chordNoteWindowPitches`) rather than on the chord. The
+  chord's name *is* shown during that step once a naming step has answered it,
+  since binding the name to the position is the point; in a play-only round it
+  is not, because reading the stack is still the question there.
 - **The seven name buttons are in scale order here, with no shuffle option**,
   unlike the reading quiz. The shuffle exists there to stop a note being found
   by counting buttons from a known one; the trade is worse here, since the
@@ -434,12 +480,12 @@ accidentals, then a real key signature) are specified in IDEA.md.
   grand-staff round would ask "which clef is this" on top of "which chord is
   this", and the drill is about the second. Reading chords in the bass clef is
   its own exercise, which is why the choice exists at all.
-- **The third step of reading a chord -- finding the keys -- is shown, never
-  asked.** Once the chord is named its keys are determined, so there is no
-  knowledge left to test, only the physical mapping; and answering by tapping a
-  virtual keyboard was rejected on use as too imprecise. So the reveal renders a
-  `VirtualKeyboard` with the three keys lit, and only once the answer is out, so
-  it can never give it away.
+- **Finding the keys is shown on screen and asked only on real hardware.**
+  Answering by tapping the *virtual* keyboard was rejected on use as too
+  imprecise, and that rejection stands -- a real MIDI keyboard is a different
+  proposition, and it is what the `play` step uses. So a missed chord that is
+  not going to be played still reveals a `VirtualKeyboard` with the three keys
+  lit, once the answer is out so it can never give it away.
 - **A miss reveals the chord's full name** ("re minor -- the ii of do major"),
   not just the right button. The degree is appended only for do major's own
   seven (`ChordQuestion.degree` is null otherwise): a degree names a chord's
@@ -480,8 +526,8 @@ accidentals, then a real key signature) are specified in IDEA.md.
 **What the three screen drills share, and why each piece moved there**:
 `NamingQuizEngine` (all the scoring -- combo, first-try accuracy, response
 times, confusions) with `ReadingQuizEngine` adding only `answerPitch` and
-`ChordQuizEngine` only `answerQuality`, one genuinely drill-specific method
-each; `useQuizSession` (record on open, heartbeat,
+`ChordQuizEngine` adding its step machine (`answerQuality`, `playNote`, and
+`judge`'s `advance` for a question that takes several answers); `useQuizSession` (record on open, heartbeat,
 record on unmount -- the cadence is what matters and it is easy to get subtly
 wrong, since a phone closes a tab with no cleanup); `NoteNameButtons` (the seven
 buttons *and* the number-row shortcut, which must answer the button at that
@@ -520,7 +566,9 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
   rendered as "Where the time goes"): scores, keyboard exercises, and the screen
   drills. The activity is `activityOf(source)`, **not** `source.kind` directly:
   there are five session kinds and only three activities, since the note-order
-  and chord drills both count as reading time. The split exists to keep time at the keyboard
+  drill counts as reading time -- and a chord round counts as reading only when
+  it did *not* ask for the chord to be played, since that step happens at a real
+  keyboard (so there the settings decide, not the kind). The split exists to keep time at the keyboard
   apart from time on a phone with no piano in reach, and a row per drill would
   grow every time one is added while the per-drill breakdown is already in the
   session table, where each row carries the drill's own title. Time at the keyboard and time naming notes on

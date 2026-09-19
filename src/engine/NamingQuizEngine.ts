@@ -4,13 +4,15 @@
  * answers and says what happened, and knows nothing about how a question is
  * drawn or how an answer is tapped.
  *
- * Two drills use it, and they have nothing in common but that: the reading quiz
- * draws a note on a staff, the note-order drill shows a note and a direction.
- * Both ask for a note name, both keep the question on screen until it is right,
- * and both want the same numbers out, so the scoring lives here once. A
- * question only has to carry the `step` that answers it; `ReadingQuizEngine`
- * adds the one thing that is genuinely reading-specific, answering by pressing
- * a piano key, which judges the octave too.
+ * Three drills use it, and they have nothing in common but that: the reading
+ * quiz draws a note on a staff, the note-order drill shows a note and a
+ * direction, the chord drill draws a triad. All three ask for a note name, all
+ * three keep the question on screen until it is right, and all three want the
+ * same numbers out, so the scoring lives here once. A question only has to
+ * carry the `step` that answers it; `ReadingQuizEngine` adds the one thing that
+ * is genuinely reading-specific, answering by pressing a piano key, which
+ * judges the octave too, and `ChordQuizEngine` adds a question that takes
+ * several answers in a row (see `judge`'s `advance`).
  *
  * It produces the same note-level stats a played session does
  * (`ExerciseSessionStats`), so a round can be recorded as an ordinary
@@ -98,7 +100,26 @@ export class NamingQuizEngine<Q extends NamedQuestion> {
     )
   }
 
-  protected judge(correct: boolean, expected: string, played: string, now: number): QuizAnswerResult {
+  /**
+   * Record one answer.
+   *
+   * `advance` is what lets a drill ask several things about ONE question: the
+   * chord drill asks for the root, then the quality, then the chord played, and
+   * only the last of them finishes the question. A sub-answer still counts as a
+   * correct tap, but the per-question numbers (answered, first-try, combo, the
+   * response time) must be recorded once per question rather than once per tap,
+   * so everything but `correctCount` waits for the final step. A wrong answer
+   * is unaffected: every wrong tap counts, whichever step it was given at, and
+   * `missedThisQuestion` survives across the steps so a miss anywhere in the
+   * question costs the first-try credit for all of it.
+   */
+  protected judge(
+    correct: boolean,
+    expected: string,
+    played: string,
+    now: number,
+    advance = true,
+  ): QuizAnswerResult {
     if (!correct) {
       this.errorCount += 1
       this.combo = 0
@@ -111,6 +132,9 @@ export class NamingQuizEngine<Q extends NamedQuestion> {
     }
 
     this.correctCount += 1
+    if (!advance) {
+      return 'correct'
+    }
     this.answeredCount += 1
     if (this.missedThisQuestion) {
       this.combo = 0
@@ -128,6 +152,23 @@ export class NamingQuizEngine<Q extends NamedQuestion> {
     this.missedThisQuestion = false
     this.questionShownAt = now
     return this.state.completed ? 'done' : 'correct'
+  }
+
+  /**
+   * Stop timing the current question without answering anything.
+   *
+   * For a drill whose question ends with a step that is deliberately untimed --
+   * finding the chord's keys on a real keyboard, which is a hand's problem and
+   * not a reading one -- so the time spent there cannot inflate the reading
+   * times the round reports. `timedUntil` is the moment the last timed answer
+   * landed, or null to drop the measurement entirely when nothing timed was
+   * asked before it.
+   */
+  protected stopResponseClock(timedUntil: number | null): void {
+    if (timedUntil !== null && !this.missedThisQuestion && this.questionShownAt !== null) {
+      this.responseTimes.push(Math.max(0, timedUntil - this.questionShownAt))
+    }
+    this.questionShownAt = null
   }
 
   /** Percentage of questions answered right on the first attempt. */
