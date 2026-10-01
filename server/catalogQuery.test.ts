@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, queryCatalog } from './catalogQuery.ts'
-import type { CatalogEntry } from '../src/types/catalog.ts'
+import { keySignatureBadge, type CatalogEntry } from '../src/types/catalog.ts'
 import type { ScorePlayProgress } from '../src/engine/scoreProgress.ts'
 
 function entry(
@@ -115,6 +115,38 @@ describe('queryCatalog', () => {
     expect(queryCatalog(entries, { difficulty: 'easy' }).items.map((item) => item.id)).toEqual(['a'])
     expect(queryCatalog(entries, { difficulty: 'hard' }).items.map((item) => item.id)).toEqual(['b'])
     expect(queryCatalog(entries).total).toBe(3)
+  })
+
+  it('filters by how many sharps or flats the signature carries, either kind', () => {
+    const at = (id: string, keyFifths: number | null | undefined, day: number) => ({
+      ...entry(id, id, `2026-01-${String(day).padStart(2, '0')}T10:00:00.000Z`),
+      keyFifths,
+    })
+    const entries = [
+      at('c-major', 0, 1),
+      at('two-sharps', 2, 2),
+      at('two-flats', -2, 3),
+      at('four-flats', -4, 4),
+      at('six-sharps', 6, 5),
+      at('unread', null, 6),
+      at('never-backfilled', undefined, 7),
+    ]
+    const ids = (keySignature: '0' | '1' | '2' | '3' | '4+') =>
+      queryCatalog(entries, { keySignature }).items.map((item) => item.id)
+    expect(ids('0')).toEqual(['c-major'])
+    expect(ids('2')).toEqual(['two-flats', 'two-sharps'])
+    expect(ids('4+')).toEqual(['six-sharps', 'four-flats'])
+    expect(ids('1')).toEqual([])
+    // An unknown signature only ever shows without the filter.
+    expect(queryCatalog(entries).total).toBe(7)
+  })
+
+  it('counts the folders under the key signature filter, like every other filter', () => {
+    const entries = [
+      { ...entry('a', 'a', '2026-01-01T10:00:00.000Z'), keyFifths: 1, tags: ['study'] },
+      { ...entry('b', 'b', '2026-01-02T10:00:00.000Z'), keyFifths: 0, tags: ['study'] },
+    ]
+    expect(queryCatalog(entries, { keySignature: '1' }).tagCounts).toEqual({ study: 1 })
   })
 
   it('combines a difficulty filter with a search term', () => {
@@ -288,5 +320,16 @@ describe('queryCatalog, virtual folders', () => {
     expect(queryCatalog(entries, {}).total).toBe(2)
     expect(queryCatalog(entries, { tag: 'personal' }).items.map((item) => item.id)).toEqual(['b'])
     expect(queryCatalog(entries, {}).tagCounts).toEqual({ personal: 1 })
+  })
+})
+
+describe('keySignatureBadge', () => {
+  it('writes the signature out in words, and nothing for none or unknown', () => {
+    expect(keySignatureBadge(-2)).toBe('2 flats')
+    expect(keySignatureBadge(3)).toBe('3 sharps')
+    expect(keySignatureBadge(1)).toBe('1 sharp')
+    expect(keySignatureBadge(0)).toBe('')
+    expect(keySignatureBadge(null)).toBe('')
+    expect(keySignatureBadge(undefined)).toBe('')
   })
 })

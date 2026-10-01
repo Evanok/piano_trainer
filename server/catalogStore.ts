@@ -21,13 +21,6 @@ export const METADATA_VERSION = 2
  *  (the front-end ignores metadataVersion). */
 export interface StoredEntry extends CatalogEntry {
   metadataVersion?: number
-  /**
-   * The score's opening key signature (`ScoreMetadata.keyFifths`), null when
-   * the file states none, undefined on an entry not yet backfilled. Server-side
-   * only: it feeds `keySignatureCounts`, which the chord drill draws its keys
-   * from, and nothing displays it per score.
-   */
-  keyFifths?: number | null
 }
 
 // Ids are generated with randomUUID, so anything else came from a crafted URL

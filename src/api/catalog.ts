@@ -1,9 +1,10 @@
 import { AuthRequiredError, authHeaders, notifyAuthRequired } from './auth'
-import type { CatalogEntry, CatalogPage, CatalogSort, ScoreDifficulty } from '../types/catalog'
+import type { CatalogEntry, CatalogKeyFilter, CatalogPage, CatalogSort, ScoreDifficulty } from '../types/catalog'
 
 export interface CatalogQueryParams {
   search: string
   difficulty?: ScoreDifficulty
+  keySignature?: CatalogKeyFilter
   favoritesOnly?: boolean
   /** Selected virtual folder; omitted or empty means every folder. */
   tag?: string
@@ -41,6 +42,7 @@ async function readError(response: Response): Promise<string> {
 export async function fetchCatalogPage({
   search,
   difficulty,
+  keySignature,
   favoritesOnly,
   tag,
   sort,
@@ -51,6 +53,9 @@ export async function fetchCatalogPage({
   const params = new URLSearchParams({ q: search, page: String(page) })
   if (difficulty !== undefined) {
     params.set('difficulty', difficulty)
+  }
+  if (keySignature !== undefined) {
+    params.set('key', keySignature)
   }
   if (favoritesOnly) {
     params.set('favorite', '1')

@@ -10,8 +10,10 @@ import { getStreakStats } from '../engine/streak'
 import {
   CATALOG_SORTS,
   DEFAULT_CATALOG_SORT,
+  keySignatureBadge,
   type CatalogBrowseState,
   type CatalogEntry,
+  type CatalogKeyFilter,
   type CatalogPage,
   type CatalogSort,
   type ScoreDifficulty,
@@ -69,6 +71,14 @@ const DIFFICULTY_LABELS: Record<ScoreDifficulty, string> = {
   easy: 'Easy',
   medium: 'Medium',
   hard: 'Hard',
+}
+
+const KEY_FILTER_LABELS: Record<CatalogKeyFilter, string> = {
+  '0': 'No sharps or flats',
+  '1': '1 sharp or flat',
+  '2': '2 sharps or flats',
+  '3': '3 sharps or flats',
+  '4+': '4 or more',
 }
 
 const DIFFICULTY_BADGE_CLASSES: Record<ScoreDifficulty, string> = {
@@ -159,6 +169,8 @@ export function ScoreLibrary({
   const [searchInput, setSearchInput] = useState(initialBrowseState.search)
   const [search, setSearch] = useState(initialBrowseState.search)
   const [difficultyFilter, setDifficultyFilter] = useState<ScoreDifficulty | ''>(initialBrowseState.difficulty)
+  // `?? ''`: a browse state saved before this filter existed has no field.
+  const [keyFilter, setKeyFilter] = useState<CatalogKeyFilter | ''>(initialBrowseState.keySignature ?? '')
   const [favoritesOnly, setFavoritesOnly] = useState(initialBrowseState.favoritesOnly)
   const [tagFilter, setTagFilter] = useState(initialBrowseState.tag)
   const [sort, setSort] = useState<CatalogSort>(initialBrowseState.sort)
@@ -216,13 +228,26 @@ export function ScoreLibrary({
   // a score) and back later resumes on the same page/search/filter instead
   // of resetting -- this component fully unmounts on every screen switch.
   useEffect(() => {
-    onBrowseStateChange({ search, difficulty: difficultyFilter, favoritesOnly, tag: tagFilter, sort, page })
+    onBrowseStateChange({
+      search,
+      difficulty: difficultyFilter,
+      keySignature: keyFilter,
+      favoritesOnly,
+      tag: tagFilter,
+      sort,
+      page,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, difficultyFilter, favoritesOnly, tagFilter, sort, page])
+  }, [search, difficultyFilter, keyFilter, favoritesOnly, tagFilter, sort, page])
 
   const handleSelectDifficultyFilter = (value: ScoreDifficulty | '') => {
     setDifficultyFilter(value)
     // A new filter invalidates the current page number, same as a new search.
+    setPage(1)
+  }
+
+  const handleSelectKeyFilter = (value: CatalogKeyFilter | '') => {
+    setKeyFilter(value)
     setPage(1)
   }
 
@@ -257,6 +282,7 @@ export function ScoreLibrary({
     fetchCatalogPage({
       search,
       difficulty: difficultyFilter || undefined,
+      keySignature: keyFilter || undefined,
       favoritesOnly,
       tag: tagFilter || undefined,
       sort,
@@ -281,7 +307,7 @@ export function ScoreLibrary({
         }
       })
     return () => controller.abort()
-  }, [search, difficultyFilter, favoritesOnly, tagFilter, sort, page, reloadToken])
+  }, [search, difficultyFilter, keyFilter, favoritesOnly, tagFilter, sort, page, reloadToken])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -510,6 +536,19 @@ export function ScoreLibrary({
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
             </select>
+            <select
+              value={keyFilter}
+              onChange={(event) => handleSelectKeyFilter(event.target.value as CatalogKeyFilter | '')}
+              aria-label="Filter by key signature"
+              className="shrink-0 rounded-md border border-indigo-200 bg-white px-2 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none"
+            >
+              <option value="">All key signatures</option>
+              {(Object.keys(KEY_FILTER_LABELS) as CatalogKeyFilter[]).map((option) => (
+                <option key={option} value={option}>
+                  {KEY_FILTER_LABELS[option]}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={handleToggleFavoritesOnly}
@@ -561,10 +600,10 @@ export function ScoreLibrary({
 
           {catalog && catalog.items.length === 0 && !isCatalogLoading && (
             <p className="py-4 text-sm text-gray-500">
-              {search || difficultyFilter || favoritesOnly
+              {search || difficultyFilter || keyFilter || favoritesOnly
                 ? `No ${favoritesOnly ? 'favorite ' : ''}score matches${search ? ` "${search}"` : ''}${
                     difficultyFilter ? ` (${DIFFICULTY_LABELS[difficultyFilter]} difficulty)` : ''
-                  }.`
+                  }${keyFilter ? ` (${KEY_FILTER_LABELS[keyFilter].toLowerCase()})` : ''}.`
                 : guest
                   ? 'No score in the catalog yet.'
                   : 'No score saved yet. Upload one above and it will show up here.'}
@@ -667,6 +706,14 @@ export function ScoreLibrary({
                               className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${DIFFICULTY_BADGE_CLASSES[entry.difficulty]}`}
                             >
                               {DIFFICULTY_LABELS[entry.difficulty]}
+                            </span>
+                          )}
+                          {keySignatureBadge(entry.keyFifths) && (
+                            <span
+                              title="Key signature"
+                              className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 text-xs font-medium leading-5 text-slate-600"
+                            >
+                              {keySignatureBadge(entry.keyFifths)}
                             </span>
                           )}
                         </span>

@@ -1,4 +1,11 @@
-import type { CatalogEntry, CatalogPage, CatalogSort, ScoreDifficulty } from '../src/types/catalog.ts'
+import {
+  matchesKeyFilter,
+  type CatalogEntry,
+  type CatalogKeyFilter,
+  type CatalogPage,
+  type CatalogSort,
+  type ScoreDifficulty,
+} from '../src/types/catalog.ts'
 import type { ScorePlayProgress } from '../src/engine/scoreProgress.ts'
 import { countTags, entryMatchesTag } from '../src/engine/tags.ts'
 
@@ -12,6 +19,9 @@ export interface CatalogQuery {
   /** Exact match, not a search term -- an entry with no difficulty set never
    *  matches any of the three values, it only shows up with no filter applied. */
   difficulty?: ScoreDifficulty
+  /** How many sharps or flats the opening signature carries. A score whose
+   *  signature could not be read never matches, like an unset difficulty. */
+  keySignature?: CatalogKeyFilter
   /** When true, keep only the starred entries; false and undefined both mean
    *  "no filter" (there is deliberately no "non-favorites only" option). */
   favoritesOnly?: boolean
@@ -88,7 +98,7 @@ function comparatorFor(
 /**
  * Pure search + pagination over the whole catalog: every term must match
  * (AND), case-insensitively, against the title, the composer or the file name;
- * the difficulty, favorite and tag filters then narrow that down (AND again),
+ * the difficulty, key signature, favorite and tag filters then narrow that down (AND again),
  * and results come back in `sort` order (most recently uploaded first by
  * default).
  *
@@ -103,7 +113,10 @@ export function queryCatalog(entries: CatalogEntry[], query: CatalogQuery = {}):
     .filter(Boolean)
   const bySearch = terms.length > 0 ? entries.filter((entry) => matchesSearch(entry, terms)) : [...entries]
   const byDifficulty = query.difficulty ? bySearch.filter((entry) => entry.difficulty === query.difficulty) : bySearch
-  const byFavorite = query.favoritesOnly ? byDifficulty.filter((entry) => entry.favorite === true) : byDifficulty
+  const byKey = query.keySignature
+    ? byDifficulty.filter((entry) => matchesKeyFilter(entry.keyFifths, query.keySignature as CatalogKeyFilter))
+    : byDifficulty
+  const byFavorite = query.favoritesOnly ? byKey.filter((entry) => entry.favorite === true) : byKey
   // Counted before the tag filter is applied, and only after it for the listing:
   // the tree has to keep showing what the *other* filters left in each folder.
   const tagCounts = countTags(byFavorite)

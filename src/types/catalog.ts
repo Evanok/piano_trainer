@@ -39,6 +39,14 @@ export interface CatalogEntry {
    */
   sourceId?: string
   /**
+   * The score's opening key signature as MusicXML counts it: sharps positive,
+   * flats negative, 0 for none. Read from the file at upload (and backfilled
+   * by the startup migration), never edited. Null when the file states none,
+   * absent on an entry not yet backfilled; both mean "unknown", which only
+   * ever matches the unfiltered listing.
+   */
+  keyFifths?: number | null
+  /**
    * How far this piece has been practised, joined onto the listing from the
    * shared practice history. Derived, never stored in catalog.json: it changes
    * every time the piece is played, and persisting it would only be a copy that
@@ -59,6 +67,39 @@ export const CATALOG_SORTS: CatalogSort[] = ['recent', 'title', 'lastPlayed', 'p
 export const DEFAULT_CATALOG_SORT: CatalogSort = 'recent'
 
 /**
+ * The key signature filter: HOW MANY sharps or flats, either kind. The number
+ * is what makes a page harder to read -- two sharps and two flats ask the same
+ * effort -- and a filter by key name ("si minor") cannot be offered at all,
+ * since a file almost never says which of its signature's two keys it is in.
+ * `4+` lumps the rest together because the catalog holds very few of them.
+ */
+export type CatalogKeyFilter = '0' | '1' | '2' | '3' | '4+'
+
+export const CATALOG_KEY_FILTERS: CatalogKeyFilter[] = ['0', '1', '2', '3', '4+']
+
+/** Whether a score's signature falls in a key filter; unknown never does. */
+export function matchesKeyFilter(keyFifths: number | null | undefined, filter: CatalogKeyFilter): boolean {
+  if (typeof keyFifths !== 'number') {
+    return false
+  }
+  const count = Math.abs(keyFifths)
+  return filter === '4+' ? count >= 4 : count === Number(filter)
+}
+
+/**
+ * "2 flats", "1 sharp", '' for none: a signature as a badge writes it. In
+ * words rather than "2♭", because UI fonts draw the flat sign at a fraction of
+ * the sharp's size and it was unreadable at badge size.
+ */
+export function keySignatureBadge(keyFifths: number | null | undefined): string {
+  if (typeof keyFifths !== 'number' || keyFifths === 0) {
+    return ''
+  }
+  const count = Math.abs(keyFifths)
+  return `${count} ${keyFifths > 0 ? 'sharp' : 'flat'}${count > 1 ? 's' : ''}`
+}
+
+/**
  * How the catalog is currently being browsed. Not part of the wire format: it
  * lives here because App owns it (so it survives ScoreLibrary unmounting) while
  * ScoreLibrary is what changes it, and one object means adding a control is one
@@ -67,6 +108,7 @@ export const DEFAULT_CATALOG_SORT: CatalogSort = 'recent'
 export interface CatalogBrowseState {
   search: string
   difficulty: ScoreDifficulty | ''
+  keySignature: CatalogKeyFilter | ''
   favoritesOnly: boolean
   /** Selected virtual folder, '' for "all scores". Matches its descendants too. */
   tag: string
@@ -77,6 +119,7 @@ export interface CatalogBrowseState {
 export const DEFAULT_BROWSE_STATE: CatalogBrowseState = {
   search: '',
   difficulty: '',
+  keySignature: '',
   favoritesOnly: false,
   tag: '',
   sort: DEFAULT_CATALOG_SORT,

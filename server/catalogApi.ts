@@ -1,7 +1,14 @@
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { queryCatalog } from './catalogQuery.ts'
-import { CATALOG_SORTS, DEFAULT_CATALOG_SORT, type CatalogSort, type ScoreDifficulty } from '../src/types/catalog.ts'
+import {
+  CATALOG_KEY_FILTERS,
+  CATALOG_SORTS,
+  DEFAULT_CATALOG_SORT,
+  type CatalogKeyFilter,
+  type CatalogSort,
+  type ScoreDifficulty,
+} from '../src/types/catalog.ts'
 import {
   addScore,
   ALLOWED_EXTENSIONS,
@@ -83,6 +90,11 @@ function parseDifficulty(raw: string | null): ScoreDifficulty | undefined {
   return raw !== null && (VALID_DIFFICULTIES as string[]).includes(raw) ? (raw as ScoreDifficulty) : undefined
 }
 
+// Same leniency: a malformed ?key= means no key signature filter.
+function parseKeyFilter(raw: string | null): CatalogKeyFilter | undefined {
+  return raw !== null && (CATALOG_KEY_FILTERS as string[]).includes(raw) ? (raw as CatalogKeyFilter) : undefined
+}
+
 // Same leniency again: an unknown ?sort= falls back to the default order rather
 // than failing the listing.
 function parseSort(raw: string | null): CatalogSort {
@@ -102,6 +114,7 @@ function handleList(res: ServerResponse, dataDir: string, url: URL): void {
       sort: parseSort(url.searchParams.get('sort')),
       search: url.searchParams.get('q') ?? '',
       difficulty: parseDifficulty(url.searchParams.get('difficulty')),
+      keySignature: parseKeyFilter(url.searchParams.get('key')),
       // Only ?favorite=1 turns the filter on; anything else (absent, 0, junk)
       // means "no filter", same leniency as the other listing parameters.
       favoritesOnly: url.searchParams.get('favorite') === '1',
