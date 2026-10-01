@@ -48,7 +48,12 @@ export function ChordQualityButtons({
   })
 
   return (
-    <div className="grid grid-cols-3 gap-1.5">
+    // One row whatever the count: augmented only exists with accidentals on, and
+    // a fourth button wrapping alone below the fold is a button nobody sees.
+    <div
+      className="grid gap-1.5"
+      style={{ gridTemplateColumns: `repeat(${qualities.length}, minmax(0, 1fr))` }}
+    >
       {qualities.map((quality) => {
         const isWrong = wrongQualities.includes(quality)
         const isAnswer = answerQuality === quality

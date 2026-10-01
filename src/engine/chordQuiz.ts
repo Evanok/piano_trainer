@@ -543,9 +543,19 @@ function pickQuestions(settings: ChordQuizSettings): ChordQuestion[] {
   return questions
 }
 
-/** Every quality that can come up in this key, in the buttons' own order. */
-export function chordQualitiesInPlay(): ChordQuality[] {
-  const present = new Set(Object.values(DIATONIC_TRIADS).map((triad) => triad.quality))
+/**
+ * Every quality a round with these settings can draw, in the buttons' own order.
+ *
+ * Read from the very placements the round draws from, not from do major's
+ * table: with accidentals on, augmented chords are in the material, and a
+ * table-derived list once left them without a button, so re-fa sharp-la sharp
+ * could only ever be answered wrong.
+ */
+export function chordQualitiesInPlay(
+  clefMode: ChordClefMode,
+  settings: Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>,
+): ChordQuality[] {
+  const present = new Set(chordPlacements(clefMode, settings).map((entry) => entry.quality))
   return QUALITY_ORDER.filter((quality) => present.has(quality))
 }
 
@@ -636,7 +646,7 @@ export function createChordRound(settings: Partial<ChordQuizSettings>): ChordRou
       generateChordQuizMusicXml(questions, sanitized.clefMode),
       'chord-quiz',
     ),
-    qualities: chordQualitiesInPlay(),
+    qualities: chordQualitiesInPlay(sanitized.clefMode, sanitized),
     nameOrder: [...STEPS],
     steps: sanitized.answerSteps,
   }

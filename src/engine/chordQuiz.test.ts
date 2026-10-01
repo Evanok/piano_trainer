@@ -63,7 +63,20 @@ describe('diatonicTriadOf', () => {
   })
 
   it('offers exactly the three qualities the key contains, so no button is dead', () => {
-    expect(chordQualitiesInPlay()).toEqual(['major', 'minor', 'diminished'])
+    const naturalOnly: Material = { stackMode: 'all', accidentalMode: 'none', answerSteps: ['quality'] }
+    expect(chordQualitiesInPlay('treble', naturalOnly)).toEqual([
+      'major',
+      'minor',
+      'diminished',
+    ])
+  })
+
+  it('offers an augmented button whenever the material can draw an augmented chord', () => {
+    for (const clefMode of ['treble', 'bass'] as const) {
+      expect(chordQualitiesInPlay(clefMode, EVERYTHING)).toEqual(['major', 'minor', 'diminished', 'augmented'])
+      const drawn = new Set(chordPlacements(clefMode, EVERYTHING).map((entry) => entry.quality))
+      expect(new Set(chordQualitiesInPlay(clefMode, EVERYTHING))).toEqual(drawn)
+    }
   })
 })
 
