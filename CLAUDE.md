@@ -477,8 +477,8 @@ IDEA.md.
   Respelling them is not an option, since a triad must stay three letters two
   apart or it stops looking like a chord.
 - **A single clef is the default, and `both` is the rung after it**: a
-  grand-staff round asks "which clef is this" on top of "which chord is this",
-  which is what a real piano score asks, so it earns its place once both clefs
+  grand-staff round draws both clefs and makes the reading switch between them
+  from one chord to the next, which is what a real piano score asks, so it earns its place once both clefs
   are comfortable alone. It is built like the reading quiz's `both` (each chord
   on its own clef's staff, a whole rest on the other, `ChordQuestion.clef` per
   question, the staff picked 50/50 before the chord). The `play` step's

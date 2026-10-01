@@ -796,8 +796,8 @@ export function ExerciseSetup({
                 </select>
                 <span className="text-xs text-gray-500">
                   {chordSettings.clefMode === 'both'
-                    ? 'Each chord lands on one staff or the other, as in a real piano score'
-                    : 'One clef at a time; "Both" adds "which clef" on top of "which chord"'}
+                    ? 'Both staves are drawn; each chord sits on one of them, read it in that clef'
+                    : 'One clef for the whole round; "Both" switches between staves, as in a piano score'}
                 </span>
               </label>
 

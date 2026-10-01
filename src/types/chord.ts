@@ -25,8 +25,9 @@ export type ChordStaff = 'treble' | 'bass'
  * Which clef the round is drawn in. A single clef is the default because
  * reading chords in the bass clef is its own exercise and is easier learnt on
  * its own. `both` draws a grand staff and puts each chord on one staff or the
- * other, the way the reading quiz does: it adds "which clef is this" on top of
- * "which chord is this", which is exactly what a real piano score asks, so it
+ * other, the way the reading quiz does. Both clefs are always drawn, so nothing
+ * is guessed: what it adds is switching the reading between the two clefs from
+ * one chord to the next, which is exactly what a real piano score asks, so it
  * is the rung after both single clefs are comfortable.
  */
 export type ChordClefMode = ChordStaff | 'both'
