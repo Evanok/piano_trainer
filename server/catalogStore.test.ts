@@ -7,6 +7,7 @@ import {
   deleteEntry,
   extensionOf,
   findEntry,
+  keySignatureCounts,
   migrateCatalog,
   readCatalog,
   resolveDataDir,
@@ -20,6 +21,12 @@ const SCORE_WITH_METADATA = `<?xml version="1.0"?>
   <work><work-title>Album for the Young</work-title></work>
   <identification><creator type="composer">Pyotr Ilyich Tchaikovsky</creator></identification>
   <part-list></part-list>
+</score-partwise>`
+
+const SCORE_IN_B_FLAT = `<?xml version="1.0"?>
+<score-partwise version="3.1">
+  <part-list></part-list>
+  <part id="P1"><measure number="1"><attributes><key><fifths>-2</fifths></key></attributes></measure></part>
 </score-partwise>`
 
 const SCORE_WITHOUT_METADATA = '<?xml version="1.0"?><score-partwise><part-list></part-list></score-partwise>'
@@ -159,6 +166,27 @@ describe('migrateCatalog', () => {
     // The orphaned entry keeps its title but is marked as migrated, so it isn't
     // re-read from disk on every restart.
     expect(entries[1]).toMatchObject({ title: 'gone', composer: null })
+  })
+
+  it('backfills the key signature without re-deriving a title fixed by hand', async () => {
+    const entry = await addScore(dataDir, 'in-b-flat.musicxml', Buffer.from(SCORE_IN_B_FLAT))
+    updateEntry(dataDir, entry.id, { title: 'My own title' })
+    const [stored] = readCatalog(dataDir)
+    delete stored.keyFifths
+    writeFileSync(path.join(dataDir, 'catalog.json'), JSON.stringify([stored]), 'utf8')
+
+    await migrateCatalog(dataDir)
+
+    expect(readCatalog(dataDir)[0]).toMatchObject({ title: 'My own title', keyFifths: -2 })
+  })
+})
+
+describe('keySignatureCounts', () => {
+  it('counts the catalog by opening key signature, leaving unknown ones out', async () => {
+    await addScore(dataDir, 'a.musicxml', Buffer.from(SCORE_IN_B_FLAT))
+    await addScore(dataDir, 'b.musicxml', Buffer.from(SCORE_IN_B_FLAT))
+    await addScore(dataDir, 'c.musicxml', Buffer.from(SCORE_WITHOUT_METADATA))
+    expect(keySignatureCounts(readCatalog(dataDir))).toEqual({ '-2': 2 })
   })
 })
 

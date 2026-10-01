@@ -37,7 +37,13 @@
  * reading the bottom note and recalling its quality is one recall step more
  * than naming it.
  */
-import { createMusicXmlFile, createSeededRng, xmlEscape } from './musicKeys'
+import {
+  createMusicXmlFile,
+  createSeededRng,
+  keySignatureAlter,
+  keySignatureTonic,
+  xmlEscape,
+} from './musicKeys'
 import type { Pitch } from './musicKeys'
 import { asMusicXmlPitch } from './musicKeys'
 import { diatonicIndex, latinNameOf, pitchAtDiatonicIndex, STEPS } from './readingQuiz'
@@ -47,6 +53,8 @@ import type {
   ChordAnswerStep,
   ChordClefMode,
   ChordInversion,
+  ChordKey,
+  ChordKeyMode,
   ChordNote,
   ChordQuality,
   ChordQuestion,
@@ -60,6 +68,8 @@ export type {
   ChordAnswerStep,
   ChordClefMode,
   ChordInversion,
+  ChordKey,
+  ChordKeyMode,
   ChordNote,
   ChordQuality,
   ChordQuestion,
@@ -99,6 +109,12 @@ export interface ChordRound {
    * disagree about what is being asked.
    */
   steps: ChordAnswerStep[]
+  /**
+   * The key the round is written in, or null for the keyless do major drill.
+   * Drawn once per round, like a piece: a key changing every chord would turn
+   * the drill into reading signatures instead of reading chords in one.
+   */
+  key: ChordKey | null
 }
 
 export const DEFAULT_CHORD_QUESTION_COUNT = 20
@@ -109,6 +125,7 @@ const DEFAULT_SETTINGS: ChordQuizSettings = {
   // added on top of it rather than replacing it.
   answerSteps: ['root'],
   accidentalMode: 'none',
+  keyMode: 'none',
   // Inverted by default, because root position alone asks nothing in `chord`
   // mode: the bottom note is the answer. See ChordStackMode.
   stackMode: 'all',
@@ -144,6 +161,26 @@ const ALTER_SIGNS: Record<number, string> = { [-1]: '♭', 0: '', 1: '♯' }
  */
 export function chordRootLabel(question: Pick<ChordQuestion, 'step' | 'rootAlter'>): string {
   return `${latinNameOf(question.step)}${ALTER_SIGNS[question.rootAlter] ?? ''}`
+}
+
+/** "si♭ major": a key, named the way the reveal names chords. */
+export function chordKeyLabel(key: ChordKey | null): string {
+  if (key === null) {
+    return 'do major'
+  }
+  const tonic = keySignatureTonic(key.fifths, key.mode)
+  return `${latinNameOf(tonic.step)}${ALTER_SIGNS[tonic.alter] ?? ''} ${key.mode}`
+}
+
+/**
+ * What a root name button says in this key: "si♭" in si-flat major, "fa♯" in
+ * sol major. Still one button per letter, and still answered by the letter --
+ * the signature decides the rest, which is exactly what reading in a key means,
+ * and a root-step round never draws a chord whose root departs from it.
+ */
+export function chordRootButtonLabel(step: string, key: ChordKey | null): string {
+  const alter = key === null ? 0 : keySignatureAlter(key.fifths, step)
+  return `${latinNameOf(step)}${ALTER_SIGNS[alter] ?? ''}`
 }
 
 /** "sol♯ minor": root then quality, which is the whole name of a chord. */
@@ -240,6 +277,7 @@ function spellTriad(
   rootIndex: number,
   rootAlter: number,
   quality: ChordQuality,
+  rejectAwkward = true,
 ): [number, number, number] | null {
   const [thirdSemis, fifthSemis] = QUALITY_INTERVALS[quality]
   const rootNatural = pitchAtDiatonicIndex(rootIndex)
@@ -250,7 +288,7 @@ function spellTriad(
   ]
   for (let tone = 0; tone < 3; tone += 1) {
     const step = pitchAtDiatonicIndex(rootIndex + tone * 2).step
-    if (Math.abs(alters[tone]) > 1 || isAwkward(step, alters[tone])) {
+    if (Math.abs(alters[tone]) > 1 || (rejectAwkward && isAwkward(step, alters[tone]))) {
       return null
     }
   }
@@ -377,8 +415,22 @@ export interface ChordPlacement {
   root: number
   /** Alteration per chord tone: root, third, fifth. */
   alters: [number, number, number]
-  /** True when the chord is one of do major's own seven (no accidental at all). */
+  /**
+   * True when the chord is one of the key's own seven, i.e. needs no written
+   * accidental: in a keyless round, do major's seven.
+   */
   diatonic: boolean
+  /**
+   * Whether the root is the letter as the key signature spells it -- always
+   * the case unless the chord itself alters it (sol♯ in la minor). A round that
+   * asks for the root draws only these, since the name buttons are spelled by
+   * the signature.
+   */
+  rootInKey: boolean
+  /** The chord's degree in the round's key ('IV', 'V/V'), or null when it has none. */
+  numeral: string | null
+  /** Relative frequency among the altered chords of a key; 1 everywhere else. */
+  weight: number
 }
 
 /**
@@ -406,6 +458,7 @@ for (const clefMode of ['treble', 'bass'] as const) {
           if (alters === null) {
             continue
           }
+          const diatonic = alters.every((alter) => alter === 0)
           PLACEMENTS[clefMode].push({
             stepIndex: root % STEPS.length,
             rootAlter,
@@ -413,7 +466,10 @@ for (const clefMode of ['treble', 'bass'] as const) {
             inversion,
             root,
             alters,
-            diatonic: alters.every((alter) => alter === 0),
+            diatonic,
+            rootInKey: rootAlter === 0,
+            numeral: diatonic ? diatonicTriadOf(STEPS[root % STEPS.length]).degree : null,
+            weight: 1,
           })
         }
       }
@@ -442,8 +498,193 @@ export function chordPlacements(
     if (settings.accidentalMode === 'none' && !entry.diatonic) {
       return false
     }
-    return !(settings.answerSteps.includes('root') && entry.rootAlter !== 0)
+    return !(settings.answerSteps.includes('root') && !entry.rootInKey)
   })
+}
+
+/**
+ * The altered chords a key really uses, by degree (0 = tonic) and by how far
+ * the root moves from the signature's own spelling.
+ *
+ * Chosen from what pieces actually contain rather than from every alteration
+ * that is possible, because the drill exists to read real scores. In major:
+ * the secondary dominants (V/V above all, then V/vi and V/ii), and the chords
+ * borrowed from the minor (iv, ♭VII, ♭VI). In minor: the major V and the
+ * diminished vii° that the raised leading note makes -- the commonest written
+ * accidental in the whole repertoire, on nearly every page of a minor piece --
+ * and the major IV of the melodic minor. `weight` is relative frequency among
+ * them, so the V of a minor key comes up three times as often as its IV.
+ */
+interface KeyChord {
+  degree: number
+  rootShift: number
+  quality: ChordQuality
+  numeral: string
+  weight: number
+}
+
+const ALTERED_KEY_CHORDS: Record<ChordKey['mode'], KeyChord[]> = {
+  major: [
+    { degree: 1, rootShift: 0, quality: 'major', numeral: 'V/V', weight: 2 },
+    { degree: 2, rootShift: 0, quality: 'major', numeral: 'V/vi', weight: 1 },
+    { degree: 5, rootShift: 0, quality: 'major', numeral: 'V/ii', weight: 1 },
+    { degree: 3, rootShift: 0, quality: 'minor', numeral: 'iv', weight: 1 },
+    { degree: 6, rootShift: -1, quality: 'major', numeral: '♭VII', weight: 1 },
+    { degree: 5, rootShift: -1, quality: 'major', numeral: '♭VI', weight: 1 },
+  ],
+  minor: [
+    { degree: 4, rootShift: 0, quality: 'major', numeral: 'V', weight: 3 },
+    { degree: 6, rootShift: 1, quality: 'diminished', numeral: 'vii°', weight: 1 },
+    { degree: 3, rootShift: 0, quality: 'major', numeral: 'IV', weight: 1 },
+  ],
+}
+
+/**
+ * How often a round in a key draws one of the key's own chords rather than an
+ * altered one. Roughly what a page of a real piece looks like: mostly the
+ * signature's own notes, with an accidental every few chords.
+ */
+const DIATONIC_SHARE = 0.75
+
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII']
+
+/** 'IV', 'ii', 'vii°': the degree, cased by quality as harmony writes it. */
+function diatonicNumeral(degree: number, quality: ChordQuality): string {
+  const roman = ROMAN[degree]
+  if (quality === 'major') {
+    return roman
+  }
+  if (quality === 'augmented') {
+    return `${roman}+`
+  }
+  return quality === 'diminished' ? `${roman.toLowerCase()}°` : roman.toLowerCase()
+}
+
+/**
+ * Every chord a round in `key` can draw on one staff: the same per-inversion
+ * runs of seven root letters as the keyless drill (an alteration never moves a
+ * note, so the window check is unchanged), each letter carrying the key's own
+ * chord on that degree and, if the settings allow it, the altered ones.
+ *
+ * Spellings like mi♯ or si♯ are accepted here although the keyless drill
+ * refuses them: inside a key they are what a score writes (the V of do-sharp
+ * minor is sol♯-si♯-ré♯), so refusing them would be teaching a spelling that
+ * real music does not use. Double accidentals are still left out.
+ */
+export function keyChordPlacements(
+  clef: ChordStaff,
+  key: ChordKey,
+  settings: Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>,
+): ChordPlacement[] {
+  const tonicIndex = STEPS.indexOf(keySignatureTonic(key.fifths, key.mode).step)
+  const placements: ChordPlacement[] = []
+  for (const inversion of CHORD_INVERSIONS) {
+    if (settings.stackMode === 'root' && inversion !== 0) {
+      continue
+    }
+    const base = baseRootFor(clef, inversion)
+    if (base === null) {
+      continue
+    }
+    for (let offset = 0; offset < STEPS.length; offset += 1) {
+      const root = base + offset
+      const stepIndex = root % STEPS.length
+      const degree = (stepIndex - tonicIndex + STEPS.length) % STEPS.length
+      const letterAlter = (index: number) =>
+        keySignatureAlter(key.fifths, STEPS[index % STEPS.length])
+      const signature: [number, number, number] = [
+        letterAlter(root),
+        letterAlter(root + 2),
+        letterAlter(root + 4),
+      ]
+      const add = (quality: ChordQuality, rootShift: number, numeral: string | null, weight: number) => {
+        const rootAlter = signature[0] + rootShift
+        const alters = spellTriad(root, rootAlter, quality, false)
+        if (alters === null) {
+          return
+        }
+        const diatonic = alters.every((alter, tone) => alter === signature[tone])
+        placements.push({
+          stepIndex,
+          rootAlter,
+          quality,
+          inversion,
+          root,
+          alters,
+          diatonic,
+          rootInKey: rootShift === 0,
+          numeral: numeral ?? diatonicNumeral(degree, quality),
+          weight,
+        })
+      }
+      // The key's own chord on this degree: whichever quality the signature's
+      // three letters already spell.
+      const own = QUALITY_ORDER.find((quality) => {
+        const alters = spellTriad(root, signature[0], quality, false)
+        return alters !== null && alters.every((alter, tone) => alter === signature[tone])
+      })
+      if (own !== undefined) {
+        add(own, 0, null, 1)
+      }
+      if (settings.accidentalMode === 'all') {
+        for (const chord of ALTERED_KEY_CHORDS[key.mode]) {
+          if (chord.degree === degree) {
+            add(chord.quality, chord.rootShift, chord.numeral, chord.weight)
+          }
+        }
+      }
+    }
+  }
+  return placements.filter(
+    (entry) => !(settings.answerSteps.includes('root') && !entry.rootInKey),
+  )
+}
+
+/**
+ * The signatures a round with a random key draws from when the catalog cannot
+ * say: up to four sharps or flats, which is where nearly every beginner and
+ * intermediate piece sits.
+ */
+const FALLBACK_KEY_FIFTHS = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+
+/**
+ * Six sharps or flats is as far as the drill goes: seven-sign keys exist
+ * mostly as respellings of the six-sign ones, and the catalog holds next to
+ * none.
+ */
+const MAX_KEY_FIFTHS = 6
+
+/**
+ * One key for a round: a signature weighted by how many catalog scores open
+ * in it (`counts`, keyed by fifths), and major or minor at even odds -- a file
+ * almost never states which of its signature's two keys it is in, so the
+ * catalog cannot weight that half.
+ */
+export function drawChordKey(
+  rng: () => number,
+  counts: Record<string, number> | null | undefined,
+): ChordKey {
+  const weighted = Object.entries(counts ?? {})
+    .map(([fifths, count]) => ({ fifths: Number(fifths), count }))
+    .filter(
+      (entry) =>
+        Number.isInteger(entry.fifths) && Math.abs(entry.fifths) <= MAX_KEY_FIFTHS && entry.count > 0,
+    )
+  const pool =
+    weighted.length > 0
+      ? weighted
+      : FALLBACK_KEY_FIFTHS.map((fifths) => ({ fifths, count: 1 }))
+  const total = pool.reduce((sum, entry) => sum + entry.count, 0)
+  let target = rng() * total
+  let fifths = pool[pool.length - 1].fifths
+  for (const entry of pool) {
+    target -= entry.count
+    if (target < 0) {
+      fifths = entry.fifths
+      break
+    }
+  }
+  return { fifths, mode: rng() < 0.5 ? 'major' : 'minor' }
 }
 
 /** The seven root-position roots, lowest first. Used by the lesson's table. */
@@ -499,7 +740,7 @@ function noteAt(index: number, alter: number): ChordNote {
  * chord tone each one is, so an inversion carries each tone's alteration with
  * it instead of re-deriving anything.
  */
-export function triadNotes(placement: ChordPlacement): ChordNote[] {
+export function triadNotes(placement: Pick<ChordPlacement, 'inversion' | 'root' | 'alters'>): ChordNote[] {
   const offsets = STACK_OFFSETS[placement.inversion]
   const tones = STACK_TONES[placement.inversion]
   return offsets.map((offset, i) => noteAt(placement.root + offset, placement.alters[tones[i]]))
@@ -507,24 +748,48 @@ export function triadNotes(placement: ChordPlacement): ChordNote[] {
 
 /** The plain diatonic triad on a root index, for the lesson's own table. */
 export function triadAt(rootIndex: number, inversion: ChordInversion = 0): ChordNote[] {
-  const root = pitchAtDiatonicIndex(rootIndex)
-  const quality = diatonicTriadOf(root.step).quality
-  return triadNotes({
-    stepIndex: rootIndex % STEPS.length,
-    rootAlter: 0,
-    quality,
-    inversion,
-    root: rootIndex,
-    alters: [0, 0, 0],
-    diatonic: true,
-  })
+  return triadNotes({ inversion, root: rootIndex, alters: [0, 0, 0] })
 }
 
-function pickQuestions(settings: ChordQuizSettings): ChordQuestion[] {
+function weightedPick(rng: () => number, placements: ChordPlacement[]): ChordPlacement {
+  const total = placements.reduce((sum, entry) => sum + entry.weight, 0)
+  let target = rng() * total
+  for (const entry of placements) {
+    target -= entry.weight
+    if (target < 0) {
+      return entry
+    }
+  }
+  return placements[placements.length - 1]
+}
+
+/**
+ * One chord out of a staff's material. Keyless, every placement is equally
+ * likely, as it always was. In a key, the key's own chords and the altered ones
+ * are two pools drawn at `DIATONIC_SHARE`: drawing from one pool would let
+ * the altered chords -- several per degree -- outnumber the key's own seven,
+ * which is the opposite of what a page of music looks like.
+ */
+function pickPlacement(rng: () => number, placements: ChordPlacement[], key: ChordKey | null): ChordPlacement {
+  if (key === null) {
+    return placements[Math.floor(rng() * placements.length)]
+  }
+  const own = placements.filter((entry) => entry.diatonic)
+  const altered = placements.filter((entry) => !entry.diatonic)
+  const pool = altered.length > 0 && (own.length === 0 || rng() >= DIATONIC_SHARE) ? altered : own
+  return weightedPick(rng, pool)
+}
+
+/** The material a round draws from on one staff, with or without a key. */
+function roundPlacements(clef: ChordStaff, settings: ChordQuizSettings, key: ChordKey | null): ChordPlacement[] {
+  return key === null ? chordPlacements(clef, settings) : keyChordPlacements(clef, key, settings)
+}
+
+function pickQuestions(settings: ChordQuizSettings, key: ChordKey | null): ChordQuestion[] {
   const rng = createSeededRng(settings.seed)
   const staves = chordStavesOf(settings.clefMode)
   const placementsByStaff = Object.fromEntries(
-    staves.map((clef) => [clef, chordPlacements(clef, settings)]),
+    staves.map((clef) => [clef, roundPlacements(clef, settings, key)]),
   ) as Record<ChordStaff, ChordPlacement[]>
   const questions: ChordQuestion[] = []
   let previousStepIndex = -1
@@ -537,9 +802,9 @@ function pickQuestions(settings: ChordQuizSettings): ChordQuestion[] {
     // would be free, and a repeat reads as the screen having failed to advance.
     // Two inversions of the same chord back to back would also turn the second
     // into a free one, which is precisely the shortcut this drill is about.
-    let placement = placements[Math.floor(rng() * placements.length)]
+    let placement = pickPlacement(rng, placements, key)
     for (let attempt = 0; attempt < 8 && placement.stepIndex === previousStepIndex; attempt += 1) {
-      placement = placements[Math.floor(rng() * placements.length)]
+      placement = pickPlacement(rng, placements, key)
     }
     previousStepIndex = placement.stepIndex
     const step = STEPS[placement.stepIndex]
@@ -550,9 +815,10 @@ function pickQuestions(settings: ChordQuizSettings): ChordQuestion[] {
       rootAlter: placement.rootAlter,
       notes: triadNotes(placement),
       quality: placement.quality,
-      // A degree names a chord's place in a key, so only do major's own seven
-      // have one here; sol minor would need a key this round is not in.
-      degree: placement.diatonic ? diatonicTriadOf(step).degree : null,
+      // A degree names a chord's place in a key: in a keyless round only do
+      // major's own seven have one, since sol minor would need a key this round
+      // is not in. With a key, every chord drawn was chosen by its degree.
+      degree: placement.numeral,
       inversion: placement.inversion,
       clef,
     })
@@ -582,7 +848,7 @@ export function chordQualitiesInPlay(
 
 const ACCIDENTAL_NAMES: Record<number, string> = { [-1]: 'flat', 0: 'natural', 1: 'sharp' }
 
-function noteXml(note: ChordNote, isChordTone: boolean, staff: 1 | 2 | null): string {
+function noteXml(note: ChordNote, isChordTone: boolean, staff: 1 | 2 | null, fifths: number): string {
   const pitch: Pitch = {
     midi: note.midi,
     step: note.step,
@@ -594,11 +860,14 @@ function noteXml(note: ChordNote, isChordTone: boolean, staff: 1 | 2 | null): st
   // OSMD stack them on one stem instead of drawing three separate whole notes.
   const chord = isChordTone ? '\n        <chord/>' : ''
   // <alter> sets the pitch; <accidental> is the printed symbol, and it is
-  // emitted explicitly rather than left to the renderer to infer -- the round
-  // has no key signature, so every altered note must show its own sign.
-  const accidental = note.alter
-    ? `\n        <accidental>${ACCIDENTAL_NAMES[note.alter]}</accidental>`
-    : ''
+  // emitted explicitly rather than left to the renderer to infer. A sign is
+  // printed exactly when the note departs from the key signature: a mi-flat in
+  // si-flat major carries none, a mi-natural there carries a natural. With no
+  // signature that is every altered note, as before.
+  const accidental =
+    note.alter !== keySignatureAlter(fifths, note.step)
+      ? `\n        <accidental>${ACCIDENTAL_NAMES[note.alter]}</accidental>`
+      : ''
   return `      <note>${chord}
         ${asMusicXmlPitch(pitch)}
         <duration>4</duration>
@@ -617,11 +886,18 @@ function restXml(staff: 1 | 2): string {
       </note>`
 }
 
-function attributesXml(clefMode: ChordClefMode): string {
-  const time = `        <divisions>1</divisions>
-        <key>
+function attributesXml(clefMode: ChordClefMode, key: ChordKey | null): string {
+  const keyXml =
+    key === null
+      ? `        <key>
           <fifths>0</fifths>
-        </key>
+        </key>`
+      : `        <key>
+          <fifths>${key.fifths}</fifths>
+          <mode>${key.mode}</mode>
+        </key>`
+  const time = `        <divisions>1</divisions>
+${keyXml}
         <time>
           <beats>4</beats>
           <beat-type>4</beat-type>
@@ -650,10 +926,13 @@ ${time}
       </attributes>`
 }
 
-function measureXml(question: ChordQuestion, clefMode: ChordClefMode): string {
-  const attributes = question.measureNumber === 1 ? `\n${attributesXml(clefMode)}\n` : '\n'
+function measureXml(question: ChordQuestion, clefMode: ChordClefMode, key: ChordKey | null): string {
+  const attributes = question.measureNumber === 1 ? `\n${attributesXml(clefMode, key)}\n` : '\n'
+  const fifths = key?.fifths ?? 0
   if (clefMode !== 'both') {
-    const notes = question.notes.map((note, index) => noteXml(note, index > 0, null)).join('\n')
+    const notes = question.notes
+      .map((note, index) => noteXml(note, index > 0, null, fifths))
+      .join('\n')
     return `    <measure number="${question.measureNumber}">${attributes}${notes}
     </measure>`
   }
@@ -661,7 +940,9 @@ function measureXml(question: ChordQuestion, clefMode: ChordClefMode): string {
   // carries a whole rest, as in the reading quiz, so the round reads like a
   // real piano score rather than switching clef every measure on one staff.
   const staff = question.clef === 'treble' ? 1 : 2
-  const chord = question.notes.map((note, index) => noteXml(note, index > 0, staff)).join('\n')
+  const chord = question.notes
+    .map((note, index) => noteXml(note, index > 0, staff, fifths))
+    .join('\n')
   return `    <measure number="${question.measureNumber}">${attributes}${
     staff === 1 ? chord : restXml(1)
   }
@@ -675,8 +956,9 @@ ${staff === 2 ? chord : restXml(2)}
 export function generateChordQuizMusicXml(
   questions: ChordQuestion[],
   clefMode: ChordClefMode,
+  key: ChordKey | null = null,
 ): string {
-  const measures = questions.map((question) => measureXml(question, clefMode)).join('\n')
+  const measures = questions.map((question) => measureXml(question, clefMode, key)).join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="3.1">
@@ -698,17 +980,42 @@ ${measures}
 `
 }
 
-export function createChordRound(settings: Partial<ChordQuizSettings>): ChordRound {
+/**
+ * A whole round. `keyCounts` is the catalog's key signature statistic
+ * (`GET /api/key-signatures`), only read when the settings ask for a key; null
+ * or empty falls back to an even spread of the common keys.
+ */
+export function createChordRound(
+  settings: Partial<ChordQuizSettings>,
+  keyCounts: Record<string, number> | null = null,
+): ChordRound {
   const sanitized = sanitize(settings)
-  const questions = pickQuestions(sanitized)
+  // Its own stream, so turning keys on does not reshuffle which chords a seed
+  // draws for reasons that have nothing to do with the key.
+  const key =
+    sanitized.keyMode === 'random'
+      ? drawChordKey(createSeededRng(`${sanitized.seed}:key`), keyCounts)
+      : null
+  const questions = pickQuestions(sanitized, key)
   return {
     questions,
     file: createMusicXmlFile(
-      generateChordQuizMusicXml(questions, sanitized.clefMode),
+      generateChordQuizMusicXml(questions, sanitized.clefMode, key),
       'chord-quiz',
     ),
-    qualities: chordQualitiesInPlay(sanitized.clefMode, sanitized),
+    qualities: key === null ? chordQualitiesInPlay(sanitized.clefMode, sanitized) : keyQualitiesInPlay(),
     nameOrder: [...STEPS],
     steps: sanitized.answerSteps,
+    key,
   }
+}
+
+/**
+ * The quality buttons of a round with a key. The same three whatever the key
+ * and whatever the accidentals setting: every key has its major, minor and
+ * diminished chords, and the altered chords it uses add no augmented one. Fixed
+ * rather than read from the drawn key so the buttons cannot hint at it.
+ */
+function keyQualitiesInPlay(): ChordQuality[] {
+  return ['major', 'minor', 'diminished']
 }

@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
-import { extractFromXml, extractScoreMetadata } from './scoreMetadata.ts'
+import { extractFromXml, extractKeyFifths, extractScoreMetadata } from './scoreMetadata.ts'
 
 function scoreXml(body: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -29,6 +29,7 @@ describe('extractFromXml', () => {
     expect(extractFromXml(FULL_METADATA)).toEqual({
       title: 'Album for the Young',
       composer: 'Pyotr Ilyich Tchaikovsky',
+      keyFifths: null,
     })
   })
 
@@ -66,16 +67,17 @@ Album for the young
     expect(extractFromXml(xml)).toEqual({
       title: 'Album for the young',
       composer: 'Pyotr Ilyich Tchaikovsky',
+      keyFifths: null,
     })
   })
 
   it('treats an empty element as absent', () => {
     const xml = scoreXml('  <work><work-title>   </work-title></work>')
-    expect(extractFromXml(xml)).toEqual({ title: null, composer: null })
+    expect(extractFromXml(xml)).toEqual({ title: null, composer: null, keyFifths: null })
   })
 
   it('returns nulls when the score carries no metadata', () => {
-    expect(extractFromXml(scoreXml(''))).toEqual({ title: null, composer: null })
+    expect(extractFromXml(scoreXml(''))).toEqual({ title: null, composer: null, keyFifths: null })
   })
 
   it('truncates an absurdly long title', () => {
@@ -87,7 +89,7 @@ Album for the young
 describe('extractScoreMetadata', () => {
   it('reads a plain .musicxml file', async () => {
     const metadata = await extractScoreMetadata('score.musicxml', Buffer.from(FULL_METADATA, 'utf8'))
-    expect(metadata).toEqual({ title: 'Album for the Young', composer: 'Pyotr Ilyich Tchaikovsky' })
+    expect(metadata).toEqual({ title: 'Album for the Young', composer: 'Pyotr Ilyich Tchaikovsky', keyFifths: null })
   })
 
   it('reads a compressed .mxl through its container manifest', async () => {
@@ -101,6 +103,7 @@ describe('extractScoreMetadata', () => {
     expect(await extractScoreMetadata('score.mxl', mxl)).toEqual({
       title: 'Album for the Young',
       composer: 'Pyotr Ilyich Tchaikovsky',
+      keyFifths: null,
     })
   })
 
@@ -113,6 +116,28 @@ describe('extractScoreMetadata', () => {
     expect(await extractScoreMetadata('broken.mxl', Buffer.from('not a zip at all'))).toEqual({
       title: null,
       composer: null,
+      keyFifths: null,
     })
+  })
+})
+
+describe('extractKeyFifths', () => {
+  const measure = (attributes: string) =>
+    scoreXml(`  <part id="P1"><measure number="1"><attributes>${attributes}</attributes></measure></part>`)
+
+  it('reads the opening key signature, flats negative', () => {
+    expect(extractKeyFifths(measure('<key><fifths>-2</fifths><mode>major</mode></key>'))).toBe(-2)
+    expect(extractKeyFifths(measure('<key print-object="yes"><fifths> 3 </fifths></key>'))).toBe(3)
+    expect(extractKeyFifths(measure('<key><fifths>0</fifths></key>'))).toBe(0)
+  })
+
+  it('takes the first signature of a piece that modulates', () => {
+    const xml = measure('<key><fifths>1</fifths></key>') + '<key><fifths>-3</fifths></key>'
+    expect(extractKeyFifths(xml)).toBe(1)
+  })
+
+  it('says nothing for a file without one, or with an impossible one', () => {
+    expect(extractKeyFifths(measure('<divisions>1</divisions>'))).toBeNull()
+    expect(extractKeyFifths(measure('<key><fifths>12</fifths></key>'))).toBeNull()
   })
 })

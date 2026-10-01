@@ -5,16 +5,21 @@ import {
   chordQualitiesInPlay,
   chordQualitySemitones,
   chordRoots,
+  chordKeyLabel,
+  chordRootButtonLabel,
   createChordRound,
   diatonicTriadOf,
+  drawChordKey,
+  keyChordPlacements,
   generateChordQuizMusicXml,
   triadAt,
   triadNotes,
 } from './chordQuiz'
 import { ChordQuizEngine } from './ChordQuizEngine'
 import { diatonicIndex } from './readingQuiz'
+import { createSeededRng, keySignatureAlter, keySignatureTonic } from './musicKeys'
 import { chordSessionTitle } from './sessionLog'
-import type { ChordQuizSettings, ChordStaff } from '../types/chord'
+import type { ChordKey, ChordQuizSettings, ChordStaff } from '../types/chord'
 
 type Material = Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>
 
@@ -512,5 +517,183 @@ describe('ChordQuizEngine', () => {
     expect(results.slice(0, -1).every((result) => result === 'correct')).toBe(true)
     expect(results[results.length - 1]).toBe('done')
     expect(engine.successPercent).toBe(100)
+  })
+})
+
+describe('key signatures', () => {
+  it('derives every signature and its two tonics from the count alone', () => {
+    expect(['F', 'C', 'G'].map((step) => keySignatureAlter(3, step))).toEqual([1, 1, 1])
+    expect(keySignatureAlter(3, 'D')).toBe(0)
+    expect(['B', 'E'].map((step) => keySignatureAlter(-2, step))).toEqual([-1, -1])
+    expect(keySignatureAlter(-2, 'A')).toBe(0)
+    expect(keySignatureTonic(-2, 'major')).toEqual({ step: 'B', alter: -1 })
+    expect(keySignatureTonic(-2, 'minor')).toEqual({ step: 'G', alter: 0 })
+    expect(keySignatureTonic(4, 'minor')).toEqual({ step: 'C', alter: 1 })
+    expect(keySignatureTonic(-6, 'major')).toEqual({ step: 'G', alter: -1 })
+    expect(keySignatureTonic(0, 'minor')).toEqual({ step: 'A', alter: 0 })
+  })
+
+  it('names keys and spells the root buttons by the signature', () => {
+    expect(chordKeyLabel({ fifths: -2, mode: 'major' })).toBe('si♭ major')
+    expect(chordKeyLabel({ fifths: 4, mode: 'minor' })).toBe('do♯ minor')
+    expect(chordKeyLabel(null)).toBe('do major')
+    expect(chordRootButtonLabel('E', { fifths: -2, mode: 'major' })).toBe('mi♭')
+    expect(chordRootButtonLabel('D', { fifths: -2, mode: 'major' })).toBe('re')
+    expect(chordRootButtonLabel('E', null)).toBe('mi')
+  })
+
+  const OWN_ONLY: Material = { stackMode: 'all', accidentalMode: 'none', answerSteps: ['root'] }
+  const WITH_ALTERED: Material = { stackMode: 'all', accidentalMode: 'all', answerSteps: ['quality'] }
+  const KEYS: ChordKey[] = []
+  for (let fifths = -6; fifths <= 6; fifths += 1) {
+    KEYS.push({ fifths, mode: 'major' }, { fifths, mode: 'minor' })
+  }
+
+  it("gives every key its own seven chords, spelled by the signature alone", () => {
+    for (const key of KEYS) {
+      for (const clef of ['treble', 'bass'] as const) {
+        const own = keyChordPlacements(clef, key, OWN_ONLY)
+        // Seven roots in each of the three positions, one chord each.
+        expect(own).toHaveLength(21)
+        for (const placement of own) {
+          expect(placement.diatonic).toBe(true)
+          for (const note of triadNotes(placement)) {
+            expect(note.alter).toBe(keySignatureAlter(key.fifths, note.step))
+          }
+        }
+      }
+    }
+  })
+
+  it("gives the key's own chords the qualities of their degree", () => {
+    const byNumeral = (key: ChordKey) =>
+      Object.fromEntries(
+        keyChordPlacements('treble', key, { ...OWN_ONLY, stackMode: 'root' }).map((entry) => [
+          entry.numeral,
+          entry.quality,
+        ]),
+      )
+    expect(byNumeral({ fifths: 3, mode: 'major' })).toEqual({
+      I: 'major',
+      ii: 'minor',
+      iii: 'minor',
+      IV: 'major',
+      V: 'major',
+      vi: 'minor',
+      'vii°': 'diminished',
+    })
+    expect(byNumeral({ fifths: -3, mode: 'minor' })).toEqual({
+      i: 'minor',
+      'ii°': 'diminished',
+      III: 'major',
+      iv: 'minor',
+      v: 'minor',
+      VI: 'major',
+      VII: 'major',
+    })
+  })
+
+  it('writes the raised leading note of a minor key in front of the note', () => {
+    const key: ChordKey = { fifths: 0, mode: 'minor' }
+    const dominant = keyChordPlacements('treble', key, WITH_ALTERED).find(
+      (entry) => entry.numeral === 'V' && entry.inversion === 0,
+    )
+    expect(dominant).toBeDefined()
+    expect(triadNotes(dominant!).map((note) => [note.step, note.alter])).toEqual([
+      ['E', 0],
+      ['G', 1],
+      ['B', 0],
+    ])
+    expect(dominant!.quality).toBe('major')
+  })
+
+  it('never draws an altered root in a round that asks for the root', () => {
+    for (const key of KEYS) {
+      const asked = keyChordPlacements('treble', key, { ...WITH_ALTERED, answerSteps: ['root', 'quality'] })
+      expect(asked.every((entry) => entry.rootInKey)).toBe(true)
+      expect(asked.some((entry) => !entry.diatonic)).toBe(true)
+      // The quality-only round keeps them: vii° of the minor, the borrowed ♭VII.
+      // Past four signs they can need a double accidental (fa𝄪 in sol♯ minor),
+      // which is left out, so the check stops there.
+      if (Math.abs(key.fifths) <= 4) {
+        const all = keyChordPlacements('treble', key, WITH_ALTERED)
+        expect(all.some((entry) => !entry.rootInKey)).toBe(true)
+      }
+    }
+  })
+
+  it('never needs a double accidental', () => {
+    for (const key of KEYS) {
+      for (const placement of keyChordPlacements('bass', key, WITH_ALTERED)) {
+        expect(placement.alters.every((alter) => Math.abs(alter) <= 1)).toBe(true)
+      }
+    }
+  })
+
+  it('draws signatures as often as the catalog opens in them', () => {
+    const rng = createSeededRng('weights')
+    const drawn: Record<number, number> = {}
+    for (let i = 0; i < 4000; i += 1) {
+      const key = drawChordKey(rng, { '0': 3, '-2': 1, '9': 50 })
+      drawn[key.fifths] = (drawn[key.fifths] ?? 0) + 1
+    }
+    // The impossible signature is ignored, the other two keep their 3:1 ratio.
+    expect(Object.keys(drawn).sort()).toEqual(['-2', '0'])
+    expect(drawn[0] / drawn[-2]).toBeGreaterThan(2.4)
+    expect(drawn[0] / drawn[-2]).toBeLessThan(3.6)
+  })
+
+  it('falls back to the common keys when the catalog says nothing', () => {
+    const rng = createSeededRng('fallback')
+    for (let i = 0; i < 200; i += 1) {
+      expect(Math.abs(drawChordKey(rng, null).fifths)).toBeLessThanOrEqual(4)
+    }
+  })
+
+  it('writes the signature, and a sign only where a note departs from it', () => {
+    const round = createChordRound(
+      { seed: 'key-xml', keyMode: 'random', accidentalMode: 'all', answerSteps: ['quality'], questionCount: 60 },
+      { '-3': 1 },
+    )
+    expect(round.key?.fifths).toBe(-3)
+    const xml = generateChordQuizMusicXml(round.questions, 'treble', round.key)
+    expect(xml).toContain('<fifths>-3</fifths>')
+    const measures = [...xml.matchAll(/<measure number="\d+">([\s\S]*?)<\/measure>/g)]
+    measures.forEach((measure, index) => {
+      const notes = [...measure[1].matchAll(/<note>([\s\S]*?)<\/note>/g)].map((note) => note[1])
+      notes.forEach((note, tone) => {
+        const chordNote = round.questions[index].notes[tone]
+        const departs = chordNote.alter !== keySignatureAlter(-3, chordNote.step)
+        expect(note.includes('<accidental>')).toBe(departs)
+      })
+    })
+    // Roughly a quarter of the chords are altered ones.
+    const altered = round.questions.filter((question) =>
+      question.notes.some((note) => note.alter !== keySignatureAlter(-3, note.step)),
+    ).length
+    expect(altered).toBeGreaterThan(5)
+    expect(altered).toBeLessThan(30)
+    expect(round.questions.every((question) => question.degree !== null)).toBe(true)
+  })
+
+  it('keeps the keyless drill exactly as it was', () => {
+    const before = createChordRound({ seed: 'unchanged', accidentalMode: 'all', answerSteps: ['quality'] })
+    const explicit = createChordRound({
+      seed: 'unchanged',
+      accidentalMode: 'all',
+      answerSteps: ['quality'],
+      keyMode: 'none',
+    })
+    expect(explicit.questions).toEqual(before.questions)
+    expect(before.key).toBeNull()
+  })
+
+  it('names the key in the session title', () => {
+    expect(
+      chordSessionTitle(
+        { answerSteps: ['root'], accidentalMode: 'all', keyMode: 'random', stackMode: 'all', clefMode: 'both', questionCount: 20, seed: 's' },
+        'si♭ major',
+      ),
+    ).toBe('Chords - name, in si♭ major with altered chords, with inversions, both clefs')
   })
 })

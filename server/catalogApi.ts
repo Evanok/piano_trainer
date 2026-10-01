@@ -8,6 +8,7 @@ import {
   deleteEntry,
   extensionOf,
   findEntry,
+  keySignatureCounts,
   MAX_SCORE_BYTES,
   readCatalog,
   resolveDataDir,
@@ -355,6 +356,7 @@ export function isAllowedForGuest(method: string | undefined, pathname: string):
   }
   return (
     pathname === '/api/scores' ||
+    pathname === '/api/key-signatures' ||
     pathname === '/api/stats' ||
     /^\/api\/scores\/[^/]+\/file$/.test(pathname)
   )
@@ -412,6 +414,10 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
         sendJson(res, 200, { sessions: readSessions(dataDir) })
       } else if (url.pathname === '/api/stats/sync' && req.method === 'POST') {
         await handleStatsSync(req, res, dataDir)
+      } else if (url.pathname === '/api/key-signatures' && req.method === 'GET') {
+        // What the chord drill draws its keys from, so a round's key signature
+        // is as likely as it is in the pieces actually in the library.
+        sendJson(res, 200, { counts: keySignatureCounts(readCatalog(dataDir)) })
       } else if (url.pathname === '/api/scores' && req.method === 'GET') {
         handleList(res, dataDir, url)
       } else if (url.pathname === '/api/scores' && req.method === 'POST') {

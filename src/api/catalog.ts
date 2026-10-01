@@ -128,3 +128,16 @@ export async function downloadScoreFile(entry: CatalogEntry): Promise<File> {
   }
   return new File([await response.blob()], entry.filename)
 }
+
+/**
+ * How many catalog scores open in each key signature, keyed by `fifths`
+ * (sharps positive, flats negative). What the chord drill draws its keys from.
+ */
+export async function fetchKeySignatureCounts(signal?: AbortSignal): Promise<Record<string, number>> {
+  const response = await fetch('/api/key-signatures', { signal, headers: authHeaders() })
+  if (!response.ok) {
+    await failed(response)
+  }
+  const body = (await response.json()) as { counts?: Record<string, number> }
+  return body.counts ?? {}
+}

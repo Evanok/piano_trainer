@@ -443,7 +443,38 @@ export function ChordLesson() {
             </p>
           </Section>
 
-          <Section title="7. How to work it">
+          <Section title="7. Reading in a key">
+            <p className="text-xs leading-5 text-gray-600">
+              The sharps or flats drawn right after the clef are the <strong>key signature</strong>.
+              Each one applies to <strong>every note of that letter</strong>, in every octave, for the
+              whole piece, with nothing written in front of the note. With si♭ and mi♭ in the
+              signature, a notehead on the mi line <em>is</em> a mi♭. Nothing on the note says so:
+              that is the whole difficulty, and the only fix is to glance at the signature before
+              reading anything.
+            </p>
+            <p className="text-xs leading-5 text-gray-600">
+              A sign written <strong>in front of a note</strong> overrides the signature for that
+              note. A <strong>natural</strong> (♮) cancels it: in si♭ major a si with a ♮ is a plain
+              si. Those written signs are not random either. The commonest by far is in minor keys:
+              the chord on the fifth degree is played major, so its middle note is raised -- in la
+              minor, mi sol♯ si, with the ♯ written every time.
+            </p>
+            <p className="text-xs leading-5 text-gray-600">
+              Nothing about the method changes. Spell the three letters, apply the signature to each
+              (then any written sign), and measure the root to its third exactly as before. The name
+              buttons follow the signature (si♭ rather than si in si♭ major), and the key itself is
+              never shown: it is named in the answer when you miss.
+            </p>
+            <p className="text-xs leading-5 text-gray-600">
+              To name the key from its signature: with sharps, the major key is one note above the
+              last sharp (fa♯ do♯ -- re major). With flats, it is the second-to-last flat (si♭ mi♭ --
+              si♭ major); one flat alone is fa major. Every signature also belongs to a minor key two
+              letters below (re major and si minor share theirs), which the signature cannot tell
+              apart: the piece's first and last chords usually do.
+            </p>
+          </Section>
+
+          <Section title="8. How to work it">
             <ul className="flex list-disc flex-col gap-1 pl-4 text-xs leading-5 text-gray-600">
               <li>
                 Turn <strong>accidentals on</strong> as soon as you can. With them off, each letter

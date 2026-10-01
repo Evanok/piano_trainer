@@ -40,9 +40,11 @@ import { ChordQuizEngine } from '../engine/ChordQuizEngine'
 import type { QuizAnswerResult } from '../engine/ChordQuizEngine'
 import {
   chordInversionLabel,
+  chordKeyLabel,
   chordName,
   chordNotesLabel,
   chordNoteWindowPitches,
+  chordRootButtonLabel,
   chordRootLabel,
   createChordRound,
 } from '../engine/chordQuiz'
@@ -52,6 +54,7 @@ import type { QuizSessionFrame } from '../hooks/useQuizSession'
 import { PAGE_BACKGROUND, PAGE_CARD } from '../theme'
 import type {
   ChordAnswerStep,
+  ChordKey,
   ChordQuality,
   ChordQuestion,
   ChordQuizSettings,
@@ -72,6 +75,12 @@ const STEP_LABELS: Record<ChordAnswerStep, string> = {
 
 interface ChordQuizProps {
   settings: ChordQuizSettings
+  /**
+   * The catalog's key signature statistic, which a round with a random key is
+   * drawn from. Null when it could not be fetched: the round then falls back
+   * to an even spread of the common keys rather than waiting.
+   */
+  keyCounts: Record<string, number> | null
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   devices: MidiDeviceInfo[]
   selectedDeviceId: string | null
@@ -87,17 +96,20 @@ interface ChordQuizProps {
  * inverted chord is usually a miss about *which note was the root*, and being
  * told the stack was in root position is the other half of that lesson.
  *
- * The degree is only appended for do major's own seven. A chord with an
- * accidental has no degree here, and printing one would name a key the round is
- * not in.
+ * The degree is relative to the round's key. In a keyless round only do
+ * major's own seven have one: a chord with an accidental has no degree there,
+ * and printing one would name a key the round is not in. With a key, this is
+ * also where the key itself is revealed, since it is never shown beforehand --
+ * reading it off the signature is part of the question.
  */
-function chordAnswerLabel(question: ChordQuestion): string {
-  const degree = question.degree === null ? '' : ` — the ${question.degree} of do major`
+function chordAnswerLabel(question: ChordQuestion, key: ChordKey | null): string {
+  const degree = question.degree === null ? '' : ` — the ${question.degree} of ${chordKeyLabel(key)}`
   return `${chordName(question)}, ${chordInversionLabel(question.inversion)}${degree}`
 }
 
 export function ChordQuiz({
   settings,
+  keyCounts,
   onNoteEvent,
   devices,
   selectedDeviceId,
@@ -110,8 +122,8 @@ export function ChordQuiz({
   // same twenty chords in the same order.
   const [roundSeed, setRoundSeed] = useState(() => createSessionId())
   const round = useMemo(
-    () => createChordRound({ ...settings, seed: roundSeed }),
-    [settings, roundSeed],
+    () => createChordRound({ ...settings, seed: roundSeed }, keyCounts),
+    [settings, roundSeed, keyCounts],
   )
   const staffRef = useRef<ReadingStaffHandle>(null)
   const engineRef = useRef(new ChordQuizEngine(round.questions, round.steps))
@@ -146,7 +158,7 @@ export function ChordQuiz({
       // play step is a chord under two hands rather than a score to read.
       source: {
         kind: 'chord',
-        title: chordSessionTitle(settings),
+        title: chordSessionTitle(settings, round.key === null ? null : chordKeyLabel(round.key)),
         settings,
       },
       totalEvents: round.questions.length,
@@ -329,7 +341,7 @@ export function ChordQuiz({
               <p className="text-sm font-medium text-emerald-800">
                 {leaksLaterStep
                   ? `${chordRootLabel(question)} — ${chordInversionLabel(question.inversion)}`
-                  : chordAnswerLabel(question)}
+                  : chordAnswerLabel(question, round.key)}
               </p>
               {leaksLaterStep ? null : (
                 <p className="text-xs text-emerald-700">{chordNotesLabel(question)}</p>
@@ -353,7 +365,7 @@ export function ChordQuiz({
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-medium text-gray-700">
                 {namesChordDuringPlay
-                  ? `Play ${chordAnswerLabel(question)}`
+                  ? `Play ${chordAnswerLabel(question, round.key)}`
                   : 'Play the chord as written'}
               </p>
               <MidiDevice
@@ -401,6 +413,7 @@ export function ChordQuiz({
             answerStep={revealed ? (question?.step ?? null) : null}
             disabled={state.completed}
             onAnswer={handleAnswerStep}
+            labelOf={(step) => chordRootButtonLabel(step, round.key)}
           />
         ) : null}
       </main>

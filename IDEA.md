@@ -62,13 +62,11 @@ What is left:
    contain almost no block chords -- recognising that a six-note run is a sol
    chord in second inversion is the same skill on material already in the
    repertoire. Same generator, different note emission.
-5. **+ a real key signature.** Not decoration: the altered note becomes
-   *implicit*, and reading a mi-flat because the piece is in si-flat major is a
-   different act from reading a written flat in front of the note. That is the
-   skill this rung exists for. It also opens the roman numerals as a question in
-   their own right ("in la major, which chord is IV"), which is the phone-side
-   twin of the ii-V-I generator below -- drill the knowledge away from home,
-   play it on return.
+5. **The roman numerals as a question in their own right** ("in la major,
+   which chord is IV"). The key signature rung itself is built (`ChordKeyMode`,
+   keys weighted by the catalog, realistic altered chords); this is what it
+   opens, and it is the phone-side twin of the ii-V-I generator below -- drill
+   the knowledge away from home, play it on return.
 
 **When a rung has too many possible answers, draw a subset of candidates rather
 than every one of them** -- naming a chord on any root is twelve roots times four qualities,

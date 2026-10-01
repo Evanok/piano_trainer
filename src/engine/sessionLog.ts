@@ -182,13 +182,25 @@ const CHORD_STEP_LABELS: Record<ChordAnswerStep, string> = {
   play: 'played',
 }
 
-export function chordSessionTitle(settings: ChordQuizSettings): string {
+/**
+ * `keyLabel` is the round's key already named ("si♭ major"), or null for a
+ * keyless round. Passed in as text because this module is typechecked by the
+ * server too and must not pull in the generator that names keys.
+ */
+export function chordSessionTitle(settings: ChordQuizSettings, keyLabel: string | null = null): string {
   // "name + quality + played": what the round asked for, in the order it asked.
   // Written out from the steps rather than from a mode name, since the same
   // round can ask for one, two or three things.
   const asked = settings.answerSteps.map((step) => CHORD_STEP_LABELS[step]).join(' + ')
   const stack = settings.stackMode === 'root' ? 'root position' : 'with inversions'
-  const accidentals = settings.accidentalMode === 'all' ? 'with accidentals' : 'do major'
+  // With a key, the key drawn for this round is named (each round is its own
+  // record), and the accidentals say whether its altered chords were in play.
+  const accidentals =
+    keyLabel !== null
+      ? `in ${keyLabel}${settings.accidentalMode === 'all' ? ' with altered chords' : ''}`
+      : settings.accidentalMode === 'all'
+        ? 'with accidentals'
+        : 'do major'
   const clef =
     settings.clefMode === 'both'
       ? 'both clefs'

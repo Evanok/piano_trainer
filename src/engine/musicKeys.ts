@@ -225,6 +225,42 @@ const CHROMATIC_FLAT = [
   { step: 'B' },
 ]
 
+const SIGNATURE_SHARP_STEPS = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
+const SIGNATURE_FLAT_STEPS = ['B', 'E', 'A', 'D', 'G', 'C', 'F']
+const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+
+/**
+ * The alteration a key signature of `fifths` (sharps positive, flats negative,
+ * MusicXML's own count) puts on a letter: +1, -1 or 0.
+ *
+ * Derived from the order the signs are written in rather than read from
+ * `KEYS`, which only lists the keys the keyboard exercises offer: a signature
+ * is fully determined by its count, so this covers every one of them without
+ * becoming a second key table.
+ */
+export function keySignatureAlter(fifths: number, step: string): number {
+  if (fifths > 0) {
+    return SIGNATURE_SHARP_STEPS.indexOf(step) < fifths ? 1 : 0
+  }
+  if (fifths < 0) {
+    return SIGNATURE_FLAT_STEPS.indexOf(step) < -fifths ? -1 : 0
+  }
+  return 0
+}
+
+/**
+ * The tonic of the major or minor key a signature belongs to. One signature
+ * serves two keys (one flat is F major or D minor), so the mode has to be said.
+ * The major tonic walks the circle of fifths -- each fifth up is four letters
+ * up -- and the relative minor sits two letters below it.
+ */
+export function keySignatureTonic(fifths: number, mode: 'major' | 'minor'): { step: string; alter: number } {
+  const majorLetter = (((4 * fifths) % 7) + 7) % 7
+  const letter = mode === 'major' ? majorLetter : (majorLetter + 5) % 7
+  const step = LETTERS[letter]
+  return { step, alter: keySignatureAlter(fifths, step) }
+}
+
 export const RANDOM_KEY = 'random'
 export const TRAINING_KEY_NAMES = Array.from(new Set(KEYS.map((key) => key.tonic)))
 

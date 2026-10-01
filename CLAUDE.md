@@ -116,7 +116,7 @@ The API is public (plain HTTP, no proxy, no TLS), and until this existed anyone 
 
 ### Guest links (`ApiRole`, `PIANO_TRAINER_GUEST_PASSWORD`, `GuestLinkShare.tsx`)
 
-A second, optional password mints a **read-only** token, so the deployment can be shown to someone without handing them the owner's password (which is all-or-nothing: it lets them upload, rename, delete, and merge their own practice into the shared `stats.json`). `resolveRole(token)` answers `'owner' | 'guest' | null` and is the only thing that decides; `isAllowedForGuest` (exported from `catalogApi.ts` and unit-tested, since it is the actual boundary) allows exactly `GET /api/scores`, `GET /api/scores/:id/file` and `GET /api/stats`.
+A second, optional password mints a **read-only** token, so the deployment can be shown to someone without handing them the owner's password (which is all-or-nothing: it lets them upload, rename, delete, and merge their own practice into the shared `stats.json`). `resolveRole(token)` answers `'owner' | 'guest' | null` and is the only thing that decides; `isAllowedForGuest` (exported from `catalogApi.ts` and unit-tested, since it is the actual boundary) allows exactly `GET /api/scores`, `GET /api/scores/:id/file`, `GET /api/key-signatures` and `GET /api/stats`.
 
 - **The share link carries the token, it is not a mode flag.** `http://<host>:5173/?guest=<token>`, adopted by `adoptGuestLinkToken()` (called once in `App`'s auth effect, before the first request) which stores it and strips the parameter from the address bar. A `?guest` that only flipped a front-end flag would protect nothing, since the API answers `curl` too and the visitor would still need a real credential to see anything at all. The link therefore *is* a credential: whoever holds it is in, and revoking it means changing the password and restarting.
 - **A blocked call answers 403, never 401.** `src/api/auth.ts` treats every 401 as "this token is dead", clears it and shows the login screen, so a 401 here would throw the guest out on their first blocked request instead of refusing that one call.
@@ -131,7 +131,7 @@ A second, optional password mints a **read-only** token, so the deployment can b
 One of the two server-side parts of the app (the other is the stats sync, further down, mounted on the same handler): uploaded scores are kept on disk so they can be re-opened later without re-picking the file. Deliberately dependency-free (`node:http` + `node:fs`, no framework, no database) -- it's a single-user personal deployment, not a service.
 
 - **One handler, two hosts.** `createCatalogApi()` (`server/catalogApi.ts`) is a connect-style middleware. In dev, `vite.config.ts` mounts it on the Vite dev server (so `npm run dev` stays one process); in production `server/index.ts` mounts it in front of a static `dist/` file server. There is no second implementation of the endpoints to keep in sync, and no dev-only proxy config.
-- **Endpoints:** `GET /api/scores?q=&difficulty=&favorite=&page=&limit=` (search + filters + pagination, most recent first), `POST /api/scores?filename=` (the file is the raw request body -- posting `multipart/form-data` instead would mean shipping a parser for no benefit), `GET /api/scores/:id/file`, `PATCH /api/scores/:id` (JSON body `{ title?, composer?, difficulty?, favorite? }`, edits metadata only -- see below), `DELETE /api/scores/:id` (204, removes the entry and its file).
+- **Endpoints:** `GET /api/scores?q=&difficulty=&favorite=&page=&limit=` (search + filters + pagination, most recent first), `POST /api/scores?filename=` (the file is the raw request body -- posting `multipart/form-data` instead would mean shipping a parser for no benefit), `GET /api/scores/:id/file`, `PATCH /api/scores/:id` (JSON body `{ title?, composer?, difficulty?, favorite? }`, edits metadata only -- see below), `DELETE /api/scores/:id` (204, removes the entry and its file). `GET /api/key-signatures` returns `{ counts }`, the catalog counted by opening key signature, for the chord drill.
 - **Names come from the score, not the file name** (`server/scoreMetadata.ts`): `<work-title>` (then `<movement-title>`) and `<creator type="composer">`, since files are usually downloaded under a slug (`persona-5-piano-the-days-when-my-mother-was-there.mxl`). A `.mxl` is a ZIP, opened with `jszip` -- the same library OSMD itself uses to read those files, so anything the app can render, the catalog can read. Extraction is deliberately regex-based on three flat elements rather than a full XML parse (Node has no DOM, and an XML parser would be a lot of dependency for `<work-title>`). Only the **first non-empty line** of a field is kept: a multi-line title/creator is nearly always the same name repeated in another script. It's best-effort -- an unreadable header yields nulls and falls back to `titleFromFilename` (slug -> "Tchaikovsky Album for the Young"), never a rejected upload.
 - **`METADATA_VERSION` + `migrateCatalog()`**: entries are stamped with the extraction version that produced them, and anything older is re-derived from disk at startup (`vite.config.ts` in dev, `server/index.ts` in prod, both non-fatal on failure). Bump the constant when the extraction rules change, otherwise the improvement only ever reaches *newly uploaded* scores. `metadataVersion` is server-side bookkeeping the front-end ignores (`StoredEntry` vs the shared `CatalogEntry`).
 - **Storage** (`server/catalogStore.ts`): `<dataDir>/catalog.json` + `<dataDir>/scores/<uuid><ext>`, where `dataDir` is `PIANO_TRAINER_DATA_DIR` or `./data`. Resolved from `process.cwd()` on purpose, *not* from `import.meta.url`: in dev this module is bundled into a temporary Vite config file at an unrelated path, which would silently move the data directory. `data/` is gitignored, and lives outside `public/` so Vite never serves it statically -- `server.watch.ignored` also excludes it, otherwise every upload would trigger a full page reload and drop a practice session in progress.
@@ -339,8 +339,7 @@ one MusicXML for the whole round, one chord per measure, one OSMD instance with
 generator, the step machine, and the lesson. It is the one screen drill that can
 *optionally* want a real keyboard (the `play` step below); with that step off it
 is keyboard-free like the other two, which is why it still counts as reading
-time in `activityOf`. A further rung (a real key signature) is specified in
-IDEA.md.
+time in `activityOf`.
 
 - **The settings are independent axes, not levels** -- accidentals, stacking,
   what is answered (up to three steps, see below), clef -- and **two of them
@@ -476,6 +475,44 @@ IDEA.md.
   diminished and mi/la/si augmented cannot be drawn on a natural root at all.
   Respelling them is not an option, since a triad must stay three letters two
   apart or it stops looking like a chord.
+- **A key signature is a setting (`ChordKeyMode`: `none` | `random`), and its
+  point is that the alteration becomes implicit**: a mi in si♭ major is a mi♭
+  with nothing written on the note, a different act of reading from a written
+  flat and the one every real page asks for. Five things worth knowing:
+  - **The key is drawn once per round, weighted by the catalog.** `GET
+    /api/key-signatures` (guest-readable) counts the catalog's scores by opening
+    `<fifths>`, read by `extractKeyFifths` and stored server-side only as
+    `StoredEntry.keyFifths`. That field is backfilled by its own pass in
+    `migrateCatalog`, **not** a `METADATA_VERSION` bump, because a bump
+    re-derives titles and would undo every title fixed by hand. `ExerciseSetup`
+    prefetches the counts and hands them through `App` to `createChordRound`;
+    none (unreachable, empty) falls back to an even spread over four signs or
+    fewer. Major or minor is 50/50, since files almost never say which of a
+    signature's two keys they are in.
+  - **Keys are derived from the count** (`keySignatureAlter`,
+    `keySignatureTonic` in `musicKeys.ts`), not listed: `KEYS` only holds the
+    keys the keyboard exercises offer, and a signature is fully determined by
+    its number, so this covers all of them without a second key table.
+  - **With a key, `accidentalMode` means something else, deliberately**: `none`
+    keeps the key's own seven chords, `all` adds the altered chords pieces really
+    use there (`ALTERED_KEY_CHORDS`: V/V, V/vi, V/ii, iv, ♭VII, ♭VI in major; the
+    major V, vii° and major IV in minor), drawn at `DIATONIC_SHARE` (75% own
+    chords) so a round looks like a page of music rather than an alteration
+    drill. Spellings the keyless drill refuses (mi♯, si♯) are accepted inside a
+    key, because a score writes them there; double accidentals still are not.
+  - **The root buttons stay seven letters, spelled by the signature**
+    (`chordRootButtonLabel`, "si♭" in si♭ major) and still answered by the
+    letter. A root-step round therefore never draws a chord whose root departs
+    from the signature (`rootInKey`: vii° of a minor key, ♭VII, ♭VI); quality-
+    and play-only rounds keep them. That replaces the keyless rule "root steps
+    only on natural roots", which is the same rule with an empty signature.
+  - **A sign is printed exactly when a note departs from the signature**, a
+    natural included, and **the key is never shown**: reading it off the
+    signature is part of the question, and the reveal names it with the degree
+    ("re major -- the V/V of do major"). Every chord in a keyed round has a
+    degree, since the altered ones are chosen by their role in the key. The
+    quality buttons are fixed at major/minor/diminished so they cannot hint at
+    the key. `ChordLesson` section 7 teaches reading a signature.
 - **A single clef is the default, and `both` is the rung after it**: a
   grand-staff round draws both clefs and makes the reading switch between them
   from one chord to the next, which is what a real piano score asks, so it earns its place once both clefs

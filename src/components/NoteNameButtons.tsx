@@ -19,9 +19,22 @@ interface NoteNameButtonsProps {
   answerStep: string | null
   disabled: boolean
   onAnswer: (step: string) => void
+  /**
+   * What a button says, when it is not the plain latin name: the chord drill
+   * spells them by the round's key signature ("si♭" in si-flat major). The
+   * answer is still the letter either way.
+   */
+  labelOf?: (step: string) => string
 }
 
-export function NoteNameButtons({ order, wrongSteps, answerStep, disabled, onAnswer }: NoteNameButtonsProps) {
+export function NoteNameButtons({
+  order,
+  wrongSteps,
+  answerStep,
+  disabled,
+  onAnswer,
+  labelOf = latinNameOf,
+}: NoteNameButtonsProps) {
   // Deliberately re-registered every render: onAnswer closes over the current
   // question, and a stale one would answer the question before it.
   useEffect(() => {
@@ -54,7 +67,7 @@ export function NoteNameButtons({ order, wrongSteps, answerStep, disabled, onAns
                   : 'border-indigo-200 bg-white text-gray-800 hover:bg-indigo-50'
             }`}
           >
-            {latinNameOf(step)}
+            {labelOf(step)}
           </button>
         )
       })}

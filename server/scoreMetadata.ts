@@ -3,7 +3,16 @@ import JSZip from 'jszip'
 export interface ScoreMetadata {
   title: string | null
   composer: string | null
+  /**
+   * The opening key signature as MusicXML counts it: sharps positive, flats
+   * negative, 0 for none. Null when the file states none at all. Only the
+   * first one is read: a piece that modulates still spends most of its length
+   * in its home key, and this feeds a statistic, not a label.
+   */
+  keyFifths: number | null
 }
+
+const EMPTY_METADATA: ScoreMetadata = { title: null, composer: null, keyFifths: null }
 
 // A pathological file shouldn't be able to push a novel into the catalog list.
 const MAX_FIELD_LENGTH = 200
@@ -58,7 +67,17 @@ export function extractFromXml(xml: string): ScoreMetadata {
     // scores that were never given a work title).
     firstMatch(xml, /<movement-title(?:\s[^>]*)?>([\s\S]*?)<\/movement-title>/i)
   const composer = firstMatch(xml, /<creator\b[^>]*\btype\s*=\s*["']composer["'][^>]*>([\s\S]*?)<\/creator>/i)
-  return { title, composer }
+  return { title, composer, keyFifths: extractKeyFifths(xml) }
+}
+
+/** The first `<key><fifths>` of the file, if it is a plausible signature. */
+export function extractKeyFifths(xml: string): number | null {
+  const raw = /<key\b[^>]*>[\s\S]*?<fifths>\s*(-?\d+)\s*<\/fifths>/i.exec(xml)?.[1]
+  if (raw === undefined) {
+    return null
+  }
+  const fifths = Number(raw)
+  return Number.isInteger(fifths) && Math.abs(fifths) <= 7 ? fifths : null
 }
 
 /** Reads the score XML out of a compressed .mxl (a ZIP), or null if it can't. */
@@ -90,8 +109,8 @@ export async function extractScoreMetadata(filename: string, data: Uint8Array): 
     const xml = filename.toLowerCase().endsWith('.mxl')
       ? await readCompressedXml(data)
       : Buffer.from(data).toString('utf8')
-    return xml ? extractFromXml(xml) : { title: null, composer: null }
+    return xml ? extractFromXml(xml) : EMPTY_METADATA
   } catch {
-    return { title: null, composer: null }
+    return EMPTY_METADATA
   }
 }

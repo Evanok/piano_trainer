@@ -21,6 +21,13 @@ export const METADATA_VERSION = 2
  *  (the front-end ignores metadataVersion). */
 export interface StoredEntry extends CatalogEntry {
   metadataVersion?: number
+  /**
+   * The score's opening key signature (`ScoreMetadata.keyFifths`), null when
+   * the file states none, undefined on an entry not yet backfilled. Server-side
+   * only: it feeds `keySignatureCounts`, which the chord drill draws its keys
+   * from, and nothing displays it per score.
+   */
+  keyFifths?: number | null
 }
 
 // Ids are generated with randomUUID, so anything else came from a crafted URL
@@ -244,6 +251,7 @@ export async function addScore(
     // wherever it was downloaded ("persona-5-piano-the-days-when...").
     title: metadata.title ?? titleFromFilename(safeFilename),
     composer: metadata.composer,
+    keyFifths: metadata.keyFifths,
     // Nothing in a MusicXML file states how hard it is to play -- always
     // starts unset, the player assigns it manually via updateEntry.
     difficulty: null,
@@ -279,11 +287,30 @@ export async function migrateCatalog(dataDir: string): Promise<void> {
   for (const entry of untagged) {
     entry.tags = [DEFAULT_TAG]
   }
+  // The key signature is its own backfill pass too, and for a stronger reason
+  // than cost: a METADATA_VERSION bump re-derives the title and composer, which
+  // would silently undo every title the player fixed by hand.
+  const keyless = entries.filter((entry) => entry.keyFifths === undefined)
+  for (const entry of keyless) {
+    const file = scoreFilePath(dataDir, entry)
+    try {
+      entry.keyFifths = file
+        ? (await extractScoreMetadata(entry.filename, readFileSync(file))).keyFifths
+        : null
+    } catch {
+      entry.keyFifths = null
+    }
+  }
+  if (keyless.length > 0) {
+    console.log(`[catalog] read the key signature of ${keyless.length} score(s)`)
+  }
   const stale = entries.filter((entry) => entry.metadataVersion !== METADATA_VERSION)
   if (stale.length === 0) {
     if (untagged.length > 0) {
-      writeCatalog(dataDir, entries)
       console.log(`[catalog] filed ${untagged.length} untagged score(s) under "${DEFAULT_TAG}"`)
+    }
+    if (untagged.length > 0 || keyless.length > 0) {
+      writeCatalog(dataDir, entries)
     }
     return
   }
@@ -301,6 +328,7 @@ export async function migrateCatalog(dataDir: string): Promise<void> {
       const metadata = await extractScoreMetadata(entry.filename, readFileSync(file))
       entry.title = metadata.title ?? titleFromFilename(entry.filename)
       entry.composer = metadata.composer
+      entry.keyFifths = metadata.keyFifths
     } catch (error: unknown) {
       // One unreadable score must not stop the others from being upgraded.
       console.error(`[catalog] could not read metadata for ${entry.filename}:`, error)
@@ -308,4 +336,20 @@ export async function migrateCatalog(dataDir: string): Promise<void> {
   }
   writeCatalog(dataDir, entries)
   console.log(`[catalog] refreshed metadata for ${stale.length} score(s)`)
+}
+
+/**
+ * How many catalog scores open in each key signature, keyed by `fifths`.
+ * Scores whose signature is unknown are left out rather than counted as "no
+ * signature": a file that states none is not evidence of C major.
+ */
+export function keySignatureCounts(entries: StoredEntry[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const entry of entries) {
+    if (typeof entry.keyFifths === 'number') {
+      const key = String(entry.keyFifths)
+      counts[key] = (counts[key] ?? 0) + 1
+    }
+  }
+  return counts
 }

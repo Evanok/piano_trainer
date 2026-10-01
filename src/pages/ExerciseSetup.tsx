@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isGuest } from '../api/auth'
+import { fetchKeySignatureCounts } from '../api/catalog'
 import { ChordLesson } from '../components/ChordLesson'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
@@ -16,6 +17,7 @@ import type {
   ChordAccidentalMode,
   ChordAnswerStep,
   ChordClefMode,
+  ChordKeyMode,
   ChordQuizSettings,
   ChordStackMode,
 } from '../types/chord'
@@ -110,7 +112,12 @@ interface ExerciseSetupProps {
   ) => void
   onReadingReady: (settings: ReadingQuizSettings) => void
   onSequenceReady: (settings: NoteSequenceSettings) => void
-  onChordReady: (settings: ChordQuizSettings) => void
+  /**
+   * `keyCounts` is the catalog's key signature statistic, fetched here while
+   * the settings are being chosen so the round does not have to wait for it;
+   * null when it is not needed or could not be fetched.
+   */
+  onChordReady: (settings: ChordQuizSettings, keyCounts: Record<string, number> | null) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -161,6 +168,21 @@ export function ExerciseSetup({
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
+  const [keyCounts, setKeyCounts] = useState<Record<string, number> | null>(null)
+  const wantsKeyCounts = tab === 'chords' && chordSettings.keyMode === 'random'
+
+  // Fetched once, as soon as a key is asked for. A failure is not worth a
+  // message: the round falls back to an even spread of the common keys.
+  useEffect(() => {
+    if (!wantsKeyCounts || keyCounts !== null) {
+      return
+    }
+    const controller = new AbortController()
+    fetchKeySignatureCounts(controller.signal)
+      .then(setKeyCounts)
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [wantsKeyCounts, keyCounts])
 
   /**
    * Check or uncheck one step. The last one cannot be unchecked -- a round that
@@ -735,6 +757,28 @@ export function ExerciseSetup({
               </fieldset>
 
               <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Key signature
+                <select
+                  value={chordSettings.keyMode ?? 'none'}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      keyMode: event.target.value as ChordKeyMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="none">None (do major)</option>
+                  <option value="random">Random key, like the catalog</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {chordSettings.keyMode === 'random'
+                    ? 'One key per round, as often as it opens a score in the catalog. Not named: read it off the signature'
+                    : 'No signature: every altered note carries its own sign'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Accidentals
                 <select
                   value={chordSettings.accidentalMode}
@@ -746,13 +790,26 @@ export function ExerciseSetup({
                   }
                   className={SELECT_CLASS}
                 >
-                  <option value="none">None (do major only)</option>
-                  <option value="all">Sharps and flats</option>
+                  {chordSettings.keyMode === 'random' ? (
+                    <>
+                      <option value="none">Only the key's own chords</option>
+                      <option value="all">Plus the common altered ones</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="none">None (do major only)</option>
+                      <option value="all">Sharps and flats</option>
+                    </>
+                  )}
                 </select>
                 <span className="text-xs text-gray-500">
-                  {chordSettings.accidentalMode === 'all'
-                    ? 'Sol major and sol minor can both come up: the quality has to be measured'
-                    : 'One chord per letter, so the quality can be recited instead of measured'}
+                  {chordSettings.keyMode === 'random'
+                    ? chordSettings.accidentalMode === 'all'
+                      ? 'About one chord in four carries a written sharp, flat or natural, as in a real piece'
+                      : 'Every alteration comes from the signature, none is written on a note'
+                    : chordSettings.accidentalMode === 'all'
+                      ? 'Sol major and sol minor can both come up: the quality has to be measured'
+                      : 'One chord per letter, so the quality can be recited instead of measured'}
                 </span>
               </label>
 
@@ -838,7 +895,7 @@ export function ExerciseSetup({
 
             <button
               type="button"
-              onClick={() => onChordReady(chordSettings)}
+              onClick={() => onChordReady(chordSettings, chordSettings.keyMode === 'random' ? keyCounts : null)}
               className={`self-start ${PRIMARY_BUTTON}`}
             >
               Start chord quiz

@@ -96,6 +96,32 @@ export type ChordStackMode = 'root' | 'all'
  */
 export type ChordAccidentalMode = 'none' | 'all'
 
+/**
+ * Whether the round is written in a key with a signature.
+ *
+ * `none` is the original drill: do major, no signature, every altered note
+ * carrying its own sign. `random` draws one key per round, weighted by how
+ * often each signature opens a score in the catalog, so the keys practised are
+ * the keys actually met. The point is that the alteration becomes IMPLICIT: a
+ * mi in si-flat major is a mi-flat with nothing written in front of it, which
+ * is a different act of reading from seeing a written flat, and the one real
+ * scores ask for on every page.
+ *
+ * With a key, `accidentalMode` changes meaning to stay realistic: `none` keeps
+ * the key's own seven chords, `all` adds the altered chords pieces really use
+ * in that key (the major V of a minor key, V of V, the borrowed iv...) rather
+ * than arbitrary alterations, so the written sharps, flats and naturals that
+ * appear are the ones a score would carry.
+ */
+export type ChordKeyMode = 'none' | 'random'
+
+/** A key, as a signature plus the mode that says which of its two keys it is. */
+export interface ChordKey {
+  /** Sharps positive, flats negative, as MusicXML counts them. */
+  fifths: number
+  mode: 'major' | 'minor'
+}
+
 export interface ChordQuizSettings {
   /**
    * What each question asks for, in order. Never empty: a round that asks
@@ -103,6 +129,8 @@ export interface ChordQuizSettings {
    */
   answerSteps: ChordAnswerStep[]
   accidentalMode: ChordAccidentalMode
+  /** Optional so rounds recorded before keys existed still decode, as `none`. */
+  keyMode?: ChordKeyMode
   stackMode: ChordStackMode
   clefMode: ChordClefMode
   questionCount: number
@@ -140,10 +168,12 @@ export interface ChordQuestion {
   notes: ChordNote[]
   quality: ChordQuality
   /**
-   * 'I', 'ii', 'vii°' ... -- shown as feedback, not asked for, and **null for
-   * any chord that is not one of do major's own seven**. A degree names a
-   * chord's place in a key, so sol minor has none here: printing one would be
-   * inventing a key the round is not in.
+   * 'I', 'ii', 'vii°', 'V/V' ... -- shown as feedback, not asked for. A degree
+   * names a chord's place in a key, so it is relative to the round's key, and
+   * **null in a keyless round for any chord that is not one of do major's own
+   * seven**: printing one for sol minor would invent a key the round is not in.
+   * In a round with a key, every chord drawn has one, since the altered chords
+   * are chosen by the role they play in that key.
    */
   degree: string | null
   /**

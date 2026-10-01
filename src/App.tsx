@@ -86,6 +86,9 @@ const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
   // on top of it from the setup screen (see ChordAnswerStep).
   answerSteps: ['root'],
   accidentalMode: 'none',
+  // No signature to start with: the key is the rung after the chords are
+  // readable in do major (see ChordKeyMode).
+  keyMode: 'none',
   // Inverted from the start: root position alone makes naming the chord the
   // same question as naming the bottom note (see ChordStackMode).
   stackMode: 'all',
@@ -155,6 +158,7 @@ function App() {
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(DEFAULT_NOTE_SEQUENCE_SETTINGS)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(DEFAULT_CHORD_SETTINGS)
+  const [chordKeyCounts, setChordKeyCounts] = useState<Record<string, number> | null>(null)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -373,8 +377,9 @@ function App() {
     setScreen('sequence-quiz')
   }, [])
 
-  const startChordQuiz = useCallback((settings: ChordQuizSettings) => {
+  const startChordQuiz = useCallback((settings: ChordQuizSettings, keyCounts: Record<string, number> | null) => {
     setChordSettings(settings)
+    setChordKeyCounts(keyCounts)
     setScreen('chord-quiz')
   }, [])
 
@@ -432,6 +437,7 @@ function App() {
     return (
       <ChordQuiz
         settings={chordSettings}
+        keyCounts={chordKeyCounts}
         onNoteEvent={onNoteEvent}
         devices={devices}
         selectedDeviceId={selectedDeviceId}
