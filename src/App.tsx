@@ -22,7 +22,6 @@ import type {
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
 import type { ChordQuizSettings } from './types/chord'
-import type { ChordRoundInputs } from './engine/chordQuiz'
 import type { ReadingQuizSettings } from './types/reading'
 import type { NoteSequenceSettings } from './types/sequence'
 import type { SessionSource, SessionStats } from './types/session'
@@ -161,7 +160,6 @@ function App() {
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(DEFAULT_NOTE_SEQUENCE_SETTINGS)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(DEFAULT_CHORD_SETTINGS)
-  const [chordInputs, setChordInputs] = useState<ChordRoundInputs>({ keyCounts: null, catalogChords: null })
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -380,9 +378,8 @@ function App() {
     setScreen('sequence-quiz')
   }, [])
 
-  const startChordQuiz = useCallback((settings: ChordQuizSettings, inputs: ChordRoundInputs) => {
+  const startChordQuiz = useCallback((settings: ChordQuizSettings) => {
     setChordSettings(settings)
-    setChordInputs(inputs)
     setScreen('chord-quiz')
   }, [])
 
@@ -440,7 +437,6 @@ function App() {
     return (
       <ChordQuiz
         settings={chordSettings}
-        inputs={chordInputs}
         onNoteEvent={onNoteEvent}
         devices={devices}
         selectedDeviceId={selectedDeviceId}

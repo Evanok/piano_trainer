@@ -51,6 +51,7 @@ import {
 } from '../engine/chordQuiz'
 import type { ChordRoundInputs, ChordSource } from '../engine/chordQuiz'
 import { chordSessionTitle, createSessionId } from '../engine/sessionLog'
+import { useChordRoundInputs } from '../hooks/useChordRoundInputs'
 import { useQuizSession } from '../hooks/useQuizSession'
 import type { QuizSessionFrame } from '../hooks/useQuizSession'
 import { PAGE_BACKGROUND, PAGE_CARD } from '../theme'
@@ -77,12 +78,6 @@ const STEP_LABELS: Record<ChordAnswerStep, string> = {
 
 interface ChordQuizProps {
   settings: ChordQuizSettings
-  /**
-   * What the setup screen fetched for the round: the key signature statistic a
-   * random key is drawn from, and the catalog's chords. Either may be null, and
-   * the round falls back rather than waiting (see `ChordRoundInputs`).
-   */
-  inputs: ChordRoundInputs
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   devices: MidiDeviceInfo[]
   selectedDeviceId: string | null
@@ -124,7 +119,25 @@ function SourceCaption({ source }: { source: ChordSource }) {
   )
 }
 
-export function ChordQuiz({
+/** Fetches what the round needs from the server, then shows it. */
+export function ChordQuiz(props: ChordQuizProps) {
+  const { inputs, error } = useChordRoundInputs(props.settings)
+  if (inputs === null) {
+    return (
+      <div className={`flex min-h-screen flex-col gap-3 px-4 py-3 ${PAGE_BACKGROUND}`}>
+        <button type="button" onClick={props.onBack} className="self-start text-sm font-medium text-indigo-600 hover:underline">
+          Back
+        </button>
+        <p className={`p-4 text-sm ${error ? 'text-rose-600' : 'text-gray-500'} ${PAGE_CARD}`}>
+          {error ? `Could not load the catalog's chords: ${error}` : 'Loading...'}
+        </p>
+      </div>
+    )
+  }
+  return <ChordQuizRound {...props} inputs={inputs} />
+}
+
+function ChordQuizRound({
   settings,
   inputs,
   onNoteEvent,
@@ -134,7 +147,7 @@ export function ChordQuiz({
   isSupported,
   midiError,
   onBack,
-}: ChordQuizProps) {
+}: ChordQuizProps & { inputs: ChordRoundInputs }) {
   // A new seed per round, like the other drills: replaying must not replay the
   // same twenty chords in the same order.
   const [roundSeed, setRoundSeed] = useState(() => createSessionId())

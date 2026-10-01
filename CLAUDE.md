@@ -131,7 +131,7 @@ A second, optional password mints a **read-only** token, so the deployment can b
 One of the two server-side parts of the app (the other is the stats sync, further down, mounted on the same handler): uploaded scores are kept on disk so they can be re-opened later without re-picking the file. Deliberately dependency-free (`node:http` + `node:fs`, no framework, no database) -- it's a single-user personal deployment, not a service.
 
 - **One handler, two hosts.** `createCatalogApi()` (`server/catalogApi.ts`) is a connect-style middleware. In dev, `vite.config.ts` mounts it on the Vite dev server (so `npm run dev` stays one process); in production `server/index.ts` mounts it in front of a static `dist/` file server. There is no second implementation of the endpoints to keep in sync, and no dev-only proxy config.
-- **Endpoints:** `GET /api/scores?q=&difficulty=&favorite=&page=&limit=` (search + filters + pagination, most recent first), `POST /api/scores?filename=` (the file is the raw request body -- posting `multipart/form-data` instead would mean shipping a parser for no benefit), `GET /api/scores/:id/file`, `PATCH /api/scores/:id` (JSON body `{ title?, composer?, difficulty?, favorite? }`, edits metadata only -- see below), `DELETE /api/scores/:id` (204, removes the entry and its file). `GET /api/key-signatures` returns `{ counts }`, the catalog counted by opening key signature, and `GET /api/chords` returns `{ chords }`, every triad written as one stack in a catalog score (`server/scoreChords.ts`), both for the chord drill. The listing also takes `?key=0|1|2|3|4+`, a filter on **how many** sharps or flats the opening signature carries, either kind (`CatalogKeyFilter`, `matchesKeyFilter`): the count is what makes a page harder to read, and a filter by key name cannot exist since a file almost never says which of its signature's two keys it is in. `keyFifths` is on the shared `CatalogEntry` (read from the file, never edited, null/absent = unknown, which only matches the unfiltered listing), and each row shows it as a badge in words ("2 flats": UI fonts draw ♭ far too small to read at badge size).
+- **Endpoints:** `GET /api/scores?q=&difficulty=&favorite=&page=&limit=` (search + filters + pagination, most recent first), `POST /api/scores?filename=` (the file is the raw request body -- posting `multipart/form-data` instead would mean shipping a parser for no benefit), `GET /api/scores/:id/file`, `PATCH /api/scores/:id` (JSON body `{ title?, composer?, difficulty?, favorite? }`, edits metadata only -- see below), `DELETE /api/scores/:id` (204, removes the entry and its file). `GET /api/key-signatures` returns `{ counts }`, the catalog counted by opening key signature, and `GET /api/chords` returns `{ chords }`, every triad written as one stack in a catalog score (`server/scoreChords.ts`), both for the chord drill. `?key=0|1|2|3|4+` filters on how many sharps or flats the opening signature carries (a key name cannot be filtered: files rarely state the mode). `keyFifths` (backfilled by its own `migrateCatalog` pass, not a `METADATA_VERSION` bump, which would undo hand-fixed titles) is shown per row in words ("2 flats").
 - **Names come from the score, not the file name** (`server/scoreMetadata.ts`): `<work-title>` (then `<movement-title>`) and `<creator type="composer">`, since files are usually downloaded under a slug (`persona-5-piano-the-days-when-my-mother-was-there.mxl`). A `.mxl` is a ZIP, opened with `jszip` -- the same library OSMD itself uses to read those files, so anything the app can render, the catalog can read. Extraction is deliberately regex-based on three flat elements rather than a full XML parse (Node has no DOM, and an XML parser would be a lot of dependency for `<work-title>`). Only the **first non-empty line** of a field is kept: a multi-line title/creator is nearly always the same name repeated in another script. It's best-effort -- an unreadable header yields nulls and falls back to `titleFromFilename` (slug -> "Tchaikovsky Album for the Young"), never a rejected upload.
 - **`METADATA_VERSION` + `migrateCatalog()`**: entries are stamped with the extraction version that produced them, and anything older is re-derived from disk at startup (`vite.config.ts` in dev, `server/index.ts` in prod, both non-fatal on failure). Bump the constant when the extraction rules change, otherwise the improvement only ever reaches *newly uploaded* scores. `metadataVersion` is server-side bookkeeping the front-end ignores (`StoredEntry` vs the shared `CatalogEntry`).
 - **Storage** (`server/catalogStore.ts`): `<dataDir>/catalog.json` + `<dataDir>/scores/<uuid><ext>`, where `dataDir` is `PIANO_TRAINER_DATA_DIR` or `./data`. Resolved from `process.cwd()` on purpose, *not* from `import.meta.url`: in dev this module is bundled into a temporary Vite config file at an unrelated path, which would silently move the data directory. `data/` is gitignored, and lives outside `public/` so Vite never serves it statically -- `server.watch.ignored` also excludes it, otherwise every upload would trigger a full page reload and drop a practice session in progress.
@@ -475,88 +475,30 @@ time in `activityOf`.
   diminished and mi/la/si augmented cannot be drawn on a natural root at all.
   Respelling them is not an option, since a triad must stay three letters two
   apart or it stops looking like a chord.
-- **A key signature is a setting (`ChordKeyMode`: `none` | `random`), and its
-  point is that the alteration becomes implicit**: a mi in si♭ major is a mi♭
-  with nothing written on the note, a different act of reading from a written
-  flat and the one every real page asks for. Five things worth knowing:
-  - **The key is drawn once per round, weighted by the catalog.** `GET
-    /api/key-signatures` (guest-readable) counts the catalog's scores by opening
-    `<fifths>`, read by `extractKeyFifths` and stored server-side only as
-    `StoredEntry.keyFifths`. That field is backfilled by its own pass in
-    `migrateCatalog`, **not** a `METADATA_VERSION` bump, because a bump
-    re-derives titles and would undo every title fixed by hand. `ExerciseSetup`
-    prefetches the counts and hands them through `App` to `createChordRound`;
-    none (unreachable, empty) falls back to an even spread over four signs or
-    fewer. Major or minor is 50/50, since files almost never say which of a
-    signature's two keys they are in.
-  - **Keys are derived from the count** (`keySignatureAlter`,
-    `keySignatureTonic` in `musicKeys.ts`), not listed: `KEYS` only holds the
-    keys the keyboard exercises offer, and a signature is fully determined by
-    its number, so this covers all of them without a second key table.
-  - **With a key, `accidentalMode` means something else, deliberately**: `none`
-    keeps the key's own seven chords, `all` adds the altered chords pieces really
-    use there (`ALTERED_KEY_CHORDS`: V/V, V/vi, V/ii, iv, ♭VII, ♭VI in major; the
-    major V, vii° and major IV in minor), drawn at `DIATONIC_SHARE` (75% own
-    chords) so a round looks like a page of music rather than an alteration
-    drill. Spellings the keyless drill refuses (mi♯, si♯) are accepted inside a
-    key, because a score writes them there; double accidentals still are not.
-  - **The root buttons stay seven letters, spelled by the signature**
-    (`chordRootButtonLabel`, "si♭" in si♭ major) and still answered by the
-    letter. A root-step round therefore never draws a chord whose root departs
-    from the signature (`rootInKey`: vii° of a minor key, ♭VII, ♭VI); quality-
-    and play-only rounds keep them. That replaces the keyless rule "root steps
-    only on natural roots", which is the same rule with an empty signature.
-  - **A sign is printed exactly when a note departs from the signature**, a
-    natural included, and **the key is never shown**: reading it off the
-    signature is part of the question, and the reveal names it with the degree
-    ("re major -- the V/V of do major"). Every chord in a keyed round has a
-    degree, since the altered ones are chosen by their role in the key. The
-    quality buttons are fixed at major/minor/diminished so they cannot hint at
-    the key. `ChordLesson` section 7 teaches reading a signature.
-- **The chords can come from the catalog's own pieces** (`ChordMaterial`:
-  `generated` | `catalog`), so the chords practised are the ones actually met.
-  Four things worth knowing:
-  - **Only stacks on one stem count** (`server/scoreChords.ts`,
-    `extractTriads`, regex-based like the metadata reader): a note plus its
-    `<chord/>` notes that reduce to exactly three letters a third apart and
-    three pitch classes, doublings allowed. Notes sounding together on two
-    staves are never merged, since nothing on the page draws them as one
-    chord. Each is kept with the signature in force and its sequential
-    measure, deduplicated per score (a repeated accompaniment chord would
-    otherwise supply half of every round), cached per score id for the
-    process's life (score files are never replaced), and served whole by
-    `GET /api/chords` (guest-readable, about 600 chords from 145 of 271 scores,
-    ~130 KB).
-  - **A found chord is redrawn close on one staff, never copied**
-    (`catalogChordPlacement`): its own spelling and bottom tone on the same
-    per-inversion run as every generated chord, so the window check and the
-    whole screen are unchanged. A spread voicing is a different exercise
-    (IDEA.md), and the surrounding measure would give the answer away.
-  - **One signature per round, then piece first, chord second**
-    (`pickCatalogQuestions`). The signature is drawn by how many usable
-    chords sit under it, then a piece uniformly, then a chord in it: a
-    handful of pieces hold most of the block chords and would otherwise
-    supply nearly every question. The pieces state their signature but not
-    their mode, so a catalog round has `key: null`, `fifths` set, and no
-    degree on any chord. Instead it names the piece and measure above the
-    staff (`ChordRound.sources`, parallel to the questions), shown during the
-    question since a title names the piece, not the chord.
-  - **`keyMode` and `accidentalMode` do not apply** (hidden in the setup): the
-    pieces decide both. The root-step rule is the same `rootInKey` one. The
-    setup screen fetches the chords, says how many fit the settings, and
-    blocks the start when none do or the fetch failed -- a round silently
-    made of generated chords is not what was asked for -- while
-    `createChordRound` still falls back to generated material on an empty
-    pool rather than building an empty round (`ChordRound.material` says
-    which).
-- **A single clef is the default, and `both` is the rung after it**: a
-  grand-staff round draws both clefs and makes the reading switch between them
-  from one chord to the next, which is what a real piano score asks, so it earns its place once both clefs
-  are comfortable alone. It is built like the reading quiz's `both` (each chord
-  on its own clef's staff, a whole rest on the other, `ChordQuestion.clef` per
-  question, the staff picked 50/50 before the chord). The `play` step's
-  keyboard opens on the *question's* clef register, not the round's: the clef
-  is visible on the score, so following it gives nothing away.
+- **One pipeline for three materials** (`chordQuiz.ts`): do major with no
+  signature, a random key, or the catalog's pieces (`keyMode`, `material`).
+  Each produces `SpelledChord`s (root letter, alterations, bottom tone,
+  signature, draw group, source); `askable` applies the shared settings,
+  `chordMaterial` picks the round's one signature, `drawChord` draws group
+  then chord, `placeChord` stacks it on its clef's run. A new material is a new
+  producer, nothing else.
+  - **Keys** are derived from the signature count (`keySignatureAlter`,
+    `keySignatureTonic` in `musicKeys.ts`, not a second key table), drawn
+    weighted by the catalog (`GET /api/key-signatures`), major/minor 50/50. The
+    point is the implicit alteration; the key is never shown, only named in
+    the reveal. With a key, `accidentalMode: 'all'` adds the altered chords
+    pieces really use (`ALTERED_KEY_CHORDS`), at `DIATONIC_SHARE`.
+  - **Catalog chords** are one-stem stacks reducing to a triad
+    (`server/scoreChords.ts`, `GET /api/chords`), redrawn close on one staff
+    with their spelling and bottom tone. One signature per round, piece first
+    then chord (a few pieces hold most block chords). No mode, so no degree;
+    the piece and measure are shown above the staff.
+  - **The name buttons are spelled by the signature** and answered by the
+    letter, so a root-step round never draws a root that departs from it
+    (`hasRootInKey`). A sign is printed exactly where a note departs from the
+    signature.
+  - **`both` clefs** draws a grand staff, each chord on its own clef's staff;
+    the `play` keyboard follows the question's clef.
 - **Finding the keys is shown on screen and asked only on real hardware.**
   Answering by tapping the *virtual* keyboard was rejected on use as too
   imprecise, and that rejection stands -- a real MIDI keyboard is a different

@@ -1,21 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
+  askable,
   CHORD_INVERSIONS,
-  chordPlacements,
-  chordQualitiesInPlay,
-  chordQualitySemitones,
-  chordRoots,
-  catalogChordPlacement,
   chordKeyLabel,
   chordRootButtonLabel,
+  chordQualitySemitones,
+  chordRoots,
   createChordRound,
   diatonicTriadOf,
   drawChordKey,
-  keyChordPlacements,
   generateChordQuizMusicXml,
+  hasRootInKey,
+  isOwnChord,
+  keyChords,
+  keylessChords,
+  placeChord,
   triadAt,
   triadNotes,
 } from './chordQuiz'
+import type { SpelledChord } from './chordQuiz'
 import { ChordQuizEngine } from './ChordQuizEngine'
 import { diatonicIndex } from './readingQuiz'
 import { createSeededRng, keySignatureAlter, keySignatureTonic } from './musicKeys'
@@ -50,6 +53,47 @@ const STAFF_LINES: Record<ChordStaff, { low: number; high: number }> = {
 
 const NATURAL_PITCH_CLASSES = [0, 2, 4, 5, 7, 9, 11]
 const STEPS_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+
+/** A placement with the derived facts the assertions below read. */
+function view(clef: ChordStaff, chord: SpelledChord) {
+  const placement = placeChord(clef, chord)
+  return {
+    ...placement,
+    stepIndex: STEPS_LETTERS.indexOf(chord.rootStep),
+    rootAlter: chord.alters[0],
+    diatonic: isOwnChord(chord),
+    rootInKey: hasRootInKey(chord),
+  }
+}
+
+function chordPlacements(clef: ChordStaff, material: Material) {
+  return keylessChords(material.accidentalMode)
+    .filter((chord) => askable(chord, material))
+    .map((chord) => view(clef, chord))
+}
+
+function keyChordPlacements(clef: ChordStaff, key: ChordKey, material: Material) {
+  return keyChords(key, material.accidentalMode)
+    .filter((chord) => askable(chord, material))
+    .map((chord) => view(clef, chord))
+}
+
+function catalogChordPlacement(clef: ChordStaff, chord: CatalogChord) {
+  return view(clef, {
+    ...chord,
+    numeral: null,
+    group: chord.scoreId,
+    weight: 1,
+    source: null,
+  })
+}
+
+const QUALITY_ORDER = ['major', 'minor', 'diminished', 'augmented']
+
+function chordQualitiesInPlay(clef: ChordStaff, material: Material) {
+  const present = new Set(chordPlacements(clef, material).map((entry) => entry.quality))
+  return QUALITY_ORDER.filter((quality) => present.has(quality as never))
+}
 
 /** The original material: do major's seven, no accidental anywhere. */
 const DIATONIC: Material = { stackMode: 'all', accidentalMode: 'none', answerSteps: ['root'] }
@@ -657,7 +701,7 @@ describe('key signatures', () => {
       { keyCounts: { '-3': 1 }, catalogChords: null },
     )
     expect(round.key?.fifths).toBe(-3)
-    const xml = generateChordQuizMusicXml(round.questions, 'treble', round.key)
+    const xml = generateChordQuizMusicXml(round.questions, 'treble', round.fifths, round.key?.mode ?? null)
     expect(xml).toContain('<fifths>-3</fifths>')
     const measures = [...xml.matchAll(/<measure number="\d+">([\s\S]*?)<\/measure>/g)]
     measures.forEach((measure, index) => {
@@ -715,7 +759,7 @@ describe('catalog material', () => {
 
   it('redraws a found chord close, with its own spelling and bottom tone, inside the window', () => {
     for (const clef of ['treble', 'bass'] as const) {
-      const placement = catalogChordPlacement(clef, chord({}))!
+      const placement = catalogChordPlacement(clef, chord({}))
       const notes = triadNotes(placement)
       expect(notes.map((note) => [note.step, note.alter])).toEqual([
         ['G', 0],
@@ -749,7 +793,7 @@ describe('catalog material', () => {
       // Every chord asked sits under the round's one signature.
       const expected = chords.filter((entry) => entry.fifths === signature).map((entry) => entry.rootStep)
       expect(round.questions.every((question) => expected.includes(question.step))).toBe(true)
-      const xml = generateChordQuizMusicXml(round.questions, 'treble', { fifths: signature })
+      const xml = generateChordQuizMusicXml(round.questions, 'treble', signature)
       expect(xml).toContain(`<fifths>${signature}</fifths>`)
       expect(xml).not.toContain('<mode>')
     }

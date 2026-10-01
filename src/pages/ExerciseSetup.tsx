@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { isGuest } from '../api/auth'
-import { fetchCatalogChords, fetchKeySignatureCounts } from '../api/catalog'
-import { eligibleCatalogChords } from '../engine/chordQuiz'
-import type { ChordRoundInputs } from '../engine/chordQuiz'
+import { usableCatalogChords } from '../engine/chordQuiz'
+import { useCatalogChords } from '../hooks/useChordRoundInputs'
 import { ChordLesson } from '../components/ChordLesson'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
@@ -19,7 +18,6 @@ import type {
   ChordAccidentalMode,
   ChordAnswerStep,
   ChordClefMode,
-  CatalogChord,
   ChordKeyMode,
   ChordMaterial,
   ChordQuizSettings,
@@ -116,12 +114,7 @@ interface ExerciseSetupProps {
   ) => void
   onReadingReady: (settings: ReadingQuizSettings) => void
   onSequenceReady: (settings: NoteSequenceSettings) => void
-  /**
-   * `inputs` is what the round needs from the server (the key signature
-   * statistic, the catalog's chords), fetched here while the settings are being
-   * chosen so the round does not have to wait for it.
-   */
-  onChordReady: (settings: ChordQuizSettings, inputs: ChordRoundInputs) => void
+  onChordReady: (settings: ChordQuizSettings) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -172,48 +165,13 @@ export function ExerciseSetup({
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
-  const [keyCounts, setKeyCounts] = useState<Record<string, number> | null>(null)
-  const wantsKeyCounts = tab === 'chords' && chordSettings.keyMode === 'random'
-
-  // Fetched once, as soon as a key is asked for. A failure is not worth a
-  // message: the round falls back to an even spread of the common keys.
-  useEffect(() => {
-    if (!wantsKeyCounts || keyCounts !== null) {
-      return
-    }
-    const controller = new AbortController()
-    fetchKeySignatureCounts(controller.signal)
-      .then(setKeyCounts)
-      .catch(() => undefined)
-    return () => controller.abort()
-  }, [wantsKeyCounts, keyCounts])
-
   const usesCatalogChords = chordSettings.material === 'catalog'
-  const [catalogChords, setCatalogChords] = useState<CatalogChord[] | null>(null)
-  const [catalogChordsError, setCatalogChordsError] = useState<string | null>(null)
-  const wantsCatalogChords = tab === 'chords' && usesCatalogChords
-
-  // Unlike the key statistic, a failure here is shown and blocks the start:
-  // a round silently made of generated chords is not what was asked for.
-  useEffect(() => {
-    if (!wantsCatalogChords || catalogChords !== null) {
-      return
-    }
-    const controller = new AbortController()
-    setCatalogChordsError(null)
-    fetchCatalogChords(controller.signal)
-      .then(setCatalogChords)
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setCatalogChordsError(error instanceof Error ? error.message : 'Could not load the catalog')
-        }
-      })
-    return () => controller.abort()
-  }, [wantsCatalogChords, catalogChords])
-
-  const usableCatalogChords = catalogChords ? eligibleCatalogChords(catalogChords, chordSettings) : []
-  const usablePieceCount = new Set(usableCatalogChords.map((chord) => chord.scoreId)).size
-  const canStartChords = !usesCatalogChords || usableCatalogChords.length > 0
+  // Fetched here only to say how many chords fit the settings and to block a
+  // start with none; the quiz screen fetches its own copy.
+  const catalogChords = useCatalogChords(tab === 'chords' && usesCatalogChords)
+  const fittingChords = catalogChords.data ? usableCatalogChords(catalogChords.data, chordSettings) : []
+  const fittingPieceCount = new Set(fittingChords.map((chord) => chord.scoreId)).size
+  const canStartChords = !usesCatalogChords || fittingChords.length > 0
 
   /**
    * Check or uncheck one step. The last one cannot be unchecked -- a round that
@@ -805,13 +763,13 @@ export function ExerciseSetup({
                 <span className="text-xs text-gray-500">
                   {!usesCatalogChords
                     ? 'Built by the drill, with the key and accidentals chosen below'
-                    : catalogChordsError
-                      ? `Could not load the catalog's chords: ${catalogChordsError}`
-                      : catalogChords === null
+                    : catalogChords.error
+                      ? `Could not load the catalog's chords: ${catalogChords.error}`
+                      : !catalogChords.done
                         ? 'Reading the catalog...'
-                        : usableCatalogChords.length === 0
+                        : fittingChords.length === 0
                           ? 'No chord in the catalog fits these settings'
-                          : `${usableCatalogChords.length} chords found written in ${usablePieceCount} pieces, redrawn close on one staff. Their keys and accidentals are the pieces' own`}
+                          : `${fittingChords.length} chords found written in ${fittingPieceCount} pieces, redrawn close on one staff. Their keys and accidentals are the pieces' own`}
                 </span>
               </label>
 
@@ -959,12 +917,7 @@ export function ExerciseSetup({
             <button
               type="button"
               disabled={!canStartChords}
-              onClick={() =>
-                onChordReady(chordSettings, {
-                  keyCounts: chordSettings.keyMode === 'random' ? keyCounts : null,
-                  catalogChords: usesCatalogChords ? catalogChords : null,
-                })
-              }
+              onClick={() => onChordReady(chordSettings)}
               className={`self-start ${PRIMARY_BUTTON}`}
             >
               Start chord quiz

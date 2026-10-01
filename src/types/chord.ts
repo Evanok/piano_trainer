@@ -21,15 +21,7 @@ export type ChordQuality = 'major' | 'minor' | 'diminished' | 'augmented'
 /** One of the two staves a chord can be drawn on. */
 export type ChordStaff = 'treble' | 'bass'
 
-/**
- * Which clef the round is drawn in. A single clef is the default because
- * reading chords in the bass clef is its own exercise and is easier learnt on
- * its own. `both` draws a grand staff and puts each chord on one staff or the
- * other, the way the reading quiz does. Both clefs are always drawn, so nothing
- * is guessed: what it adds is switching the reading between the two clefs from
- * one chord to the next, which is exactly what a real piano score asks, so it
- * is the rung after both single clefs are comfortable.
- */
+/** Which clef the round is drawn in; `both` is a grand staff, each chord on its own clef's staff. */
 export type ChordClefMode = ChordStaff | 'both'
 
 /**
@@ -97,27 +89,15 @@ export type ChordStackMode = 'root' | 'all'
 export type ChordAccidentalMode = 'none' | 'all'
 
 /**
- * Whether the round is written in a key with a signature.
- *
- * `none` is the original drill: do major, no signature, every altered note
- * carrying its own sign. `random` draws one key per round, weighted by how
- * often each signature opens a score in the catalog, so the keys practised are
- * the keys actually met. The point is that the alteration becomes IMPLICIT: a
- * mi in si-flat major is a mi-flat with nothing written in front of it, which
- * is a different act of reading from seeing a written flat, and the one real
- * scores ask for on every page.
- *
- * With a key, `accidentalMode` changes meaning to stay realistic: `none` keeps
- * the key's own seven chords, `all` adds the altered chords pieces really use
- * in that key (the major V of a minor key, V of V, the borrowed iv...) rather
- * than arbitrary alterations, so the written sharps, flats and naturals that
- * appear are the ones a score would carry.
+ * `none`: do major, no signature. `random`: one key per round, weighted by the
+ * catalog, so alterations come from the signature rather than written signs.
+ * With a key, `accidentalMode: 'all'` adds the altered chords real pieces use
+ * in that key instead of arbitrary alterations.
  */
 export type ChordKeyMode = 'none' | 'random'
 
-/** A key, as a signature plus the mode that says which of its two keys it is. */
+/** A key: a signature (sharps positive, flats negative) and which of its two keys. */
 export interface ChordKey {
-  /** Sharps positive, flats negative, as MusicXML counts them. */
   fifths: number
   mode: 'major' | 'minor'
 }
@@ -190,15 +170,8 @@ export interface ChordQuestion {
 }
 
 /**
- * A triad found written in a catalog score, as `GET /api/chords` sends it: one
- * stack of notes on one stem that reduces to exactly three letters a third
- * apart (doublings allowed), spelled exactly as the score spells it.
- *
- * Only the reading-relevant facts travel -- which chord, how it is spelled,
- * which tone is at the bottom, and the signature it sits under. The drill
- * redraws it in close position in its own clef window rather than copying the
- * score's voicing, because a spread voicing over two staves is a different
- * exercise (IDEA.md) and the measure around it would give the answer away.
+ * A triad written as one stack in a catalog score (`GET /api/chords`), spelled
+ * as the score spells it. The drill redraws it close on one staff.
  */
 export interface CatalogChord {
   scoreId: string
@@ -218,11 +191,5 @@ export interface CatalogChord {
   inversion: ChordInversion
 }
 
-/**
- * Where a round's chords come from. `generated` is every other setting of the
- * drill; `catalog` draws them from the pieces in the library, so the chords
- * practised are the ones actually met. With `catalog`, the key and the
- * accidentals come from the pieces themselves, so `keyMode` and
- * `accidentalMode` do not apply.
- */
+/** Where a round's chords come from; with `catalog`, the pieces decide key and accidentals. */
 export type ChordMaterial = 'generated' | 'catalog'
