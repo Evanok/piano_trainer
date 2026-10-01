@@ -128,7 +128,10 @@ export function ChordQuiz({
 
   const question = engineRef.current.currentQuestion
   const currentStep = engineRef.current.currentStep
-  const keyboardWindow = useMemo(() => chordNoteWindowPitches(settings.clefMode), [settings.clefMode])
+  // The question's own staff, not the round's mode: on a grand staff the
+  // keyboard opens on whichever clef the chord is written in.
+  const questionClef = question?.clef ?? 'treble'
+  const keyboardWindow = useMemo(() => chordNoteWindowPitches(questionClef), [questionClef])
 
   const buildSessionRecord = (frame: QuizSessionFrame): PracticeSessionRecord => {
     const engine = engineRef.current

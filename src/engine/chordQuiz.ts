@@ -52,6 +52,7 @@ import type {
   ChordQuestion,
   ChordQuizSettings,
   ChordStackMode,
+  ChordStaff,
 } from '../types/chord'
 
 export type {
@@ -64,6 +65,7 @@ export type {
   ChordQuestion,
   ChordQuizSettings,
   ChordStackMode,
+  ChordStaff,
 }
 
 export interface ChordRound {
@@ -263,7 +265,7 @@ function spellTriad(
  * - treble: do4 (one ledger below) to la5 (one ledger above).
  * - bass: mi2 (one ledger below) to do4 (one ledger above).
  */
-const NOTE_WINDOW: Record<ChordClefMode, { low: number; high: number }> = {
+const NOTE_WINDOW: Record<ChordStaff, { low: number; high: number }> = {
   treble: { low: diatonicIndex('C', 4), high: diatonicIndex('A', 5) },
   bass: { low: diatonicIndex('E', 2), high: diatonicIndex('C', 4) },
 }
@@ -274,14 +276,21 @@ const NOTE_WINDOW: Record<ChordClefMode, { low: number; high: number }> = {
  * It is the CLEF's register, not the chord's own range, and that is the point:
  * the step asks for the exact octave, so opening the keyboard on the three keys
  * being asked for would answer it. Derived from the window the generator draws
- * in rather than written out again, so the two cannot drift.
+ * in rather than written out again, so the two cannot drift. Takes the staff of
+ * the question rather than the round's mode: in a grand-staff round the clef is
+ * visible on the score anyway, so following it gives nothing away.
  */
-export function chordNoteWindowPitches(clefMode: ChordClefMode): { low: number; high: number } {
-  const window = NOTE_WINDOW[clefMode]
+export function chordNoteWindowPitches(clef: ChordStaff): { low: number; high: number } {
+  const window = NOTE_WINDOW[clef]
   return {
     low: pitchAtDiatonicIndex(window.low).midi,
     high: pitchAtDiatonicIndex(window.high).midi,
   }
+}
+
+/** The staves a round in this mode draws on. */
+export function chordStavesOf(clefMode: ChordClefMode): ChordStaff[] {
+  return clefMode === 'both' ? ['treble', 'bass'] : [clefMode]
 }
 
 /**
@@ -335,7 +344,7 @@ export function chordInversionLabel(inversion: ChordInversion): string {
  * independently was tried first and was worse, since it put the do chord an
  * octave above the other six, which looks arbitrary because it is.
  */
-function baseRootFor(clefMode: ChordClefMode, inversion: ChordInversion): number | null {
+function baseRootFor(clefMode: ChordStaff, inversion: ChordInversion): number | null {
   const { low, high } = NOTE_WINDOW[clefMode]
   const offsets = STACK_OFFSETS[inversion]
   const bottom = offsets[0]
@@ -381,7 +390,7 @@ export interface ChordPlacement {
  * letters above is unaffected by accidentals, and the window check with it --
  * the table just gains the alteration and quality dimensions on top of it.
  */
-const PLACEMENTS: Record<ChordClefMode, ChordPlacement[]> = { treble: [], bass: [] }
+const PLACEMENTS: Record<ChordStaff, ChordPlacement[]> = { treble: [], bass: [] }
 
 for (const clefMode of ['treble', 'bass'] as const) {
   for (const inversion of CHORD_INVERSIONS) {
@@ -423,10 +432,10 @@ for (const clefMode of ['treble', 'bass'] as const) {
  * play.
  */
 export function chordPlacements(
-  clefMode: ChordClefMode,
+  clef: ChordStaff,
   settings: Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>,
 ): ChordPlacement[] {
-  return PLACEMENTS[clefMode].filter((entry) => {
+  return PLACEMENTS[clef].filter((entry) => {
     if (settings.stackMode === 'root' && entry.inversion !== 0) {
       return false
     }
@@ -438,10 +447,10 @@ export function chordPlacements(
 }
 
 /** The seven root-position roots, lowest first. Used by the lesson's table. */
-export function chordRoots(clefMode: ChordClefMode): number[] {
+export function chordRoots(clef: ChordStaff): number[] {
   return [
     ...new Set(
-      chordPlacements(clefMode, {
+      chordPlacements(clef, {
         stackMode: 'root',
         accidentalMode: 'none',
         answerSteps: ['root'],
@@ -513,10 +522,17 @@ export function triadAt(rootIndex: number, inversion: ChordInversion = 0): Chord
 
 function pickQuestions(settings: ChordQuizSettings): ChordQuestion[] {
   const rng = createSeededRng(settings.seed)
-  const placements = chordPlacements(settings.clefMode, settings)
+  const staves = chordStavesOf(settings.clefMode)
+  const placementsByStaff = Object.fromEntries(
+    staves.map((clef) => [clef, chordPlacements(clef, settings)]),
+  ) as Record<ChordStaff, ChordPlacement[]>
   const questions: ChordQuestion[] = []
   let previousStepIndex = -1
   for (let i = 0; i < settings.questionCount; i += 1) {
+    // A grand-staff round picks the staff first, evenly, so the bass clef is
+    // not outnumbered by whichever staff happens to have more placements.
+    const clef = staves.length > 1 ? staves[Math.floor(rng() * staves.length)] : staves[0]
+    const placements = placementsByStaff[clef]
     // Never the same CHORD twice running (whatever its inversion): the answer
     // would be free, and a repeat reads as the screen having failed to advance.
     // Two inversions of the same chord back to back would also turn the second
@@ -538,6 +554,7 @@ function pickQuestions(settings: ChordQuizSettings): ChordQuestion[] {
       // have one here; sol minor would need a key this round is not in.
       degree: placement.diatonic ? diatonicTriadOf(step).degree : null,
       inversion: placement.inversion,
+      clef,
     })
   }
   return questions
@@ -555,13 +572,17 @@ export function chordQualitiesInPlay(
   clefMode: ChordClefMode,
   settings: Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>,
 ): ChordQuality[] {
-  const present = new Set(chordPlacements(clefMode, settings).map((entry) => entry.quality))
+  const present = new Set(
+    chordStavesOf(clefMode).flatMap((clef) =>
+      chordPlacements(clef, settings).map((entry) => entry.quality),
+    ),
+  )
   return QUALITY_ORDER.filter((quality) => present.has(quality))
 }
 
 const ACCIDENTAL_NAMES: Record<number, string> = { [-1]: 'flat', 0: 'natural', 1: 'sharp' }
 
-function noteXml(note: ChordNote, isChordTone: boolean): string {
+function noteXml(note: ChordNote, isChordTone: boolean, staff: 1 | 2 | null): string {
   const pitch: Pitch = {
     midi: note.midi,
     step: note.step,
@@ -581,22 +602,47 @@ function noteXml(note: ChordNote, isChordTone: boolean): string {
   return `      <note>${chord}
         ${asMusicXmlPitch(pitch)}
         <duration>4</duration>
-        <voice>1</voice>
-        <type>whole</type>${accidental}
+        <voice>${staff ?? 1}</voice>
+        <type>whole</type>${accidental}${staff === null ? '' : `\n        <staff>${staff}</staff>`}
+      </note>`
+}
+
+function restXml(staff: 1 | 2): string {
+  return `      <note>
+        <rest/>
+        <duration>4</duration>
+        <voice>${staff}</voice>
+        <type>whole</type>
+        <staff>${staff}</staff>
       </note>`
 }
 
 function attributesXml(clefMode: ChordClefMode): string {
-  const isBass = clefMode === 'bass'
-  return `      <attributes>
-        <divisions>1</divisions>
+  const time = `        <divisions>1</divisions>
         <key>
           <fifths>0</fifths>
         </key>
         <time>
           <beats>4</beats>
           <beat-type>4</beat-type>
-        </time>
+        </time>`
+  if (clefMode === 'both') {
+    return `      <attributes>
+${time}
+        <staves>2</staves>
+        <clef number="1">
+          <sign>G</sign>
+          <line>2</line>
+        </clef>
+        <clef number="2">
+          <sign>F</sign>
+          <line>4</line>
+        </clef>
+      </attributes>`
+  }
+  const isBass = clefMode === 'bass'
+  return `      <attributes>
+${time}
         <clef>
           <sign>${isBass ? 'F' : 'G'}</sign>
           <line>${isBass ? 4 : 2}</line>
@@ -606,8 +652,23 @@ function attributesXml(clefMode: ChordClefMode): string {
 
 function measureXml(question: ChordQuestion, clefMode: ChordClefMode): string {
   const attributes = question.measureNumber === 1 ? `\n${attributesXml(clefMode)}\n` : '\n'
-  const notes = question.notes.map((note, index) => noteXml(note, index > 0)).join('\n')
-  return `    <measure number="${question.measureNumber}">${attributes}${notes}
+  if (clefMode !== 'both') {
+    const notes = question.notes.map((note, index) => noteXml(note, index > 0, null)).join('\n')
+    return `    <measure number="${question.measureNumber}">${attributes}${notes}
+    </measure>`
+  }
+  // Grand staff: the chord goes on its own clef's staff and the other staff
+  // carries a whole rest, as in the reading quiz, so the round reads like a
+  // real piano score rather than switching clef every measure on one staff.
+  const staff = question.clef === 'treble' ? 1 : 2
+  const chord = question.notes.map((note, index) => noteXml(note, index > 0, staff)).join('\n')
+  return `    <measure number="${question.measureNumber}">${attributes}${
+    staff === 1 ? chord : restXml(1)
+  }
+      <backup>
+        <duration>4</duration>
+      </backup>
+${staff === 2 ? chord : restXml(2)}
     </measure>`
 }
 

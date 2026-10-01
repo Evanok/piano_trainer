@@ -18,13 +18,18 @@
  */
 export type ChordQuality = 'major' | 'minor' | 'diminished' | 'augmented'
 
+/** One of the two staves a chord can be drawn on. */
+export type ChordStaff = 'treble' | 'bass'
+
 /**
- * Which clef the round is drawn in. One at a time, deliberately: mixing them
- * adds "which clef is this" on top of "which chord is this", and the drill is
- * about the second. Reading chords in the bass clef is its own exercise, which
- * is why the choice exists at all.
+ * Which clef the round is drawn in. A single clef is the default because
+ * reading chords in the bass clef is its own exercise and is easier learnt on
+ * its own. `both` draws a grand staff and puts each chord on one staff or the
+ * other, the way the reading quiz does: it adds "which clef is this" on top of
+ * "which chord is this", which is exactly what a real piano score asks, so it
+ * is the rung after both single clefs are comfortable.
  */
-export type ChordClefMode = 'treble' | 'bass'
+export type ChordClefMode = ChordStaff | 'both'
 
 /**
  * One thing a question asks for. They compose: a round asks for the root, the
@@ -147,4 +152,6 @@ export interface ChordQuestion {
    * the reveal, and it is what a per-inversion accuracy split would read.
    */
   inversion: ChordInversion
+  /** Which staff the chord is drawn on; only varies in a `both` round. */
+  clef: ChordStaff
 }

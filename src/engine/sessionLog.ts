@@ -189,7 +189,13 @@ export function chordSessionTitle(settings: ChordQuizSettings): string {
   const asked = settings.answerSteps.map((step) => CHORD_STEP_LABELS[step]).join(' + ')
   const stack = settings.stackMode === 'root' ? 'root position' : 'with inversions'
   const accidentals = settings.accidentalMode === 'all' ? 'with accidentals' : 'do major'
-  return `Chords - ${asked}, ${accidentals}, ${stack}, ${settings.clefMode === 'bass' ? 'bass' : 'treble'} clef`
+  const clef =
+    settings.clefMode === 'both'
+      ? 'both clefs'
+      : settings.clefMode === 'bass'
+        ? 'bass clef'
+        : 'treble clef'
+  return `Chords - ${asked}, ${accidentals}, ${stack}, ${clef}`
 }
 
 export function readingSessionTitle(settings: ReadingQuizSettings): string {

@@ -14,7 +14,7 @@ import {
 import { ChordQuizEngine } from './ChordQuizEngine'
 import { diatonicIndex } from './readingQuiz'
 import { chordSessionTitle } from './sessionLog'
-import type { ChordClefMode, ChordQuizSettings } from '../types/chord'
+import type { ChordQuizSettings, ChordStaff } from '../types/chord'
 
 type Material = Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>
 
@@ -37,7 +37,7 @@ function measureDurations(xml: string): number[] {
 }
 
 /** The staff's own lines, in diatonic index space, per clef. */
-const STAFF_LINES: Record<ChordClefMode, { low: number; high: number }> = {
+const STAFF_LINES: Record<ChordStaff, { low: number; high: number }> = {
   treble: { low: diatonicIndex('E', 4), high: diatonicIndex('F', 5) },
   bass: { low: diatonicIndex('G', 2), high: diatonicIndex('A', 3) },
 }
@@ -378,6 +378,41 @@ describe('createChordRound', () => {
     expect([...treble.matchAll(/<clef>/g)]).toHaveLength(1)
     expect(treble).toContain('<sign>G</sign>')
     expect(generateChordQuizMusicXml(questions, 'bass')).toContain('<sign>F</sign>')
+  })
+
+  it('puts each chord of a grand-staff round on its own clef, with a rest on the other', () => {
+    const { questions, file } = createChordRound({ seed: 'grand', questionCount: 40, clefMode: 'both' })
+    expect(file.name).toContain('chord-quiz')
+    const clefs = new Set(questions.map((question) => question.clef))
+    expect(clefs).toEqual(new Set(['treble', 'bass']))
+    const xml = generateChordQuizMusicXml(questions, 'both')
+    expect(xml).toContain('<staves>2</staves>')
+    const measures = [...xml.matchAll(/<measure number="\d+">([\s\S]*?)<\/measure>/g)]
+    expect(measures).toHaveLength(40)
+    measures.forEach((measure, index) => {
+      const [upper, lower] = measure[1].split('<backup>')
+      const chordHalf = questions[index].clef === 'treble' ? upper : lower
+      const restHalf = questions[index].clef === 'treble' ? lower : upper
+      expect([...chordHalf.matchAll(/<note>/g)]).toHaveLength(3)
+      expect(chordHalf).not.toContain('<rest/>')
+      expect(restHalf).toContain('<rest/>')
+      // Each half fills the measure on its own: the backup rewinds by a whole note.
+      for (const half of [upper, lower]) {
+        expect(measureDurations(`<measure number="1">${half}</measure>`)).toEqual([4])
+      }
+    })
+  })
+
+  it('keeps every grand-staff chord inside its own clef\'s window', () => {
+    const { questions } = createChordRound({ seed: 'grand-window', questionCount: 60, clefMode: 'both' })
+    for (const question of questions) {
+      const lines = STAFF_LINES[question.clef]
+      for (const note of question.notes) {
+        const index = diatonicIndex(note.step, note.octave)
+        expect(index).toBeGreaterThanOrEqual(lines.low - 2)
+        expect(index).toBeLessThanOrEqual(lines.high + 2)
+      }
+    }
   })
 })
 

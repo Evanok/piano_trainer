@@ -792,9 +792,12 @@ export function ExerciseSetup({
                 >
                   <option value="treble">Treble</option>
                   <option value="bass">Bass</option>
+                  <option value="both">Both (grand staff)</option>
                 </select>
                 <span className="text-xs text-gray-500">
-                  One clef at a time: mixing them asks "which clef" on top of "which chord"
+                  {chordSettings.clefMode === 'both'
+                    ? 'Each chord lands on one staff or the other, as in a real piano score'
+                    : 'One clef at a time; "Both" adds "which clef" on top of "which chord"'}
                 </span>
               </label>
 

@@ -476,10 +476,14 @@ IDEA.md.
   diminished and mi/la/si augmented cannot be drawn on a natural root at all.
   Respelling them is not an option, since a triad must stay three letters two
   apart or it stops looking like a chord.
-- **Clefs are offered one at a time**, unlike the reading quiz's `both`: a
-  grand-staff round would ask "which clef is this" on top of "which chord is
-  this", and the drill is about the second. Reading chords in the bass clef is
-  its own exercise, which is why the choice exists at all.
+- **A single clef is the default, and `both` is the rung after it**: a
+  grand-staff round asks "which clef is this" on top of "which chord is this",
+  which is what a real piano score asks, so it earns its place once both clefs
+  are comfortable alone. It is built like the reading quiz's `both` (each chord
+  on its own clef's staff, a whole rest on the other, `ChordQuestion.clef` per
+  question, the staff picked 50/50 before the chord). The `play` step's
+  keyboard opens on the *question's* clef register, not the round's: the clef
+  is visible on the score, so following it gives nothing away.
 - **Finding the keys is shown on screen and asked only on real hardware.**
   Answering by tapping the *virtual* keyboard was rejected on use as too
   imprecise, and that rejection stands -- a real MIDI keyboard is a different
