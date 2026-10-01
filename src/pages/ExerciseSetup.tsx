@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { isGuest } from '../api/auth'
-import { fetchKeySignatureCounts } from '../api/catalog'
+import { fetchCatalogChords, fetchKeySignatureCounts } from '../api/catalog'
+import { eligibleCatalogChords } from '../engine/chordQuiz'
+import type { ChordRoundInputs } from '../engine/chordQuiz'
 import { ChordLesson } from '../components/ChordLesson'
 import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
@@ -17,7 +19,9 @@ import type {
   ChordAccidentalMode,
   ChordAnswerStep,
   ChordClefMode,
+  CatalogChord,
   ChordKeyMode,
+  ChordMaterial,
   ChordQuizSettings,
   ChordStackMode,
 } from '../types/chord'
@@ -113,11 +117,11 @@ interface ExerciseSetupProps {
   onReadingReady: (settings: ReadingQuizSettings) => void
   onSequenceReady: (settings: NoteSequenceSettings) => void
   /**
-   * `keyCounts` is the catalog's key signature statistic, fetched here while
-   * the settings are being chosen so the round does not have to wait for it;
-   * null when it is not needed or could not be fetched.
+   * `inputs` is what the round needs from the server (the key signature
+   * statistic, the catalog's chords), fetched here while the settings are being
+   * chosen so the round does not have to wait for it.
    */
-  onChordReady: (settings: ChordQuizSettings, keyCounts: Record<string, number> | null) => void
+  onChordReady: (settings: ChordQuizSettings, inputs: ChordRoundInputs) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -183,6 +187,33 @@ export function ExerciseSetup({
       .catch(() => undefined)
     return () => controller.abort()
   }, [wantsKeyCounts, keyCounts])
+
+  const usesCatalogChords = chordSettings.material === 'catalog'
+  const [catalogChords, setCatalogChords] = useState<CatalogChord[] | null>(null)
+  const [catalogChordsError, setCatalogChordsError] = useState<string | null>(null)
+  const wantsCatalogChords = tab === 'chords' && usesCatalogChords
+
+  // Unlike the key statistic, a failure here is shown and blocks the start:
+  // a round silently made of generated chords is not what was asked for.
+  useEffect(() => {
+    if (!wantsCatalogChords || catalogChords !== null) {
+      return
+    }
+    const controller = new AbortController()
+    setCatalogChordsError(null)
+    fetchCatalogChords(controller.signal)
+      .then(setCatalogChords)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setCatalogChordsError(error instanceof Error ? error.message : 'Could not load the catalog')
+        }
+      })
+    return () => controller.abort()
+  }, [wantsCatalogChords, catalogChords])
+
+  const usableCatalogChords = catalogChords ? eligibleCatalogChords(catalogChords, chordSettings) : []
+  const usablePieceCount = new Set(usableCatalogChords.map((chord) => chord.scoreId)).size
+  const canStartChords = !usesCatalogChords || usableCatalogChords.length > 0
 
   /**
    * Check or uncheck one step. The last one cannot be unchecked -- a round that
@@ -756,6 +787,36 @@ export function ExerciseSetup({
                 </span>
               </fieldset>
 
+              <label className="flex flex-col gap-1 text-sm text-gray-700 sm:col-span-2">
+                Chords from
+                <select
+                  value={chordSettings.material ?? 'generated'}
+                  onChange={(event) =>
+                    setChordSettings((current) => ({
+                      ...current,
+                      material: event.target.value as ChordMaterial,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="generated">Generated</option>
+                  <option value="catalog">The pieces in the catalog</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {!usesCatalogChords
+                    ? 'Built by the drill, with the key and accidentals chosen below'
+                    : catalogChordsError
+                      ? `Could not load the catalog's chords: ${catalogChordsError}`
+                      : catalogChords === null
+                        ? 'Reading the catalog...'
+                        : usableCatalogChords.length === 0
+                          ? 'No chord in the catalog fits these settings'
+                          : `${usableCatalogChords.length} chords found written in ${usablePieceCount} pieces, redrawn close on one staff. Their keys and accidentals are the pieces' own`}
+                </span>
+              </label>
+
+              {usesCatalogChords ? null : (
+              <>
               <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Key signature
                 <select
@@ -812,6 +873,8 @@ export function ExerciseSetup({
                       : 'One chord per letter, so the quality can be recited instead of measured'}
                 </span>
               </label>
+              </>
+              )}
 
               <label className="flex flex-col gap-1 text-sm text-gray-700">
                 Stacking
@@ -895,7 +958,13 @@ export function ExerciseSetup({
 
             <button
               type="button"
-              onClick={() => onChordReady(chordSettings, chordSettings.keyMode === 'random' ? keyCounts : null)}
+              disabled={!canStartChords}
+              onClick={() =>
+                onChordReady(chordSettings, {
+                  keyCounts: chordSettings.keyMode === 'random' ? keyCounts : null,
+                  catalogChords: usesCatalogChords ? catalogChords : null,
+                })
+              }
               className={`self-start ${PRIMARY_BUTTON}`}
             >
               Start chord quiz

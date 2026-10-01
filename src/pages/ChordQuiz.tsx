@@ -46,8 +46,10 @@ import {
   chordNoteWindowPitches,
   chordRootButtonLabel,
   chordRootLabel,
+  chordSignatureLabel,
   createChordRound,
 } from '../engine/chordQuiz'
+import type { ChordRoundInputs, ChordSource } from '../engine/chordQuiz'
 import { chordSessionTitle, createSessionId } from '../engine/sessionLog'
 import { useQuizSession } from '../hooks/useQuizSession'
 import type { QuizSessionFrame } from '../hooks/useQuizSession'
@@ -76,11 +78,11 @@ const STEP_LABELS: Record<ChordAnswerStep, string> = {
 interface ChordQuizProps {
   settings: ChordQuizSettings
   /**
-   * The catalog's key signature statistic, which a round with a random key is
-   * drawn from. Null when it could not be fetched: the round then falls back
-   * to an even spread of the common keys rather than waiting.
+   * What the setup screen fetched for the round: the key signature statistic a
+   * random key is drawn from, and the catalog's chords. Either may be null, and
+   * the round falls back rather than waiting (see `ChordRoundInputs`).
    */
-  keyCounts: Record<string, number> | null
+  inputs: ChordRoundInputs
   onNoteEvent: (listener: (event: MidiNoteEvent) => void) => () => void
   devices: MidiDeviceInfo[]
   selectedDeviceId: string | null
@@ -107,9 +109,24 @@ function chordAnswerLabel(question: ChordQuestion, key: ChordKey | null): string
   return `${chordName(question)}, ${chordInversionLabel(question.inversion)}${degree}`
 }
 
+/**
+ * "From For Children, Sz. 42 -- Bartók, measure 12": where a catalog chord was
+ * found. Shown during the question, not only after it: the title names the
+ * piece, not the chord, and it is what makes the chord one met in a real
+ * score rather than one more generated stack.
+ */
+function SourceCaption({ source }: { source: ChordSource }) {
+  return (
+    <p className="absolute left-3 top-2 max-w-[70%] truncate text-xs text-gray-500">
+      From <span className="font-medium text-gray-700">{source.title}</span>
+      {source.composer ? ` — ${source.composer}` : ''}, measure {source.measure}
+    </p>
+  )
+}
+
 export function ChordQuiz({
   settings,
-  keyCounts,
+  inputs,
   onNoteEvent,
   devices,
   selectedDeviceId,
@@ -122,8 +139,8 @@ export function ChordQuiz({
   // same twenty chords in the same order.
   const [roundSeed, setRoundSeed] = useState(() => createSessionId())
   const round = useMemo(
-    () => createChordRound({ ...settings, seed: roundSeed }, keyCounts),
-    [settings, roundSeed, keyCounts],
+    () => createChordRound({ ...settings, seed: roundSeed }, inputs),
+    [settings, roundSeed, inputs],
   )
   const staffRef = useRef<ReadingStaffHandle>(null)
   const engineRef = useRef(new ChordQuizEngine(round.questions, round.steps))
@@ -140,6 +157,7 @@ export function ChordQuiz({
 
   const question = engineRef.current.currentQuestion
   const currentStep = engineRef.current.currentStep
+  const source = question ? (round.sources[question.index] ?? null) : null
   // The question's own staff, not the round's mode: on a grand staff the
   // keyboard opens on whichever clef the chord is written in.
   const questionClef = question?.clef ?? 'treble'
@@ -158,7 +176,14 @@ export function ChordQuiz({
       // play step is a chord under two hands rather than a score to read.
       source: {
         kind: 'chord',
-        title: chordSessionTitle(settings, round.key === null ? null : chordKeyLabel(round.key)),
+        title: chordSessionTitle(
+          { ...settings, material: round.material },
+          round.key !== null
+            ? chordKeyLabel(round.key)
+            : round.material === 'catalog'
+              ? chordSignatureLabel(round.fifths)
+              : null,
+        ),
         settings,
       },
       totalEvents: round.questions.length,
@@ -336,6 +361,7 @@ export function ChordQuiz({
           ) : (
             <ReadingStaff ref={staffRef} source={round.file} onError={setStaffError} />
           )}
+          {source && !state.completed ? <SourceCaption source={source} /> : null}
           {revealed && question ? (
             <div className="absolute inset-x-0 bottom-0 bg-emerald-50/95 px-4 py-2 text-center">
               <p className="text-sm font-medium text-emerald-800">
@@ -413,7 +439,7 @@ export function ChordQuiz({
             answerStep={revealed ? (question?.step ?? null) : null}
             disabled={state.completed}
             onAnswer={handleAnswerStep}
-            labelOf={(step) => chordRootButtonLabel(step, round.key)}
+            labelOf={(step) => chordRootButtonLabel(step, round.fifths)}
           />
         ) : null}
       </main>

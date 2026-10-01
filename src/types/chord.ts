@@ -131,6 +131,8 @@ export interface ChordQuizSettings {
   accidentalMode: ChordAccidentalMode
   /** Optional so rounds recorded before keys existed still decode, as `none`. */
   keyMode?: ChordKeyMode
+  /** Optional for the same reason; missing means `generated`. */
+  material?: ChordMaterial
   stackMode: ChordStackMode
   clefMode: ChordClefMode
   questionCount: number
@@ -186,3 +188,41 @@ export interface ChordQuestion {
   /** Which staff the chord is drawn on; only varies in a `both` round. */
   clef: ChordStaff
 }
+
+/**
+ * A triad found written in a catalog score, as `GET /api/chords` sends it: one
+ * stack of notes on one stem that reduces to exactly three letters a third
+ * apart (doublings allowed), spelled exactly as the score spells it.
+ *
+ * Only the reading-relevant facts travel -- which chord, how it is spelled,
+ * which tone is at the bottom, and the signature it sits under. The drill
+ * redraws it in close position in its own clef window rather than copying the
+ * score's voicing, because a spread voicing over two staves is a different
+ * exercise (IDEA.md) and the measure around it would give the answer away.
+ */
+export interface CatalogChord {
+  scoreId: string
+  /** The score's catalog title, for the "from ..." caption. */
+  title: string
+  composer: string | null
+  /** 1-based sequential measure index, the way the app counts measures. */
+  measure: number
+  /** The key signature in force where the chord is written. */
+  fifths: number
+  /** The root's letter, C..B. */
+  rootStep: string
+  /** Alteration of the root, the third and the fifth, as written. */
+  alters: [number, number, number]
+  quality: ChordQuality
+  /** Which tone is the lowest note written: 0 root, 1 third, 2 fifth. */
+  inversion: ChordInversion
+}
+
+/**
+ * Where a round's chords come from. `generated` is every other setting of the
+ * drill; `catalog` draws them from the pieces in the library, so the chords
+ * practised are the ones actually met. With `catalog`, the key and the
+ * accidentals come from the pieces themselves, so `keyMode` and
+ * `accidentalMode` do not apply.
+ */
+export type ChordMaterial = 'generated' | 'catalog'

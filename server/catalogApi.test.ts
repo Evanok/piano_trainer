@@ -12,6 +12,7 @@ describe('isAllowedForGuest', () => {
     expect(isAllowedForGuest('GET', '/api/scores/2a1c4f6e-0000-4000-8000-000000000000/file')).toBe(true)
     expect(isAllowedForGuest('GET', '/api/stats')).toBe(true)
     expect(isAllowedForGuest('GET', '/api/key-signatures')).toBe(true)
+    expect(isAllowedForGuest('GET', '/api/chords')).toBe(true)
   })
 
   it('refuses every write, including the stats sync a guest device would otherwise attempt', () => {

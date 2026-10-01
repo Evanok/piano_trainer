@@ -116,7 +116,7 @@ The API is public (plain HTTP, no proxy, no TLS), and until this existed anyone 
 
 ### Guest links (`ApiRole`, `PIANO_TRAINER_GUEST_PASSWORD`, `GuestLinkShare.tsx`)
 
-A second, optional password mints a **read-only** token, so the deployment can be shown to someone without handing them the owner's password (which is all-or-nothing: it lets them upload, rename, delete, and merge their own practice into the shared `stats.json`). `resolveRole(token)` answers `'owner' | 'guest' | null` and is the only thing that decides; `isAllowedForGuest` (exported from `catalogApi.ts` and unit-tested, since it is the actual boundary) allows exactly `GET /api/scores`, `GET /api/scores/:id/file`, `GET /api/key-signatures` and `GET /api/stats`.
+A second, optional password mints a **read-only** token, so the deployment can be shown to someone without handing them the owner's password (which is all-or-nothing: it lets them upload, rename, delete, and merge their own practice into the shared `stats.json`). `resolveRole(token)` answers `'owner' | 'guest' | null` and is the only thing that decides; `isAllowedForGuest` (exported from `catalogApi.ts` and unit-tested, since it is the actual boundary) allows exactly `GET /api/scores`, `GET /api/scores/:id/file`, `GET /api/key-signatures`, `GET /api/chords` and `GET /api/stats`.
 
 - **The share link carries the token, it is not a mode flag.** `http://<host>:5173/?guest=<token>`, adopted by `adoptGuestLinkToken()` (called once in `App`'s auth effect, before the first request) which stores it and strips the parameter from the address bar. A `?guest` that only flipped a front-end flag would protect nothing, since the API answers `curl` too and the visitor would still need a real credential to see anything at all. The link therefore *is* a credential: whoever holds it is in, and revoking it means changing the password and restarting.
 - **A blocked call answers 403, never 401.** `src/api/auth.ts` treats every 401 as "this token is dead", clears it and shows the login screen, so a 401 here would throw the guest out on their first blocked request instead of refusing that one call.
@@ -131,7 +131,7 @@ A second, optional password mints a **read-only** token, so the deployment can b
 One of the two server-side parts of the app (the other is the stats sync, further down, mounted on the same handler): uploaded scores are kept on disk so they can be re-opened later without re-picking the file. Deliberately dependency-free (`node:http` + `node:fs`, no framework, no database) -- it's a single-user personal deployment, not a service.
 
 - **One handler, two hosts.** `createCatalogApi()` (`server/catalogApi.ts`) is a connect-style middleware. In dev, `vite.config.ts` mounts it on the Vite dev server (so `npm run dev` stays one process); in production `server/index.ts` mounts it in front of a static `dist/` file server. There is no second implementation of the endpoints to keep in sync, and no dev-only proxy config.
-- **Endpoints:** `GET /api/scores?q=&difficulty=&favorite=&page=&limit=` (search + filters + pagination, most recent first), `POST /api/scores?filename=` (the file is the raw request body -- posting `multipart/form-data` instead would mean shipping a parser for no benefit), `GET /api/scores/:id/file`, `PATCH /api/scores/:id` (JSON body `{ title?, composer?, difficulty?, favorite? }`, edits metadata only -- see below), `DELETE /api/scores/:id` (204, removes the entry and its file). `GET /api/key-signatures` returns `{ counts }`, the catalog counted by opening key signature, for the chord drill. The listing also takes `?key=0|1|2|3|4+`, a filter on **how many** sharps or flats the opening signature carries, either kind (`CatalogKeyFilter`, `matchesKeyFilter`): the count is what makes a page harder to read, and a filter by key name cannot exist since a file almost never says which of its signature's two keys it is in. `keyFifths` is on the shared `CatalogEntry` (read from the file, never edited, null/absent = unknown, which only matches the unfiltered listing), and each row shows it as a badge in words ("2 flats": UI fonts draw ♭ far too small to read at badge size).
+- **Endpoints:** `GET /api/scores?q=&difficulty=&favorite=&page=&limit=` (search + filters + pagination, most recent first), `POST /api/scores?filename=` (the file is the raw request body -- posting `multipart/form-data` instead would mean shipping a parser for no benefit), `GET /api/scores/:id/file`, `PATCH /api/scores/:id` (JSON body `{ title?, composer?, difficulty?, favorite? }`, edits metadata only -- see below), `DELETE /api/scores/:id` (204, removes the entry and its file). `GET /api/key-signatures` returns `{ counts }`, the catalog counted by opening key signature, and `GET /api/chords` returns `{ chords }`, every triad written as one stack in a catalog score (`server/scoreChords.ts`), both for the chord drill. The listing also takes `?key=0|1|2|3|4+`, a filter on **how many** sharps or flats the opening signature carries, either kind (`CatalogKeyFilter`, `matchesKeyFilter`): the count is what makes a page harder to read, and a filter by key name cannot exist since a file almost never says which of its signature's two keys it is in. `keyFifths` is on the shared `CatalogEntry` (read from the file, never edited, null/absent = unknown, which only matches the unfiltered listing), and each row shows it as a badge in words ("2 flats": UI fonts draw ♭ far too small to read at badge size).
 - **Names come from the score, not the file name** (`server/scoreMetadata.ts`): `<work-title>` (then `<movement-title>`) and `<creator type="composer">`, since files are usually downloaded under a slug (`persona-5-piano-the-days-when-my-mother-was-there.mxl`). A `.mxl` is a ZIP, opened with `jszip` -- the same library OSMD itself uses to read those files, so anything the app can render, the catalog can read. Extraction is deliberately regex-based on three flat elements rather than a full XML parse (Node has no DOM, and an XML parser would be a lot of dependency for `<work-title>`). Only the **first non-empty line** of a field is kept: a multi-line title/creator is nearly always the same name repeated in another script. It's best-effort -- an unreadable header yields nulls and falls back to `titleFromFilename` (slug -> "Tchaikovsky Album for the Young"), never a rejected upload.
 - **`METADATA_VERSION` + `migrateCatalog()`**: entries are stamped with the extraction version that produced them, and anything older is re-derived from disk at startup (`vite.config.ts` in dev, `server/index.ts` in prod, both non-fatal on failure). Bump the constant when the extraction rules change, otherwise the improvement only ever reaches *newly uploaded* scores. `metadataVersion` is server-side bookkeeping the front-end ignores (`StoredEntry` vs the shared `CatalogEntry`).
 - **Storage** (`server/catalogStore.ts`): `<dataDir>/catalog.json` + `<dataDir>/scores/<uuid><ext>`, where `dataDir` is `PIANO_TRAINER_DATA_DIR` or `./data`. Resolved from `process.cwd()` on purpose, *not* from `import.meta.url`: in dev this module is bundled into a temporary Vite config file at an unrelated path, which would silently move the data directory. `data/` is gitignored, and lives outside `public/` so Vite never serves it statically -- `server.watch.ignored` also excludes it, otherwise every upload would trigger a full page reload and drop a practice session in progress.
@@ -513,6 +513,42 @@ time in `activityOf`.
     degree, since the altered ones are chosen by their role in the key. The
     quality buttons are fixed at major/minor/diminished so they cannot hint at
     the key. `ChordLesson` section 7 teaches reading a signature.
+- **The chords can come from the catalog's own pieces** (`ChordMaterial`:
+  `generated` | `catalog`), so the chords practised are the ones actually met.
+  Four things worth knowing:
+  - **Only stacks on one stem count** (`server/scoreChords.ts`,
+    `extractTriads`, regex-based like the metadata reader): a note plus its
+    `<chord/>` notes that reduce to exactly three letters a third apart and
+    three pitch classes, doublings allowed. Notes sounding together on two
+    staves are never merged, since nothing on the page draws them as one
+    chord. Each is kept with the signature in force and its sequential
+    measure, deduplicated per score (a repeated accompaniment chord would
+    otherwise supply half of every round), cached per score id for the
+    process's life (score files are never replaced), and served whole by
+    `GET /api/chords` (guest-readable, about 600 chords from 145 of 271 scores,
+    ~130 KB).
+  - **A found chord is redrawn close on one staff, never copied**
+    (`catalogChordPlacement`): its own spelling and bottom tone on the same
+    per-inversion run as every generated chord, so the window check and the
+    whole screen are unchanged. A spread voicing is a different exercise
+    (IDEA.md), and the surrounding measure would give the answer away.
+  - **One signature per round, then piece first, chord second**
+    (`pickCatalogQuestions`). The signature is drawn by how many usable
+    chords sit under it, then a piece uniformly, then a chord in it: a
+    handful of pieces hold most of the block chords and would otherwise
+    supply nearly every question. The pieces state their signature but not
+    their mode, so a catalog round has `key: null`, `fifths` set, and no
+    degree on any chord. Instead it names the piece and measure above the
+    staff (`ChordRound.sources`, parallel to the questions), shown during the
+    question since a title names the piece, not the chord.
+  - **`keyMode` and `accidentalMode` do not apply** (hidden in the setup): the
+    pieces decide both. The root-step rule is the same `rootInKey` one. The
+    setup screen fetches the chords, says how many fit the settings, and
+    blocks the start when none do or the fetch failed -- a round silently
+    made of generated chords is not what was asked for -- while
+    `createChordRound` still falls back to generated material on an empty
+    pool rather than building an empty round (`ChordRound.material` says
+    which).
 - **A single clef is the default, and `both` is the rung after it**: a
   grand-staff round draws both clefs and makes the reading switch between them
   from one chord to the next, which is what a real piano score asks, so it earns its place once both clefs

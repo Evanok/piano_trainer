@@ -5,6 +5,7 @@ import {
   chordQualitiesInPlay,
   chordQualitySemitones,
   chordRoots,
+  catalogChordPlacement,
   chordKeyLabel,
   chordRootButtonLabel,
   createChordRound,
@@ -19,7 +20,7 @@ import { ChordQuizEngine } from './ChordQuizEngine'
 import { diatonicIndex } from './readingQuiz'
 import { createSeededRng, keySignatureAlter, keySignatureTonic } from './musicKeys'
 import { chordSessionTitle } from './sessionLog'
-import type { ChordKey, ChordQuizSettings, ChordStaff } from '../types/chord'
+import type { CatalogChord, ChordKey, ChordQuizSettings, ChordStaff } from '../types/chord'
 
 type Material = Pick<ChordQuizSettings, 'stackMode' | 'accidentalMode' | 'answerSteps'>
 
@@ -537,9 +538,9 @@ describe('key signatures', () => {
     expect(chordKeyLabel({ fifths: -2, mode: 'major' })).toBe('si♭ major')
     expect(chordKeyLabel({ fifths: 4, mode: 'minor' })).toBe('do♯ minor')
     expect(chordKeyLabel(null)).toBe('do major')
-    expect(chordRootButtonLabel('E', { fifths: -2, mode: 'major' })).toBe('mi♭')
-    expect(chordRootButtonLabel('D', { fifths: -2, mode: 'major' })).toBe('re')
-    expect(chordRootButtonLabel('E', null)).toBe('mi')
+    expect(chordRootButtonLabel('E', -2)).toBe('mi♭')
+    expect(chordRootButtonLabel('D', -2)).toBe('re')
+    expect(chordRootButtonLabel('E', 0)).toBe('mi')
   })
 
   const OWN_ONLY: Material = { stackMode: 'all', accidentalMode: 'none', answerSteps: ['root'] }
@@ -653,7 +654,7 @@ describe('key signatures', () => {
   it('writes the signature, and a sign only where a note departs from it', () => {
     const round = createChordRound(
       { seed: 'key-xml', keyMode: 'random', accidentalMode: 'all', answerSteps: ['quality'], questionCount: 60 },
-      { '-3': 1 },
+      { keyCounts: { '-3': 1 }, catalogChords: null },
     )
     expect(round.key?.fifths).toBe(-3)
     const xml = generateChordQuizMusicXml(round.questions, 'treble', round.key)
@@ -695,5 +696,80 @@ describe('key signatures', () => {
         'si♭ major',
       ),
     ).toBe('Chords - name, in si♭ major with altered chords, with inversions, both clefs')
+  })
+})
+
+describe('catalog material', () => {
+  const chord = (overrides: Partial<CatalogChord>): CatalogChord => ({
+    scoreId: 'score-a',
+    title: 'Piece A',
+    composer: 'Someone',
+    measure: 3,
+    fifths: -2,
+    rootStep: 'E',
+    alters: [-1, 0, -1],
+    quality: 'major',
+    inversion: 1,
+    ...overrides,
+  })
+
+  it('redraws a found chord close, with its own spelling and bottom tone, inside the window', () => {
+    for (const clef of ['treble', 'bass'] as const) {
+      const placement = catalogChordPlacement(clef, chord({}))!
+      const notes = triadNotes(placement)
+      expect(notes.map((note) => [note.step, note.alter])).toEqual([
+        ['G', 0],
+        ['B', -1],
+        ['E', -1],
+      ])
+      expect(placement.diatonic).toBe(true)
+      for (const note of notes) {
+        const index = diatonicIndex(note.step, note.octave)
+        expect(index).toBeGreaterThanOrEqual(STAFF_LINES[clef].low - 2)
+        expect(index).toBeLessThanOrEqual(STAFF_LINES[clef].high + 2)
+      }
+    }
+  })
+
+  it('keeps one signature per round, and says where each chord was found', () => {
+    const chords = [
+      chord({}),
+      chord({ scoreId: 'score-b', title: 'Piece B', rootStep: 'F', alters: [0, 0, 0], inversion: 0 }),
+      chord({ scoreId: 'score-c', fifths: 1, rootStep: 'D', alters: [0, 1, 0] }),
+    ]
+    for (const seed of ['one', 'two', 'three', 'four']) {
+      const round = createChordRound(
+        { seed, material: 'catalog', answerSteps: ['quality'], questionCount: 12 },
+        { keyCounts: null, catalogChords: chords },
+      )
+      expect(round.material).toBe('catalog')
+      const signature = round.fifths
+      expect(round.sources.every((source) => source !== null)).toBe(true)
+      expect(round.questions.every((question) => question.degree === null)).toBe(true)
+      // Every chord asked sits under the round's one signature.
+      const expected = chords.filter((entry) => entry.fifths === signature).map((entry) => entry.rootStep)
+      expect(round.questions.every((question) => expected.includes(question.step))).toBe(true)
+      const xml = generateChordQuizMusicXml(round.questions, 'treble', { fifths: signature })
+      expect(xml).toContain(`<fifths>${signature}</fifths>`)
+      expect(xml).not.toContain('<mode>')
+    }
+  })
+
+  it('leaves out a chord whose root departs from the signature when the root is asked', () => {
+    const outside = chord({ rootStep: 'B', alters: [0, 1, 1], quality: 'major', inversion: 0 })
+    const round = createChordRound(
+      { seed: 'x', material: 'catalog', answerSteps: ['root'], questionCount: 5 },
+      { keyCounts: null, catalogChords: [outside, chord({})] },
+    )
+    expect(round.questions.every((question) => question.step === 'E')).toBe(true)
+  })
+
+  it('falls back to generated chords when the catalog has nothing usable', () => {
+    const round = createChordRound(
+      { seed: 'empty', material: 'catalog', questionCount: 5 },
+      { keyCounts: null, catalogChords: [] },
+    )
+    expect(round.material).toBe('generated')
+    expect(round.questions).toHaveLength(5)
   })
 })

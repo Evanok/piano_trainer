@@ -99,6 +99,11 @@ async function readCompressedXml(data: Uint8Array): Promise<string | null> {
   return fallback ? fallback.async('string') : null
 }
 
+/** The score's MusicXML text, from a plain file or out of a compressed .mxl. */
+export async function readScoreXml(filename: string, data: Uint8Array): Promise<string | null> {
+  return filename.toLowerCase().endsWith('.mxl') ? readCompressedXml(data) : Buffer.from(data).toString('utf8')
+}
+
 /**
  * Best-effort: an unreadable or metadata-less file yields nulls rather than
  * throwing, so a score the app can still render is never rejected at upload
@@ -106,9 +111,7 @@ async function readCompressedXml(data: Uint8Array): Promise<string | null> {
  */
 export async function extractScoreMetadata(filename: string, data: Uint8Array): Promise<ScoreMetadata> {
   try {
-    const xml = filename.toLowerCase().endsWith('.mxl')
-      ? await readCompressedXml(data)
-      : Buffer.from(data).toString('utf8')
+    const xml = await readScoreXml(filename, data)
     return xml ? extractFromXml(xml) : EMPTY_METADATA
   } catch {
     return EMPTY_METADATA

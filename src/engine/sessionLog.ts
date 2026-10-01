@@ -196,7 +196,9 @@ export function chordSessionTitle(settings: ChordQuizSettings, keyLabel: string 
   // With a key, the key drawn for this round is named (each round is its own
   // record), and the accidentals say whether its altered chords were in play.
   const accidentals =
-    keyLabel !== null
+    settings.material === 'catalog'
+      ? `from the catalog${keyLabel !== null ? `, ${keyLabel}` : ''}`
+      : keyLabel !== null
       ? `in ${keyLabel}${settings.accidentalMode === 'all' ? ' with altered chords' : ''}`
       : settings.accidentalMode === 'all'
         ? 'with accidentals'

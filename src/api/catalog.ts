@@ -1,5 +1,6 @@
 import { AuthRequiredError, authHeaders, notifyAuthRequired } from './auth'
 import type { CatalogEntry, CatalogKeyFilter, CatalogPage, CatalogSort, ScoreDifficulty } from '../types/catalog'
+import type { CatalogChord } from '../types/chord'
 
 export interface CatalogQueryParams {
   search: string
@@ -145,4 +146,14 @@ export async function fetchKeySignatureCounts(signal?: AbortSignal): Promise<Rec
   }
   const body = (await response.json()) as { counts?: Record<string, number> }
   return body.counts ?? {}
+}
+
+/** Every triad written as one stack in a catalog score: the chord drill's catalog material. */
+export async function fetchCatalogChords(signal?: AbortSignal): Promise<CatalogChord[]> {
+  const response = await fetch('/api/chords', { signal, headers: authHeaders() })
+  if (!response.ok) {
+    await failed(response)
+  }
+  const body = (await response.json()) as { chords?: CatalogChord[] }
+  return body.chords ?? []
 }

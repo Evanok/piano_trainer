@@ -23,6 +23,7 @@ import {
   updateEntry,
 } from './catalogStore.ts'
 import { readScoreProgress, readSessions, syncSessions } from './statsStore.ts'
+import { readCatalogChords } from './scoreChords.ts'
 import { normalizeTag, normalizeTags } from '../src/engine/tags.ts'
 import {
   AUTH_HEADER,
@@ -370,6 +371,7 @@ export function isAllowedForGuest(method: string | undefined, pathname: string):
   return (
     pathname === '/api/scores' ||
     pathname === '/api/key-signatures' ||
+    pathname === '/api/chords' ||
     pathname === '/api/stats' ||
     /^\/api\/scores\/[^/]+\/file$/.test(pathname)
   )
@@ -431,6 +433,10 @@ export function createCatalogApi(dataDir: string = resolveDataDir()): CatalogApi
         // What the chord drill draws its keys from, so a round's key signature
         // is as likely as it is in the pieces actually in the library.
         sendJson(res, 200, { counts: keySignatureCounts(readCatalog(dataDir)) })
+      } else if (url.pathname === '/api/chords' && req.method === 'GET') {
+        // The chord drill's catalog material: every triad written as one stack
+        // in a library score. A few hundred small objects, so sent whole.
+        sendJson(res, 200, { chords: await readCatalogChords(dataDir, readCatalog(dataDir)) })
       } else if (url.pathname === '/api/scores' && req.method === 'GET') {
         handleList(res, dataDir, url)
       } else if (url.pathname === '/api/scores' && req.method === 'POST') {

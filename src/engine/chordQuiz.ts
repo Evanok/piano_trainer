@@ -49,12 +49,14 @@ import { asMusicXmlPitch } from './musicKeys'
 import { diatonicIndex, latinNameOf, pitchAtDiatonicIndex, STEPS } from './readingQuiz'
 import { CHORD_ANSWER_STEPS } from '../types/chord'
 import type {
+  CatalogChord,
   ChordAccidentalMode,
   ChordAnswerStep,
   ChordClefMode,
   ChordInversion,
   ChordKey,
   ChordKeyMode,
+  ChordMaterial,
   ChordNote,
   ChordQuality,
   ChordQuestion,
@@ -70,12 +72,26 @@ export type {
   ChordInversion,
   ChordKey,
   ChordKeyMode,
+  ChordMaterial,
   ChordNote,
   ChordQuality,
   ChordQuestion,
   ChordQuizSettings,
   ChordStackMode,
   ChordStaff,
+}
+
+/** A key signature on its own: a catalog round knows the count, not the mode. */
+export interface ChordSignature {
+  fifths: number
+  mode?: ChordKey['mode']
+}
+
+/** Where a catalog chord came from, for the caption under the staff. */
+export interface ChordSource {
+  title: string
+  composer: string | null
+  measure: number
 }
 
 export interface ChordRound {
@@ -113,8 +129,23 @@ export interface ChordRound {
    * The key the round is written in, or null for the keyless do major drill.
    * Drawn once per round, like a piece: a key changing every chord would turn
    * the drill into reading signatures instead of reading chords in one.
+   * Also null in a catalog round, whose pieces say their signature but almost
+   * never their mode -- see `fifths`.
    */
   key: ChordKey | null
+  /**
+   * The signature the round is written under: the key's, the catalog pieces'
+   * own, or 0. What spells the name buttons and the score's `<key>`.
+   */
+  fifths: number
+  /** Which material the round was actually drawn from. */
+  material: ChordMaterial
+  /**
+   * Per question, the piece a catalog chord was found in (null for generated
+   * chords). Parallel to `questions`, so `ChordQuestion` stays the plain
+   * record a session stores.
+   */
+  sources: Array<ChordSource | null>
 }
 
 export const DEFAULT_CHORD_QUESTION_COUNT = 20
@@ -126,6 +157,7 @@ const DEFAULT_SETTINGS: ChordQuizSettings = {
   answerSteps: ['root'],
   accidentalMode: 'none',
   keyMode: 'none',
+  material: 'generated',
   // Inverted by default, because root position alone asks nothing in `chord`
   // mode: the bottom note is the answer. See ChordStackMode.
   stackMode: 'all',
@@ -178,9 +210,17 @@ export function chordKeyLabel(key: ChordKey | null): string {
  * the signature decides the rest, which is exactly what reading in a key means,
  * and a root-step round never draws a chord whose root departs from it.
  */
-export function chordRootButtonLabel(step: string, key: ChordKey | null): string {
-  const alter = key === null ? 0 : keySignatureAlter(key.fifths, step)
-  return `${latinNameOf(step)}${ALTER_SIGNS[alter] ?? ''}`
+export function chordRootButtonLabel(step: string, fifths: number): string {
+  return `${latinNameOf(step)}${ALTER_SIGNS[keySignatureAlter(fifths, step)] ?? ''}`
+}
+
+/** "2 flats", "1 sharp", "no sharps or flats": a signature with no mode. */
+export function chordSignatureLabel(fifths: number): string {
+  if (fifths === 0) {
+    return 'no sharps or flats'
+  }
+  const count = Math.abs(fifths)
+  return `${count} ${fifths > 0 ? 'sharp' : 'flat'}${count > 1 ? 's' : ''}`
 }
 
 /** "sol♯ minor": root then quality, which is the whole name of a chord. */
@@ -886,15 +926,14 @@ function restXml(staff: 1 | 2): string {
       </note>`
 }
 
-function attributesXml(clefMode: ChordClefMode, key: ChordKey | null): string {
+function attributesXml(clefMode: ChordClefMode, key: ChordSignature | null): string {
   const keyXml =
     key === null
       ? `        <key>
           <fifths>0</fifths>
         </key>`
       : `        <key>
-          <fifths>${key.fifths}</fifths>
-          <mode>${key.mode}</mode>
+          <fifths>${key.fifths}</fifths>${key.mode ? `\n          <mode>${key.mode}</mode>` : ''}
         </key>`
   const time = `        <divisions>1</divisions>
 ${keyXml}
@@ -926,7 +965,7 @@ ${time}
       </attributes>`
 }
 
-function measureXml(question: ChordQuestion, clefMode: ChordClefMode, key: ChordKey | null): string {
+function measureXml(question: ChordQuestion, clefMode: ChordClefMode, key: ChordSignature | null): string {
   const attributes = question.measureNumber === 1 ? `\n${attributesXml(clefMode, key)}\n` : '\n'
   const fifths = key?.fifths ?? 0
   if (clefMode !== 'both') {
@@ -956,7 +995,7 @@ ${staff === 2 ? chord : restXml(2)}
 export function generateChordQuizMusicXml(
   questions: ChordQuestion[],
   clefMode: ChordClefMode,
-  key: ChordKey | null = null,
+  key: ChordSignature | null = null,
 ): string {
   const measures = questions.map((question) => measureXml(question, clefMode, key)).join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -981,15 +1020,168 @@ ${measures}
 }
 
 /**
- * A whole round. `keyCounts` is the catalog's key signature statistic
- * (`GET /api/key-signatures`), only read when the settings ask for a key; null
- * or empty falls back to an even spread of the common keys.
+ * A catalog chord as a placement on one staff: the same per-inversion run of
+ * root letters as every other chord, so it lands in the same window, stacked
+ * close with its own bottom tone and its own spelling. Null when it would need
+ * a double accidental, which no other chord of the drill draws either.
  */
+export function catalogChordPlacement(clef: ChordStaff, chord: CatalogChord): ChordPlacement | null {
+  const base = baseRootFor(clef, chord.inversion)
+  const stepIndex = STEPS.indexOf(chord.rootStep)
+  if (base === null || stepIndex < 0 || chord.alters.some((alter) => Math.abs(alter) > 1)) {
+    return null
+  }
+  const root = base + ((stepIndex - (base % STEPS.length) + STEPS.length) % STEPS.length)
+  const signature = [0, 2, 4].map((offset) =>
+    keySignatureAlter(chord.fifths, STEPS[(root + offset) % STEPS.length]),
+  )
+  return {
+    stepIndex,
+    rootAlter: chord.alters[0],
+    quality: chord.quality,
+    inversion: chord.inversion,
+    root,
+    alters: [...chord.alters],
+    diatonic: chord.alters.every((alter, tone) => alter === signature[tone]),
+    rootInKey: chord.alters[0] === signature[0],
+    // The pieces say their signature, not their mode, so a degree would be a
+    // guess at which of the signature's two keys the piece is in.
+    numeral: null,
+    weight: 1,
+  }
+}
+
+/** The catalog chords a round with these settings may ask, before any signature is chosen. */
+export function eligibleCatalogChords(
+  chords: CatalogChord[],
+  settings: Pick<ChordQuizSettings, 'stackMode' | 'answerSteps'>,
+): CatalogChord[] {
+  return chords.filter((chord) => {
+    if (settings.stackMode === 'root' && chord.inversion !== 0) {
+      return false
+    }
+    const placement = catalogChordPlacement('treble', chord)
+    // Same rule as the generated material: the name buttons are spelled by the
+    // signature, so a root departing from it cannot be named.
+    return placement !== null && !(settings.answerSteps.includes('root') && !placement.rootInKey)
+  })
+}
+
+/**
+ * A round of chords found in the catalog's pieces.
+ *
+ * One signature per round, like a keyed round, chosen by how many usable
+ * chords sit under it. Within it, a piece is picked first and then a chord in
+ * it, rather than a chord straight from the pool: a handful of pieces hold most
+ * of the catalog's block chords, and drawing from the pool would hand them
+ * nearly every question.
+ */
+function pickCatalogQuestions(
+  settings: ChordQuizSettings,
+  chords: CatalogChord[],
+): { fifths: number; questions: ChordQuestion[]; sources: ChordSource[] } {
+  const rng = createSeededRng(settings.seed)
+  const bySignature = new Map<number, CatalogChord[]>()
+  for (const chord of chords) {
+    bySignature.set(chord.fifths, [...(bySignature.get(chord.fifths) ?? []), chord])
+  }
+  const signatures = [...bySignature.entries()].sort((a, b) => a[0] - b[0])
+  let target = rng() * chords.length
+  let [fifths, pool] = signatures[signatures.length - 1]
+  for (const [candidate, entries] of signatures) {
+    target -= entries.length
+    if (target < 0) {
+      fifths = candidate
+      pool = entries
+      break
+    }
+  }
+  const byScore = new Map<string, CatalogChord[]>()
+  for (const chord of pool) {
+    byScore.set(chord.scoreId, [...(byScore.get(chord.scoreId) ?? []), chord])
+  }
+  const pieces = [...byScore.values()]
+  const draw = () => {
+    const piece = pieces[Math.floor(rng() * pieces.length)]
+    return piece[Math.floor(rng() * piece.length)]
+  }
+  const staves = chordStavesOf(settings.clefMode)
+  const questions: ChordQuestion[] = []
+  const sources: ChordSource[] = []
+  let previousStep: string | null = null
+  for (let i = 0; i < settings.questionCount; i += 1) {
+    const clef = staves.length > 1 ? staves[Math.floor(rng() * staves.length)] : staves[0]
+    // Never the same chord twice running, as in the generated rounds. A pool
+    // with a single chord has no choice, and repeats rather than ending early.
+    let chord = draw()
+    for (let attempt = 0; attempt < 8 && chord.rootStep === previousStep; attempt += 1) {
+      chord = draw()
+    }
+    previousStep = chord.rootStep
+    // Eligibility was checked on the treble staff, and the window check is
+    // the same for both: a placement only fails on a double accidental.
+    const placement = catalogChordPlacement(clef, chord) as ChordPlacement
+    questions.push({
+      index: i,
+      measureNumber: i + 1,
+      step: chord.rootStep,
+      rootAlter: placement.rootAlter,
+      notes: triadNotes(placement),
+      quality: placement.quality,
+      degree: null,
+      inversion: placement.inversion,
+      clef,
+    })
+    sources.push({ title: chord.title, composer: chord.composer, measure: chord.measure })
+  }
+  return { fifths, questions, sources }
+}
+
+/**
+ * What a round may need from the server, fetched by the setup screen: the
+ * catalog's key signature statistic (`GET /api/key-signatures`) for a random
+ * key, and its chords (`GET /api/chords`) for catalog material. Either may be
+ * null. A random key then falls back to an even spread of the common keys;
+ * catalog material with no usable chord falls back to generated chords, and
+ * `ChordRound.material` says so.
+ */
+export interface ChordRoundInputs {
+  keyCounts: Record<string, number> | null
+  catalogChords: CatalogChord[] | null
+}
+
+const NO_INPUTS: ChordRoundInputs = { keyCounts: null, catalogChords: null }
+
+/** A whole round. */
 export function createChordRound(
   settings: Partial<ChordQuizSettings>,
-  keyCounts: Record<string, number> | null = null,
+  inputs: ChordRoundInputs = NO_INPUTS,
 ): ChordRound {
   const sanitized = sanitize(settings)
+  if (sanitized.material === 'catalog') {
+    const chords = eligibleCatalogChords(inputs.catalogChords ?? [], sanitized)
+    if (chords.length > 0) {
+      const { fifths, questions, sources } = pickCatalogQuestions(sanitized, chords)
+      const present = new Set(chords.filter((chord) => chord.fifths === fifths).map((chord) => chord.quality))
+      return {
+        questions,
+        file: createMusicXmlFile(
+          generateChordQuizMusicXml(questions, sanitized.clefMode, { fifths }),
+          'chord-quiz',
+        ),
+        // From the signature's whole pool rather than the questions drawn, so
+        // the buttons do not tell the player which qualities are coming.
+        qualities: QUALITY_ORDER.filter((quality) => present.has(quality)),
+        nameOrder: [...STEPS],
+        steps: sanitized.answerSteps,
+        key: null,
+        fifths,
+        material: 'catalog',
+        sources,
+      }
+    }
+  }
+  const keyCounts = inputs.keyCounts
   // Its own stream, so turning keys on does not reshuffle which chords a seed
   // draws for reasons that have nothing to do with the key.
   const key =
@@ -1007,6 +1199,9 @@ export function createChordRound(
     nameOrder: [...STEPS],
     steps: sanitized.answerSteps,
     key,
+    fifths: key?.fifths ?? 0,
+    material: 'generated',
+    sources: questions.map(() => null),
   }
 }
 

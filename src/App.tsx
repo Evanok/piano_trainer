@@ -22,6 +22,7 @@ import type {
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
 import type { ChordQuizSettings } from './types/chord'
+import type { ChordRoundInputs } from './engine/chordQuiz'
 import type { ReadingQuizSettings } from './types/reading'
 import type { NoteSequenceSettings } from './types/sequence'
 import type { SessionSource, SessionStats } from './types/session'
@@ -89,6 +90,8 @@ const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
   // No signature to start with: the key is the rung after the chords are
   // readable in do major (see ChordKeyMode).
   keyMode: 'none',
+  // Generated chords first: the catalog's material is the rung after (see ChordMaterial).
+  material: 'generated',
   // Inverted from the start: root position alone makes naming the chord the
   // same question as naming the bottom note (see ChordStackMode).
   stackMode: 'all',
@@ -158,7 +161,7 @@ function App() {
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(DEFAULT_NOTE_SEQUENCE_SETTINGS)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(DEFAULT_CHORD_SETTINGS)
-  const [chordKeyCounts, setChordKeyCounts] = useState<Record<string, number> | null>(null)
+  const [chordInputs, setChordInputs] = useState<ChordRoundInputs>({ keyCounts: null, catalogChords: null })
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -377,9 +380,9 @@ function App() {
     setScreen('sequence-quiz')
   }, [])
 
-  const startChordQuiz = useCallback((settings: ChordQuizSettings, keyCounts: Record<string, number> | null) => {
+  const startChordQuiz = useCallback((settings: ChordQuizSettings, inputs: ChordRoundInputs) => {
     setChordSettings(settings)
-    setChordKeyCounts(keyCounts)
+    setChordInputs(inputs)
     setScreen('chord-quiz')
   }, [])
 
@@ -437,7 +440,7 @@ function App() {
     return (
       <ChordQuiz
         settings={chordSettings}
-        keyCounts={chordKeyCounts}
+        inputs={chordInputs}
         onNoteEvent={onNoteEvent}
         devices={devices}
         selectedDeviceId={selectedDeviceId}
