@@ -545,14 +545,24 @@ export function Practice({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const goToEventIndex = (targetIndex: number) => {
+  /**
+   * Moves practice to an event. `bounds` also sets the crop in the same step
+   * (null = the whole piece); omitted, the crop already drawn is kept. Every
+   * range change goes through `bounds` rather than cropping separately: the
+   * walk has to run uncropped (see setSectionBounds' note in PianoScore), and
+   * doing it in one call is what lets that cost no render of its own.
+   */
+  const goToEventIndex = (targetIndex: number, bounds?: Section | null) => {
     const engine = waitEngineRef.current
     if (!engine) {
       return
     }
     clearDecayTimer()
     engine.jumpToEventIndex(targetIndex)
-    scoreRef.current?.goToEventIndex(targetIndex)
+    scoreRef.current?.goToEventIndex(
+      targetIndex,
+      bounds === undefined ? undefined : bounds && { startMeasure: bounds.startMeasure, endMeasure: bounds.endMeasure },
+    )
     previousIndexRef.current = engine.state.currentIndex
     // Only the in-progress streak resets on a jump -- the session's best
     // combo (maxComboRef) is a record, not live progress, so it survives.
@@ -571,15 +581,6 @@ export function Practice({
     setHeldPitches([])
     setWrongPitches([])
     eventStartedAtRef.current = nowMs()
-  }
-
-  // Restricts the score to exactly one section's measures -- each section
-  // reads like its own isolated mini-score (Simply-Piano-style), with no
-  // leftover notes from the section just left still visible off to the side.
-  // null means the whole piece (used for the explicit "Whole piece" choice
-  // and when leaving a section-scoped mode).
-  const applySectionBounds = (bounds: Section | null) => {
-    scoreRef.current?.setSectionBounds(bounds ? bounds.startMeasure : null, bounds ? bounds.endMeasure : null)
   }
 
   // Shared by both completion paths below: the WaitEngine reaching its last
@@ -628,27 +629,22 @@ export function Practice({
       // (confirmed: jumping forward past an adjacent section worked by
       // accident since the walk grazed the old crop, but jumping backward
       // past a non-adjacent one landed measures away with no highlight at
-      // all). Always clear, walk, then crop to the new section.
-      applySectionBounds(null)
-      goToEventIndex(nextBounds.startEventIndex)
-      applySectionBounds(nextBounds)
+      // all). goToEventIndex with bounds walks uncropped and then crops to the
+      // new section, in a single render.
+      goToEventIndex(nextBounds.startEventIndex, nextBounds)
       showSectionMessage(`Section ${completedSectionNumber} complete! Moving to section ${nextIndex + 1}.`)
     } else {
       const activeSection = sectionsRef.current[currentSectionIndexRef.current]
-      applySectionBounds(null)
-      goToEventIndex(activeSection.startEventIndex)
-      applySectionBounds(activeSection)
+      goToEventIndex(activeSection.startEventIndex, activeSection)
       showSectionMessage(`Section ${completedSectionNumber} had errors -- let's try again.`)
     }
   }
 
   // Scroll loop never advances and never ends: reaching the last measure
-  // of the loop starts it again, clean pass or not. Same clear-walk-crop dance
-  // every range change owes OSMD (see handleSectionCompleted).
+  // of the loop starts it again, clean pass or not. The loop's crop is already
+  // the one drawn, so this costs no render at all.
   const restartLoop = (loop: Section, message: string | null = null) => {
-    applySectionBounds(null)
-    goToEventIndex(loop.startEventIndex)
-    applySectionBounds(loop)
+    goToEventIndex(loop.startEventIndex, loop)
     if (message !== null) {
       showSectionMessage(message)
     }
@@ -670,9 +666,7 @@ export function Practice({
     // apply are derived here -- same pattern as handleReady's freshSections.
     const bounds =
       clampedStart <= 1 && clampedEnd >= totalMeasures ? null : sectionForMeasureRange(events, clampedStart, clampedEnd)
-    applySectionBounds(null)
-    goToEventIndex(bounds ? bounds.startEventIndex : eventIndexAtOrAfterMeasure(events, clampedStart))
-    applySectionBounds(bounds)
+    goToEventIndex(bounds ? bounds.startEventIndex : eventIndexAtOrAfterMeasure(events, clampedStart), bounds)
   }
 
   useEffect(() => {
@@ -819,6 +813,9 @@ export function Practice({
     startedAtRef.current = Date.now()
     setWrongNoteFeedback(null)
     setEngineState(waitEngineRef.current.state)
+    // A remount starts over, but nothing else resets the header's measure, so
+    // it kept showing wherever the previous layout had been.
+    setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
     setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
     setDebugHeld('')
     setDebugLog([])
@@ -891,9 +888,7 @@ export function Practice({
         showSectionMessage(`Measure ${measureNumber} is outside the loop (${loop.startMeasure}-${loop.endMeasure})`)
         return false
       }
-      applySectionBounds(null)
-      goToEventIndex(eventIndex)
-      applySectionBounds(loop)
+      goToEventIndex(eventIndex, loop)
       return true
     }
     // Outside a section mode, and on the explicit "Whole piece" choice inside
@@ -908,9 +903,7 @@ export function Practice({
       (section) => eventIndex >= section.startEventIndex && eventIndex < section.endEventIndex,
     )
     setCurrentSectionIndex(target ? target.index : sections.length)
-    applySectionBounds(null)
-    goToEventIndex(eventIndex)
-    applySectionBounds(target ?? null)
+    goToEventIndex(eventIndex, target ?? null)
     return true
   }
 
@@ -988,9 +981,7 @@ export function Practice({
     const bounds = newSectionIndex < sections.length ? sections[newSectionIndex] : null
     // See handleSectionCompleted for why the cursor jump must happen with no
     // crop active at all, not just before the NEW crop is applied.
-    applySectionBounds(null)
-    goToEventIndex(bounds ? bounds.startEventIndex : 0)
-    applySectionBounds(bounds)
+    goToEventIndex(bounds ? bounds.startEventIndex : 0, bounds)
   }
 
   const handlePrevSection = () => handleSelectSection(Math.max(0, currentSectionIndex - 1))
@@ -1005,17 +996,30 @@ export function Practice({
     // Page is the one layout of its own: leaving or entering it remounts OSMD.
     const remounts = (newMode === 'page') !== (practiceMode === 'page')
     runWhileBusy(remounts ? 'Laying out the score...' : 'Switching mode...', () => {
-      selectPracticeMode(newMode)
+      selectPracticeMode(newMode, remounts)
       return remounts ? WAIT_FOR_READY : undefined
     })
   }
 
-  const selectPracticeMode = (newMode: PracticeMode) => {
+  const selectPracticeMode = (newMode: PracticeMode, remounts: boolean) => {
     const entering = isSectionPracticeMode(newMode)
     const wasIn = isSectionPracticeMode(practiceMode)
     const wasCropped = activeBounds !== null
     setPracticeMode(newMode)
     setSectionMessage(null)
+    if (remounts) {
+      // The new layout gets a new OSMD instance, and handleReady starts it over
+      // from the top with the new mode's crop. Moving the cursor or the crop
+      // here would be a full render of the instance about to be thrown away
+      // (it was 1.7s of a 4s section -> page switch on a throttled phone).
+      if (entering) {
+        setCurrentSectionIndex(0)
+      }
+      if (newMode === 'scrollLoop') {
+        setLoopRange({ start: 1, end: Math.max(1, totalMeasures) })
+      }
+      return
+    }
 
     if (newMode === 'scrollLoop') {
       // A fresh loop is always the whole piece, so entering the mode changes
@@ -1023,25 +1027,21 @@ export function Practice({
       // mode had applied still has to go, and un-cropping needs its own walk.
       setLoopRange({ start: 1, end: Math.max(1, totalMeasures) })
       if (wasCropped) {
-        applySectionBounds(null)
-        goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
+        goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0, null)
       }
     } else if (entering && !wasIn) {
       // Fresh entry into section-scoped practice: always restart at section 1.
       setCurrentSectionIndex(0)
-      applySectionBounds(null)
-      goToEventIndex(0)
-      applySectionBounds(sections[0] ?? null)
+      goToEventIndex(0, sections[0] ?? null)
     } else if (!entering && (wasIn || wasCropped)) {
-      // Leaving section-scoped practice: clear the crop, THEN walk -- see
+      // Leaving section-scoped practice: uncrop and walk in one call -- see
       // handleSectionCompleted for why the cursor walk must always happen
       // with no crop active (OSMD's own tie/rest counting only lines up with
       // WaitEngine's indices on the fully uncropped model). cursor.show()
       // alone doesn't reliably relocate onto the freshly-uncropped, much
       // larger graphical model either, so a fresh walk is required even
       // though the logical index isn't changing.
-      applySectionBounds(null)
-      goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0)
+      goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0, null)
     }
     // else: page <-> scroll (no section state to touch), or sectionFree <->
     // sectionTraining (already section-scoped, stays put -- only the
@@ -1060,9 +1060,7 @@ export function Practice({
     // isSectionMode), so re-cropping to it is always correct.
     const freshSections = computeSections(events, value, naturalBreaks)
     setCurrentSectionIndex(0)
-    applySectionBounds(null)
-    goToEventIndex(freshSections[0]?.startEventIndex ?? 0)
-    applySectionBounds(freshSections[0] ?? null)
+    goToEventIndex(freshSections[0]?.startEventIndex ?? 0, freshSections[0] ?? null)
   }
 
   // Live hand-mode switch: which notes are required changes, which changes
@@ -1090,16 +1088,10 @@ export function Practice({
     // React re-renders PianoScore with the new handMode prop.
     scoreRef.current?.setHandMode(newHandMode)
     clearDecayTimer()
-    // The crop currently applied (a section, or Scroll loop's range) would
-    // otherwise confine this walk to those measures, so the fresh event list
-    // (and the WaitEngine built from it) would cover the range instead of the
-    // piece -- the same "always walk with no crop active" rule setSectionBounds
-    // documents. Only touched when something is actually cropped: clearing
-    // bounds costs a full render.
+    // Walks the whole piece even under a crop (withUncroppedCursor), so the
+    // fresh event list covers the piece rather than the drawn range, with no
+    // render to clear the crop first.
     const inSectionMode = isSectionPracticeMode(practiceMode)
-    if (activeBounds !== null) {
-      applySectionBounds(null)
-    }
     const newEvents = extractExpectedEvents(osmd, newHandMode)
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
@@ -1127,13 +1119,11 @@ export function Practice({
       const end = Math.min(Math.max(loopRange.end, start), freshTotal)
       setLoopRange({ start, end })
       const bounds = start <= 1 && end >= freshTotal ? null : sectionForMeasureRange(newEvents, start, end)
-      goToEventIndex(bounds ? bounds.startEventIndex : 0)
-      applySectionBounds(bounds)
+      goToEventIndex(bounds ? bounds.startEventIndex : 0, bounds)
     } else if (inSectionMode) {
       const freshSections = computeSections(newEvents, measuresPerSection, naturalBreaks)
       setCurrentSectionIndex(0)
-      goToEventIndex(freshSections[0]?.startEventIndex ?? 0)
-      applySectionBounds(freshSections[0] ?? null)
+      goToEventIndex(freshSections[0]?.startEventIndex ?? 0, freshSections[0] ?? null)
     } else {
       goToEventIndex(0)
     }

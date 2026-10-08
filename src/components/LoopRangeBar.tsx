@@ -51,6 +51,11 @@ export function LoopRangeBar({
   // release, since every commit moves the cursor back to the loop's start and
   // doing that on each pixel of a drag would be unusable.
   const [drag, setDrag] = useState<{ bound: 'start' | 'end'; measure: number } | null>(null)
+  // What is being typed in a number field, committed on Enter or on leaving
+  // the field rather than per keystroke: each commit re-renders the score
+  // behind the busy overlay, and one arriving while another is still running
+  // is dropped, so typing "12" committed per keystroke would stop at 1.
+  const [typing, setTyping] = useState<{ bound: 'start' | 'end'; text: string } | null>(null)
 
   useLayoutEffect(() => {
     const track = trackRef.current
@@ -175,21 +180,31 @@ export function LoopRangeBar({
     </button>
   )
 
+  const commitTyped = () => {
+    if (!typing) return
+    setTyping(null)
+    const value = Number(typing.text)
+    if (typing.text.trim() === '' || !Number.isFinite(value)) return
+    if (typing.bound === 'start') {
+      const next = Math.min(endMeasure, Math.max(1, value))
+      if (next !== startMeasure) onChange(next, endMeasure)
+    } else {
+      const next = Math.max(startMeasure, Math.min(total, value))
+      if (next !== endMeasure) onChange(startMeasure, next)
+    }
+  }
+
   const numberField = (bound: 'start' | 'end') => (
     <input
       type="number"
       min={1}
       max={total}
-      value={bound === 'start' ? startMeasure : endMeasure}
+      value={typing?.bound === bound ? typing.text : bound === 'start' ? startMeasure : endMeasure}
       aria-label={bound === 'start' ? 'Loop from measure' : 'Loop to measure'}
-      onChange={(event) => {
-        const value = Number(event.target.value)
-        if (!Number.isFinite(value)) return
-        if (bound === 'start') {
-          onChange(Math.min(endMeasure, Math.max(1, value)), endMeasure)
-        } else {
-          onChange(startMeasure, Math.max(startMeasure, Math.min(total, value)))
-        }
+      onChange={(event) => setTyping({ bound, text: event.target.value })}
+      onBlur={commitTyped}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commitTyped()
       }}
       className="w-14 rounded-md border border-indigo-300 bg-white px-1.5 py-1 text-sm text-indigo-900"
     />
