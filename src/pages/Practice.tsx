@@ -15,6 +15,7 @@ import {
 import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { LoopRangeBar } from '../components/LoopRangeBar'
+import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
@@ -70,6 +71,9 @@ function nowMs(): number {
 // press, so a scroll gesture can never turn into a jump.
 const LONG_PRESS_MS = 500
 const LONG_PRESS_MOVE_TOLERANCE_PX = 12
+
+/** Returned by runWhileBusy's work to keep the overlay up until the remounted score is ready. */
+const WAIT_FOR_READY = 'wait-for-ready'
 
 function isSectionPracticeMode(mode: PracticeMode): boolean {
   return mode === 'sectionFree' || mode === 'sectionTraining'
@@ -173,6 +177,20 @@ export function Practice({
   const [currentMeasure, setCurrentMeasure] = useState(1)
   const [zoom, setZoomValue] = useState(1)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // What the score overlay says while OSMD is busy laying the score out again,
+  // null when it is not. Starts set: the first load is the longest freeze of all.
+  const [busyLabel, setBusyLabel] = useState<string | null>('Loading score...')
+  // The same flag, readable synchronously from event handlers (and the MIDI
+  // handler) without waiting for a re-render.
+  const busyRef = useRef(true)
+  // What the header's controls show while their change waits for the overlay to
+  // be painted: a controlled <select> would otherwise snap back to the old value
+  // for the whole freeze, as if the click had not been taken.
+  const [pendingSelection, setPendingSelection] = useState<{
+    mode?: PracticeMode
+    hand?: HandMode
+    section?: number
+  }>({})
   const [wrongNoteFeedback, setWrongNoteFeedback] = useState<string | null>(null)
   const [debugLog, setDebugLog] = useState<string[]>([])
   const [debugExpected, setDebugExpected] = useState('')
@@ -234,6 +252,43 @@ export function Practice({
   const backing = useBackingTrack(sourceKind === 'generated-training' ? backingTrack : null)
 
   const scoreRef = useRef<PianoScoreHandle | null>(null)
+
+  const endBusy = () => {
+    busyRef.current = false
+    setBusyLabel(null)
+    setPendingSelection({})
+  }
+
+  /**
+   * Runs work that re-renders the score, behind the overlay. The overlay is
+   * shown first and the work only starts once a frame has been painted with
+   * it: everything below blocks the main thread, so an overlay set in the same
+   * task as the work would never reach the screen. Returning WAIT_FOR_READY
+   * keeps the overlay up until PianoScore's onReady, for a switch that remounts
+   * OSMD (page <-> scroll), whose real cost lands in that remount and not here.
+   * A second request while one is pending is dropped rather than queued.
+   */
+  const runWhileBusy = (label: string, work: () => typeof WAIT_FOR_READY | void) => {
+    if (busyRef.current) {
+      return
+    }
+    busyRef.current = true
+    setBusyLabel(label)
+    // rAF runs just before the next paint; the timeout queued from it runs
+    // after that paint, so the overlay is on screen by then.
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        let waitForReady = false
+        try {
+          waitForReady = work() === WAIT_FOR_READY
+        } finally {
+          if (!waitForReady) {
+            endBusy()
+          }
+        }
+      }, 0)
+    })
+  }
   // Kept so handleSelectHandMode can re-walk the already-loaded OSMD instance
   // to recompute ExpectedEvents for the new hand mode, without asking
   // PianoScore to remount/reparse the file (a hand-mode switch shouldn't pay
@@ -603,6 +658,10 @@ export function Practice({
   // deliberately: after changing what is being drilled, the only position that
   // is never surprising is the start of it.
   const handleLoopRangeChange = (start: number, end: number) => {
+    runWhileBusy('Moving...', () => changeLoopRange(start, end))
+  }
+
+  const changeLoopRange = (start: number, end: number) => {
     const clampedStart = Math.min(Math.max(1, Math.round(start)), Math.max(1, totalMeasures))
     const clampedEnd = Math.min(Math.max(clampedStart, Math.round(end)), Math.max(1, totalMeasures))
     setLoopRange({ start: clampedStart, end: clampedEnd })
@@ -618,7 +677,9 @@ export function Practice({
 
   useEffect(() => {
     return onNoteEvent((event) => {
-      if (event.type !== 'noteon') {
+      // A note landing between a switch and its work would be judged against
+      // the event list the switch is about to replace.
+      if (event.type !== 'noteon' || busyRef.current) {
         return
       }
       // Page free is a plain read-along viewer with no wait-gating and no
@@ -773,6 +834,13 @@ export function Practice({
     if (practiceMode !== 'page') {
       scoreRef.current?.syncNotes([])
     }
+    // The first load, and every remount a page <-> scroll switch left waiting.
+    endBusy()
+  }
+
+  const handleLoadError = (message: string) => {
+    endBusy()
+    setLoadError(message)
   }
 
   const handleZoomChange = (value: number) => {
@@ -784,12 +852,14 @@ export function Practice({
   // control that mode needs constantly; everywhere else it is the top of the
   // piece. Silent on purpose: the player asked for it, so it needs no message.
   const handleBackToStart = () => {
-    const loop = activeBounds
-    if (isLoopMode && loop) {
-      restartLoop(loop)
-      return
-    }
-    goToEventIndex(0)
+    runWhileBusy('Moving...', () => {
+      const loop = activeBounds
+      if (isLoopMode && loop) {
+        restartLoop(loop)
+        return
+      }
+      goToEventIndex(0)
+    })
   }
 
   // Every measure-addressed cursor jump goes through here -- desktop's "Go to
@@ -905,6 +975,14 @@ export function Practice({
   // immediately, bypassing the perfect-run requirement -- that gate only
   // applies to automatic advancement.
   const handleSelectSection = (newSectionIndex: number) => {
+    if (busyRef.current) {
+      return
+    }
+    setPendingSelection({ section: newSectionIndex })
+    runWhileBusy('Moving...', () => selectSection(newSectionIndex))
+  }
+
+  const selectSection = (newSectionIndex: number) => {
     setCurrentSectionIndex(newSectionIndex)
     setSectionMessage(null)
     const bounds = newSectionIndex < sections.length ? sections[newSectionIndex] : null
@@ -920,9 +998,19 @@ export function Practice({
   const handleBackToSection1 = () => handleSelectSection(0)
 
   const handleSelectPracticeMode = (newMode: PracticeMode) => {
-    if (newMode === practiceMode) {
+    if (newMode === practiceMode || busyRef.current) {
       return
     }
+    setPendingSelection({ mode: newMode })
+    // Page is the one layout of its own: leaving or entering it remounts OSMD.
+    const remounts = (newMode === 'page') !== (practiceMode === 'page')
+    runWhileBusy(remounts ? 'Laying out the score...' : 'Switching mode...', () => {
+      selectPracticeMode(newMode)
+      return remounts ? WAIT_FOR_READY : undefined
+    })
+  }
+
+  const selectPracticeMode = (newMode: PracticeMode) => {
     const entering = isSectionPracticeMode(newMode)
     const wasIn = isSectionPracticeMode(practiceMode)
     const wasCropped = activeBounds !== null
@@ -984,9 +1072,14 @@ export function Practice({
   // restart from the current section (or the very start outside section
   // modes), same trade-off already made for a layoutMode remount.
   const handleSelectHandMode = (newHandMode: HandMode) => {
-    if (newHandMode === handMode) {
+    if (newHandMode === handMode || busyRef.current) {
       return
     }
+    setPendingSelection({ hand: newHandMode })
+    runWhileBusy('Switching hands...', () => selectHandMode(newHandMode))
+  }
+
+  const selectHandMode = (newHandMode: HandMode) => {
     const osmd = osmdRef.current
     if (!osmd) {
       return
@@ -1160,7 +1253,7 @@ export function Practice({
             {isPreviewPlaying ? <StopIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5" />}
           </button>
           <select
-            value={practiceMode}
+            value={pendingSelection.mode ?? practiceMode}
             onChange={(e) => handleSelectPracticeMode(e.target.value as PracticeMode)}
             aria-label="Practice mode"
             className="w-20 shrink-0 rounded-md border border-gray-300 bg-white px-1 py-1.5 text-xs"
@@ -1172,7 +1265,7 @@ export function Practice({
             {supportsSectionNavigation && <option value="sectionTraining">Sect. drill</option>}
           </select>
           <select
-            value={handMode}
+            value={pendingSelection.hand ?? handMode}
             onChange={(e) => handleSelectHandMode(e.target.value as HandMode)}
             aria-label="Hand"
             className="w-16 shrink-0 rounded-md border border-gray-300 bg-white px-1 py-1.5 text-xs"
@@ -1276,8 +1369,9 @@ export function Practice({
             layoutMode={resolvedLayoutMode}
             handMode={handMode}
             onReady={handleReady}
-            onError={setLoadError}
+            onError={handleLoadError}
           />
+          {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
           {/* Mobile had no home for sectionMessage at all, so a section
               repeat/advance was silent here. Floated over the score rather
               than given a row of its own: a landscape phone has no vertical
@@ -1437,7 +1531,7 @@ export function Practice({
         <label className="flex items-center gap-2">
           Mode
           <select
-            value={practiceMode}
+            value={pendingSelection.mode ?? practiceMode}
             onChange={(e) => handleSelectPracticeMode(e.target.value as PracticeMode)}
             className="rounded-md border border-gray-300 bg-white px-2 py-1"
           >
@@ -1451,7 +1545,7 @@ export function Practice({
         <label className="flex items-center gap-2">
           Hand
           <select
-            value={handMode}
+            value={pendingSelection.hand ?? handMode}
             onChange={(e) => handleSelectHandMode(e.target.value as HandMode)}
             className="rounded-md border border-gray-300 bg-white px-2 py-1"
           >
@@ -1467,7 +1561,7 @@ export function Practice({
           <label className="flex items-center gap-2">
             Section
             <select
-              value={currentSectionIndex}
+              value={pendingSelection.section ?? currentSectionIndex}
               onChange={(e) => handleSelectSection(Number(e.target.value))}
               className="rounded-md border border-indigo-300 bg-white px-2 py-1"
             >
@@ -1538,14 +1632,17 @@ export function Practice({
         />
       )}
 
-      <PianoScore
-        ref={scoreRef}
-        source={scoreFile}
-        layoutMode={resolvedLayoutMode}
-        handMode={handMode}
-        onReady={handleReady}
-        onError={setLoadError}
-      />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <PianoScore
+          ref={scoreRef}
+          source={scoreFile}
+          layoutMode={resolvedLayoutMode}
+          handMode={handMode}
+          onReady={handleReady}
+          onError={handleLoadError}
+        />
+        {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
+      </div>
 
       {showDesktopKeyboard && (
         <VirtualKeyboard

@@ -672,6 +672,15 @@ The codebase should stay one app: use shared pages/components plus responsive cl
 
 Chrome on Android supports Web MIDI (USB-OTG or Bluetooth MIDI keyboard); Safari on iOS does not support Web MIDI at all, full stop.
 
+### Busy overlay (`ScoreBusyOverlay.tsx`, `runWhileBusy` in `Practice.tsx`)
+
+Loading a score, a mode or hand switch, a section change, a loop range change and "back to start" block the main thread for up to several seconds on a phone (OSMD render, see `bench/`). They now run behind an overlay over the score instead of an unexplained freeze. Three things it depends on:
+- **The overlay must be painted before the work starts.** `runWhileBusy` sets the label, then runs the work from a timeout queued inside a `requestAnimationFrame`, i.e. after the next paint. Setting it in the same task as the work would never reach the screen. The handlers are therefore split into `handleX` (guard, pending selection, overlay) and `selectX`/`changeX` (the old synchronous body).
+- **Nothing in it runs JavaScript.** The spinner and the delayed fade-in are CSS `transform`/`opacity` animations (`.score-busy-*` in `index.css`), which Chromium drives on the compositor thread while the main thread is blocked. Verified with a CDP screencast: hundreds of distinct frames during one 18s blocked task. The 200ms fade-in delay keeps a fast switch from flashing it.
+- **A page <-> scroll switch keeps it up until `handleReady`** (`WAIT_FOR_READY`), since its cost is the PianoScore remount, not the handler. `handleReady` and `handleLoadError` both end it. While busy, a second request is dropped, MIDI notes are ignored, and the header selects show `pendingSelection` so a controlled `<select>` does not snap back for the duration of the freeze.
+
+The automatic section advance (`handleSectionCompleted`, from the note handler) and `jumpToMeasure` are not wrapped.
+
 ### Navigation jumps ("Back to start", "Go to measure", long press on the staff)
 
 **`jumpToMeasure` (`Practice.tsx`) is the single path for every measure-addressed jump** -- desktop's "Go to measure" box and mobile's long press -- so the two can never disagree. In a section mode it does what the earlier jump-to-measure did not: the crop **follows** the target measure into whichever section contains it (`setCurrentSectionIndex` plus a re-crop, so the cursor is never left on measures that aren't drawn), and the cursor walk itself runs with no crop active, per the rule `setSectionBounds` documents. On the explicit "Whole piece" choice it stays uncropped rather than cropping the score the player just chose to see in full.
