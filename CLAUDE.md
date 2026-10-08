@@ -11,6 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npx tsc -b --noEmit` -- typecheck only, no build output
 - `npm run lint` -- oxlint
 
+- `npm run bench:practice` -- practice-screen switch benchmark (mode and hand switches) in headless Chromium against a running app (`npm run dev` first). Reads the score from the local catalog, never from the repo (the reference piece is a copyrighted arrangement). `BENCH_VIEWPORT=mobile BENCH_CPU_THROTTLE=4` approximates a mid-range phone, `BENCH_PROFILE=1` adds the hottest functions per switch, `BENCH_CDP` drives a real Android Chrome over adb; see the header of `bench/practiceSwitches.ts`. Reference runs live in `bench/results/`. It is not a vitest test on purpose: what freezes is OSMD layout and drawing, which jsdom cannot measure.
+
 There is no test runner watch mode wired up as a script; use `npx vitest` (no `run`) directly for watch mode.
 
 ## Production deployment

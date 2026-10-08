@@ -1,0 +1,427 @@
+{
+  "environment": {
+    "date": "2026-10-08T16:40:23.941Z",
+    "score": "The Days When My Mother Was There",
+    "viewport": "mobile",
+    "cpuThrottle": 4,
+    "runs": 3,
+    "browser": "151.0.7922.34",
+    "loadMs": 13176
+  },
+  "summary": [
+    {
+      "step": "mode page -> scroll",
+      "handlerMs": 50,
+      "nextFrameMs": 57,
+      "settledMs": 5323,
+      "longestTaskMs": 5250,
+      "longTaskTotalMs": 5250
+    },
+    {
+      "step": "mode scroll -> section training",
+      "handlerMs": 2186,
+      "nextFrameMs": 2193,
+      "settledMs": 2193,
+      "longestTaskMs": 2187,
+      "longTaskTotalMs": 2187
+    },
+    {
+      "step": "mode section training -> loop",
+      "handlerMs": 1585,
+      "nextFrameMs": 1622,
+      "settledMs": 1622,
+      "longestTaskMs": 1585,
+      "longTaskTotalMs": 1585
+    },
+    {
+      "step": "mode loop -> page",
+      "handlerMs": 43,
+      "nextFrameMs": 50,
+      "settledMs": 4319,
+      "longestTaskMs": 4237,
+      "longTaskTotalMs": 4237
+    },
+    {
+      "step": "hand both -> right (page)",
+      "handlerMs": 672,
+      "nextFrameMs": 694,
+      "settledMs": 694,
+      "longestTaskMs": 672,
+      "longTaskTotalMs": 672
+    },
+    {
+      "step": "hand right -> left (page)",
+      "handlerMs": 691,
+      "nextFrameMs": 712,
+      "settledMs": 712,
+      "longestTaskMs": 691,
+      "longTaskTotalMs": 691
+    },
+    {
+      "step": "hand left -> both (page)",
+      "handlerMs": 659,
+      "nextFrameMs": 679,
+      "settledMs": 679,
+      "longestTaskMs": 659,
+      "longTaskTotalMs": 659
+    },
+    {
+      "step": "mode page -> scroll (2)",
+      "handlerMs": 46,
+      "nextFrameMs": 53,
+      "settledMs": 6184,
+      "longestTaskMs": 6113,
+      "longTaskTotalMs": 6113
+    },
+    {
+      "step": "hand both -> right (scroll)",
+      "handlerMs": 608,
+      "nextFrameMs": 626,
+      "settledMs": 626,
+      "longestTaskMs": 609,
+      "longTaskTotalMs": 609
+    },
+    {
+      "step": "hand right -> both (scroll)",
+      "handlerMs": 608,
+      "nextFrameMs": 630,
+      "settledMs": 630,
+      "longestTaskMs": 607,
+      "longTaskTotalMs": 607
+    },
+    {
+      "step": "mode scroll -> section free",
+      "handlerMs": 2033,
+      "nextFrameMs": 2040,
+      "settledMs": 2040,
+      "longestTaskMs": 2033,
+      "longTaskTotalMs": 2033
+    },
+    {
+      "step": "hand both -> left (section)",
+      "handlerMs": 2551,
+      "nextFrameMs": 2563,
+      "settledMs": 2563,
+      "longestTaskMs": 2550,
+      "longTaskTotalMs": 2550
+    },
+    {
+      "step": "hand left -> both (section)",
+      "handlerMs": 2503,
+      "nextFrameMs": 2513,
+      "settledMs": 2513,
+      "longestTaskMs": 2502,
+      "longTaskTotalMs": 2502
+    },
+    {
+      "step": "mode section free -> page",
+      "handlerMs": 1560,
+      "nextFrameMs": 1568,
+      "settledMs": 5702,
+      "longestTaskMs": 4104,
+      "longTaskTotalMs": 5667
+    }
+  ],
+  "runs": [
+    [
+      {
+        "handlerMs": 51.5,
+        "nextFrameMs": 58.70000000111759,
+        "settledMs": 6946.200000001118,
+        "longTaskTotalMs": 6904,
+        "longestTaskMs": 6852
+      },
+      {
+        "handlerMs": 2185.5,
+        "nextFrameMs": 2192.5999999996275,
+        "settledMs": 2192.5999999996275,
+        "longTaskTotalMs": 2187,
+        "longestTaskMs": 2187
+      },
+      {
+        "handlerMs": 1942.5999999996275,
+        "nextFrameMs": 1980.5,
+        "settledMs": 1980.5,
+        "longTaskTotalMs": 1942,
+        "longestTaskMs": 1942
+      },
+      {
+        "handlerMs": 42,
+        "nextFrameMs": 47.59999999962747,
+        "settledMs": 4436,
+        "longTaskTotalMs": 4357,
+        "longestTaskMs": 4357
+      },
+      {
+        "handlerMs": 640.1999999992549,
+        "nextFrameMs": 661.4000000003725,
+        "settledMs": 661.4000000003725,
+        "longTaskTotalMs": 641,
+        "longestTaskMs": 641
+      },
+      {
+        "handlerMs": 778,
+        "nextFrameMs": 799.8000000007451,
+        "settledMs": 799.8000000007451,
+        "longTaskTotalMs": 778,
+        "longestTaskMs": 778
+      },
+      {
+        "handlerMs": 633.7999999988824,
+        "nextFrameMs": 652.9000000003725,
+        "settledMs": 652.9000000003725,
+        "longTaskTotalMs": 634,
+        "longestTaskMs": 634
+      },
+      {
+        "handlerMs": 56.59999999962747,
+        "nextFrameMs": 63.5,
+        "settledMs": 5655.699999999255,
+        "longTaskTotalMs": 5609,
+        "longestTaskMs": 5552
+      },
+      {
+        "handlerMs": 673.7000000011176,
+        "nextFrameMs": 691.4000000003725,
+        "settledMs": 691.4000000003725,
+        "longTaskTotalMs": 674,
+        "longestTaskMs": 674
+      },
+      {
+        "handlerMs": 662.5999999996275,
+        "nextFrameMs": 680,
+        "settledMs": 680,
+        "longTaskTotalMs": 662,
+        "longestTaskMs": 662
+      },
+      {
+        "handlerMs": 2032.7000000011176,
+        "nextFrameMs": 2040.300000000745,
+        "settledMs": 2040.300000000745,
+        "longTaskTotalMs": 2033,
+        "longestTaskMs": 2033
+      },
+      {
+        "handlerMs": 2628.2999999988824,
+        "nextFrameMs": 2638.5,
+        "settledMs": 2638.5,
+        "longTaskTotalMs": 2629,
+        "longestTaskMs": 2629
+      },
+      {
+        "handlerMs": 3095,
+        "nextFrameMs": 3122.10000000149,
+        "settledMs": 3122.10000000149,
+        "longTaskTotalMs": 3095,
+        "longestTaskMs": 3095
+      },
+      {
+        "handlerMs": 1670.800000000745,
+        "nextFrameMs": 1675.199999999255,
+        "settledMs": 5835.699999999255,
+        "longTaskTotalMs": 5799,
+        "longestTaskMs": 4127
+      }
+    ],
+    [
+      {
+        "handlerMs": 49.80000000074506,
+        "nextFrameMs": 56.90000000037253,
+        "settledMs": 5274.4000000003725,
+        "longTaskTotalMs": 5239,
+        "longestTaskMs": 5188
+      },
+      {
+        "handlerMs": 1887.7000000011176,
+        "nextFrameMs": 1894.7000000011176,
+        "settledMs": 1894.7000000011176,
+        "longTaskTotalMs": 1888,
+        "longestTaskMs": 1888
+      },
+      {
+        "handlerMs": 1585,
+        "nextFrameMs": 1622.300000000745,
+        "settledMs": 1622.300000000745,
+        "longTaskTotalMs": 1585,
+        "longestTaskMs": 1585
+      },
+      {
+        "handlerMs": 44.59999999962747,
+        "nextFrameMs": 50.29999999888241,
+        "settledMs": 4319.199999999255,
+        "longTaskTotalMs": 4237,
+        "longestTaskMs": 4237
+      },
+      {
+        "handlerMs": 671.5999999996275,
+        "nextFrameMs": 695.4000000003725,
+        "settledMs": 695.4000000003725,
+        "longTaskTotalMs": 672,
+        "longestTaskMs": 672
+      },
+      {
+        "handlerMs": 672.2999999988824,
+        "nextFrameMs": 695.7999999988824,
+        "settledMs": 695.7999999988824,
+        "longTaskTotalMs": 672,
+        "longestTaskMs": 672
+      },
+      {
+        "handlerMs": 659.4000000003725,
+        "nextFrameMs": 678.7999999988824,
+        "settledMs": 678.7999999988824,
+        "longTaskTotalMs": 659,
+        "longestTaskMs": 659
+      },
+      {
+        "handlerMs": 45.79999999888241,
+        "nextFrameMs": 51.59999999962747,
+        "settledMs": 6184.39999999851,
+        "longTaskTotalMs": 6113,
+        "longestTaskMs": 6113
+      },
+      {
+        "handlerMs": 599.5,
+        "nextFrameMs": 618.6999999992549,
+        "settledMs": 618.6999999992549,
+        "longTaskTotalMs": 600,
+        "longestTaskMs": 600
+      },
+      {
+        "handlerMs": 607.5,
+        "nextFrameMs": 629.5,
+        "settledMs": 629.5,
+        "longTaskTotalMs": 607,
+        "longestTaskMs": 607
+      },
+      {
+        "handlerMs": 1962.5,
+        "nextFrameMs": 1970.7000000011176,
+        "settledMs": 1970.7000000011176,
+        "longTaskTotalMs": 1964,
+        "longestTaskMs": 1964
+      },
+      {
+        "handlerMs": 2550.5999999996275,
+        "nextFrameMs": 2562.800000000745,
+        "settledMs": 2562.800000000745,
+        "longTaskTotalMs": 2550,
+        "longestTaskMs": 2550
+      },
+      {
+        "handlerMs": 2502.800000000745,
+        "nextFrameMs": 2513,
+        "settledMs": 2513,
+        "longTaskTotalMs": 2502,
+        "longestTaskMs": 2502
+      },
+      {
+        "handlerMs": 1533.7999999988824,
+        "nextFrameMs": 1540.0999999996275,
+        "settledMs": 5554.299999998882,
+        "longTaskTotalMs": 5519,
+        "longestTaskMs": 3984
+      }
+    ],
+    [
+      {
+        "handlerMs": 44,
+        "nextFrameMs": 52.79999999888241,
+        "settledMs": 5322.799999998882,
+        "longTaskTotalMs": 5250,
+        "longestTaskMs": 5250
+      },
+      {
+        "handlerMs": 2751.5999999996275,
+        "nextFrameMs": 2768.5,
+        "settledMs": 2768.5,
+        "longTaskTotalMs": 2752,
+        "longestTaskMs": 2752
+      },
+      {
+        "handlerMs": 1539.5,
+        "nextFrameMs": 1570.5,
+        "settledMs": 1570.5,
+        "longTaskTotalMs": 1540,
+        "longestTaskMs": 1540
+      },
+      {
+        "handlerMs": 43.20000000111759,
+        "nextFrameMs": 50.30000000074506,
+        "settledMs": 4300.4000000003725,
+        "longTaskTotalMs": 4215,
+        "longestTaskMs": 4215
+      },
+      {
+        "handlerMs": 672.5,
+        "nextFrameMs": 693.9000000003725,
+        "settledMs": 693.9000000003725,
+        "longTaskTotalMs": 672,
+        "longestTaskMs": 672
+      },
+      {
+        "handlerMs": 690.8000000007451,
+        "nextFrameMs": 711.5,
+        "settledMs": 711.5,
+        "longTaskTotalMs": 691,
+        "longestTaskMs": 691
+      },
+      {
+        "handlerMs": 676.0999999996275,
+        "nextFrameMs": 700.4000000003725,
+        "settledMs": 700.4000000003725,
+        "longTaskTotalMs": 676,
+        "longestTaskMs": 676
+      },
+      {
+        "handlerMs": 44.90000000037253,
+        "nextFrameMs": 53.19999999925494,
+        "settledMs": 7802.4000000003725,
+        "longTaskTotalMs": 7713,
+        "longestTaskMs": 7659
+      },
+      {
+        "handlerMs": 608,
+        "nextFrameMs": 625.7000000011176,
+        "settledMs": 625.7000000011176,
+        "longTaskTotalMs": 609,
+        "longestTaskMs": 609
+      },
+      {
+        "handlerMs": 577.4000000003725,
+        "nextFrameMs": 594.6999999992549,
+        "settledMs": 594.6999999992549,
+        "longTaskTotalMs": 578,
+        "longestTaskMs": 578
+      },
+      {
+        "handlerMs": 2060.699999999255,
+        "nextFrameMs": 2067.199999999255,
+        "settledMs": 2067.199999999255,
+        "longTaskTotalMs": 2061,
+        "longestTaskMs": 2061
+      },
+      {
+        "handlerMs": 2487.39999999851,
+        "nextFrameMs": 2499.699999999255,
+        "settledMs": 2499.699999999255,
+        "longTaskTotalMs": 2488,
+        "longestTaskMs": 2488
+      },
+      {
+        "handlerMs": 2497.4000000003725,
+        "nextFrameMs": 2509.4000000003725,
+        "settledMs": 2509.4000000003725,
+        "longTaskTotalMs": 2497,
+        "longestTaskMs": 2497
+      },
+      {
+        "handlerMs": 1559.5999999996275,
+        "nextFrameMs": 1567.800000000745,
+        "settledMs": 5701.5,
+        "longTaskTotalMs": 5667,
+        "longestTaskMs": 4104
+      }
+    ]
+  ]
+}
