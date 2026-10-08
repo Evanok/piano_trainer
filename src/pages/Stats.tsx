@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { isGuest } from '../api/auth'
 import { fetchSessions, syncSessions } from '../api/stats'
-import { computeGrade } from '../engine/grade'
 import { countedSessions, mergeSessionLogs } from '../engine/sessionLog'
 import { getSessions, replaceSessions } from '../engine/sessionStore'
 import {
@@ -144,12 +143,6 @@ function buildComparison(recent: WindowSummary, allTime: WindowSummary): Compari
       recent: Math.round(recent.minutesPerWeek).toString(),
       allTime: Math.round(allTime.minutesPerWeek).toString(),
       change: percentChange(recent.minutesPerWeek, allTime.minutesPerWeek),
-    },
-    {
-      label: 'First-try accuracy',
-      recent: `${recent.averageSuccessPercent}%`,
-      allTime: `${allTime.averageSuccessPercent}%`,
-      change: percentChange(recent.averageSuccessPercent, allTime.averageSuccessPercent),
     },
   ]
 }
@@ -482,7 +475,7 @@ export function Stats({ onBack }: StatsProps) {
                 <div className="flex items-baseline justify-between gap-4">
                   <h2 className="text-sm font-semibold text-gray-900">Last {RECENT_WINDOW_DAYS} days vs all time</h2>
                   <span className="text-xs text-gray-500">
-                    best streak {view.streak.longestStreak} - grade {computeGrade(view.allTime.averageSuccessPercent)}
+                    best streak {view.streak.longestStreak}
                   </span>
                 </div>
                 <div className="mt-3 overflow-x-auto">
