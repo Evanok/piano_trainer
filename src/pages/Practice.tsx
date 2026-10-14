@@ -506,11 +506,11 @@ export function Practice({
     }
   }, [])
 
-  // "Hear the tune" preview, unrelated to Wait Mode's gating: plays every note
-  // of the whole piece (both hands, ignoring hand mode/section crop) via a
-  // plain Web Audio synth, independent of the live practice cursor -- see
-  // extractTimedNotes for why it walks its own OSMD iterator instead of the
-  // shared osmd.cursor.
+  // "Hear the tune" preview, unrelated to Wait Mode's gating: plays both hands
+  // (ignoring hand mode) of the range practice is confined to -- the loop or
+  // the current section, else the whole piece -- via a plain Web Audio synth,
+  // independent of the live practice cursor. See extractTimedNotes for why it
+  // walks its own OSMD iterator instead of the shared osmd.cursor.
   const handleTogglePreviewPlayback = () => {
     if (!synthRef.current) {
       synthRef.current = new ScoreSynth()
@@ -525,7 +525,7 @@ export function Practice({
     if (!osmd) {
       return
     }
-    synth.play(extractTimedNotes(osmd), () => setIsPreviewPlaying(false))
+    synth.play(extractTimedNotes(osmd, activeBounds), () => setIsPreviewPlaying(false))
     setIsPreviewPlaying(true)
   }
 

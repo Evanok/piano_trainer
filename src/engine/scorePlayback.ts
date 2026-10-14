@@ -38,7 +38,10 @@ function normalizeBpm(bpm: number): number {
 // doesn't apply retroactively to the note that just finished.
 export function buildTimeline(steps: RawTimelineStep[]): TimedNote[] {
   const notes: TimedNote[] = []
-  let previousTimestamp = 0
+  // Time starts at the first step, not at the top of the piece: a range that
+  // begins at measure 21 must start sounding at once, not after 20 measures
+  // of silence.
+  let previousTimestamp = steps.length > 0 ? steps[0].timestampWholeNotes : 0
   let previousBpm = steps.length > 0 ? normalizeBpm(steps[0].bpm) : DEFAULT_BPM
   let elapsedSeconds = 0
   for (const step of steps) {
@@ -57,22 +60,34 @@ export function buildTimeline(steps: RawTimelineStep[]): TimedNote[] {
   return notes
 }
 
-// Walks a fresh, independent iterator over the whole piece
-// (osmd.Sheet.MusicPartManager.getIterator()) instead of the shared
-// osmd.cursor that PianoScore/WaitEngine use for the live practice position
-// -- so previewing the score can never disturb the player's actual place,
-// held notes, or coloring. Always both hands and the whole piece: this is a
-// "remind me how it goes" preview, not subject to the current hand-mode/
-// section-crop practice filtering.
-export function extractTimedNotes(osmd: OpenSheetMusicDisplay): TimedNote[] {
+export interface PlaybackRange {
+  startMeasure: number // 1-based, sequential (Sheet.SourceMeasures index + 1)
+  endMeasure: number // inclusive
+}
+
+// Walks a fresh, independent iterator (osmd.Sheet.MusicPartManager
+// .getIterator()) instead of the shared osmd.cursor that PianoScore/WaitEngine
+// use for the live practice position -- so previewing the score can never
+// disturb the player's actual place, held notes, or coloring. Always both
+// hands: this is a "remind me how it goes" preview, not subject to hand mode.
+//
+// The start is always passed explicitly. Called without one, getIterator()
+// starts at Sheet.SelectionStart, which a section or loop crop rewrites to the
+// first drawn measure -- so the preview silently followed whatever crop
+// happened to be on screen. `range` (null = whole piece) is the only thing
+// that decides what is played.
+export function extractTimedNotes(osmd: OpenSheetMusicDisplay, range: PlaybackRange | null = null): TimedNote[] {
   const sheet = osmd.Sheet
-  if (!sheet) {
+  if (!sheet || sheet.SourceMeasures.length === 0) {
     return []
   }
+  const lastIndex = sheet.SourceMeasures.length - 1
+  const startIndex = range ? Math.min(Math.max(range.startMeasure - 1, 0), lastIndex) : 0
+  const endIndex = range ? Math.min(Math.max(range.endMeasure - 1, startIndex), lastIndex) : lastIndex
   const instrument = playableInstrument(osmd)
-  const iterator = sheet.MusicPartManager.getIterator()
+  const iterator = sheet.MusicPartManager.getIterator(sheet.SourceMeasures[startIndex].AbsoluteTimestamp.clone())
   const steps: RawTimelineStep[] = []
-  while (!iterator.EndReached) {
+  while (!iterator.EndReached && iterator.CurrentMeasureIndex <= endIndex) {
     const pitches = new Set<number>()
     let lengthWholeNotes = 0
     for (const entry of iterator.CurrentVoiceEntries) {
