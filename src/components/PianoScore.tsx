@@ -1,7 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { OpenSheetMusicDisplay, PointF2D } from 'opensheetmusicdisplay'
 import type { Note } from 'opensheetmusicdisplay'
-import { noteToMidi, playableInstrument, requiredNotesUnderCursor } from '../engine/ScoreParser'
+import {
+  advanceCursorSilently,
+  noteToMidi,
+  playableInstrument,
+  requiredNotesUnderCursor,
+  resetCursorSilently,
+  withUncroppedCursor,
+} from '../engine/ScoreParser'
 import type { HandMode } from '../types/practice'
 
 const CORRECT_COLOR = '#22c55e'
@@ -43,7 +50,12 @@ export interface PianoScoreHandle {
   // silently doing nothing.
   measureAtClientPoint: (clientX: number, clientY: number) => number | null
   setZoom: (value: number) => void
-  goToEventIndex: (targetIndex: number) => void
+  // Moves the cursor to an event. With `bounds`, also leaves the score cropped
+  // to them (null = the whole piece) in the same call: the walk runs uncropped
+  // without a render, and the crop then costs one render, or none at all when
+  // it is already the one drawn. Without `bounds` the current crop is kept
+  // and the target is assumed to be inside it.
+  goToEventIndex: (targetIndex: number, bounds?: MeasureBounds | null) => void
   // Restricts rendering to [startMeasure, endMeasure] (1-based, inclusive,
   // matching ExpectedEvent.measureNumber) -- training mode's "each section is
   // its own isolated score" (no leftover notes from the previous section
@@ -181,6 +193,16 @@ function scrollCursorIntoView(osmd: OpenSheetMusicDisplay, container: HTMLElemen
   container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' })
 }
 
+function sameCrop(a: MeasureBounds | null, b: MeasureBounds | null): boolean {
+  return a === null || b === null ? a === b : a.startMeasure === b.startMeasure && a.endMeasure === b.endMeasure
+}
+
+export interface MeasureBounds {
+  /** 1-based and inclusive, matching ExpectedEvent.measureNumber. */
+  startMeasure: number
+  endMeasure: number
+}
+
 export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function PianoScore(
   { source, layoutMode = 'page', handMode = 'both', onReady, onError },
   ref,
@@ -227,6 +249,11 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   // not-yet-existent GraphicalMusicSheet). Every imperative method below
   // guards on this in addition to `!osmd`.
   const hasLoadedRef = useRef(false)
+  // The crop currently drawn (null = the whole piece), so a request for the
+  // crop already on screen costs nothing. Every crop change is a full OSMD
+  // render, and both restarting a section and restarting a loop ask for the
+  // very crop they are already in.
+  const cropRef = useRef<MeasureBounds | null>(null)
 
   // Colors every given note via the fast path, remembering each choice so it
   // survives a future full render() (see reapplyColors).
@@ -293,6 +320,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     }
     osmdRef.current = osmd
     noteColorsRef.current = new Map()
+    cropRef.current = null
     stableScrollZoomRef.current = null
     stableScrollHeightRef.current = null
     hasLoadedRef.current = false
@@ -364,6 +392,61 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, layoutMode])
 
+  // Crops rendering to `bounds` (null = the whole piece): one full render.
+  const applyCrop = (osmd: OpenSheetMusicDisplay, bounds: MeasureBounds | null) => {
+    // Direct EngravingRules fields (0-based indices), not
+    // setOptions({drawFromMeasureNumber, ...}) -- that does its own
+    // measure-NUMBER-to-index conversion (accounting for pickup
+    // measures) which doesn't necessarily match ExpectedEvent.measureNumber's
+    // own sequential-index scheme, and passing undefined to clear a
+    // previously-set bound is a no-op in setOptions (it only ever
+    // narrows, never resets), so clearing needs these defaults directly
+    // anyway (MinMeasureToDrawIndex 0, MaxMeasureToDrawIndex Number.MAX_VALUE).
+    osmd.EngravingRules.MinMeasureToDrawIndex = bounds ? bounds.startMeasure - 1 : 0
+    osmd.EngravingRules.MaxMeasureToDrawIndex = bounds ? bounds.endMeasure - 1 : Number.MAX_VALUE
+    cropRef.current = bounds
+    // Reuse the whole-piece zoom computed once at load, rather than
+    // re-fitting to just this (cropped) section -- see stableScrollZoomRef.
+    if (layoutModeRef.current === 'scroll' && stableScrollZoomRef.current !== null) {
+      osmd.Zoom = stableScrollZoomRef.current
+    }
+    // updateGraphic() re-inits the cursor, and OSMD's Cursor.init() resets
+    // its iterator to the start of the drawn range (it also rewrites
+    // Sheet.SelectionStart to MinMeasureToDrawIndex's measure). That is
+    // invisible when the caller lands on a section's FIRST event, since the
+    // two coincide -- which is why every section change did the right thing
+    // -- but silently wrong for any position inside a section: the
+    // WaitEngine sat on measure 23 while the OSMD cursor sat back on
+    // measure 17, so the next correct note went green and advanced there
+    // instead. Re-walking after the crop is not the fix either: with a crop
+    // active, Sheet.SelectionStart means cursor.reset() starts at the
+    // section rather than the piece, so goToEventIndex's counting stops
+    // lining up with WaitEngine's indices at all (this is the same reason
+    // the walk itself must always run uncropped). So the iterator object is
+    // carried across the render and put back -- it holds source-model
+    // positions, which updateGraphic() rebuilds around rather than
+    // replacing.
+    const savedIterator = osmd.cursor.iterator
+    osmd.updateGraphic()
+    osmd.render()
+    if (savedIterator) {
+      osmd.cursor.iterator = savedIterator
+    }
+    if (layoutModeRef.current === 'scroll' && containerRef.current) {
+      applyStableVerticalOffset(containerRef.current, stableScrollHeightRef.current)
+    }
+    osmd.cursor.show()
+    osmd.cursor.cursorElement.style.opacity = '0'
+    reapplyColors(osmd)
+    // The crop's re-zoom changes the SVG's coordinate space -- the
+    // container's scrollLeft from before this call is now meaningless
+    // (same pixel offset, different content underneath), so the cursor
+    // has to be re-positioned into view under the new scale.
+    if (containerRef.current) {
+      scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
+    }
+  }
+
   useImperativeHandle(
     ref,
     () => ({
@@ -379,13 +462,16 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           osmd,
           requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, CORRECT_COLOR]),
         )
-        osmd.cursor.next()
+        advanceCursorSilently(osmd)
         // Skip rest-only and tie-continuation-only positions -- extractExpectedEvents
         // does the same, so the cursor must land on the same positions it counted as
         // real events, or the cursor and the WaitEngine's event index fall out of sync.
         while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd, handModeRef.current).length === 0) {
-          osmd.cursor.next()
+          advanceCursorSilently(osmd)
         }
+        // Moved silently above, so the cursor element is placed once, here --
+        // scrollCursorIntoView below reads its position.
+        osmd.cursor.update()
         // The new position hasn't been attempted yet -- neutral, not alarming.
         colorNotes(
           osmd,
@@ -448,7 +534,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         const index = (osmd.Sheet?.SourceMeasures ?? []).indexOf(sourceMeasure)
         return index < 0 ? null : index + 1
       },
-      goToEventIndex: (targetIndex: number) => {
+      goToEventIndex: (targetIndex: number, bounds?: MeasureBounds | null) => {
         const osmd = osmdRef.current
         if (!osmd || !hasLoadedRef.current) {
           return
@@ -471,22 +557,36 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         ])
         colorNotes(osmd, clearAssignments)
 
-        osmd.cursor.reset()
-        let count = 0
-        while (!osmd.cursor.Iterator.EndReached) {
-          const notes = requiredNotesUnderCursor(osmd, handModeRef.current)
-          if (notes.length > 0) {
-            if (count === targetIndex) {
-              break
+        const walk = () => {
+          // Silent walk: whatever places the cursor element afterwards
+          // (show() below, or the crop's render) does it once.
+          resetCursorSilently(osmd)
+          let count = 0
+          while (!osmd.cursor.Iterator.EndReached) {
+            const notes = requiredNotesUnderCursor(osmd, handModeRef.current)
+            if (notes.length > 0) {
+              if (count === targetIndex) {
+                break
+              }
+              count += 1
             }
-            count += 1
+            advanceCursorSilently(osmd)
           }
-          osmd.cursor.next()
+        }
+        if (bounds === undefined) {
+          walk()
+        } else {
+          withUncroppedCursor(osmd, walk)
         }
         colorNotes(
           osmd,
           requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, NEUTRAL_COLOR]),
         )
+        if (bounds !== undefined && !sameCrop(cropRef.current, bounds)) {
+          // Colors the notes and places the cursor itself, once the new crop is drawn.
+          applyCrop(osmd, bounds)
+          return
+        }
         osmd.cursor.show()
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
@@ -507,56 +607,14 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (!osmd || !hasLoadedRef.current) {
           return
         }
-        // Direct EngravingRules fields (0-based indices), not
-        // setOptions({drawFromMeasureNumber, ...}) -- that does its own
-        // measure-NUMBER-to-index conversion (accounting for pickup
-        // measures) which doesn't necessarily match ExpectedEvent.measureNumber's
-        // own sequential-index scheme, and passing undefined to clear a
-        // previously-set bound is a no-op in setOptions (it only ever
-        // narrows, never resets), so clearing needs these defaults directly
-        // anyway (MinMeasureToDrawIndex 0, MaxMeasureToDrawIndex Number.MAX_VALUE).
-        osmd.EngravingRules.MinMeasureToDrawIndex = startMeasure !== null ? startMeasure - 1 : 0
-        osmd.EngravingRules.MaxMeasureToDrawIndex = endMeasure !== null ? endMeasure - 1 : Number.MAX_VALUE
-        // Reuse the whole-piece zoom computed once at load, rather than
-        // re-fitting to just this (cropped) section -- see stableScrollZoomRef.
-        if (layoutModeRef.current === 'scroll' && stableScrollZoomRef.current !== null) {
-          osmd.Zoom = stableScrollZoomRef.current
+        const bounds =
+          startMeasure !== null && endMeasure !== null ? { startMeasure, endMeasure } : null
+        // Notably the whole-piece request every load ends with (Practice's
+        // handleReady), which used to cost a second full render of the piece.
+        if (sameCrop(cropRef.current, bounds)) {
+          return
         }
-        // updateGraphic() re-inits the cursor, and OSMD's Cursor.init() resets
-        // its iterator to the start of the drawn range (it also rewrites
-        // Sheet.SelectionStart to MinMeasureToDrawIndex's measure). That is
-        // invisible when the caller lands on a section's FIRST event, since the
-        // two coincide -- which is why every section change did the right thing
-        // -- but silently wrong for any position inside a section: the
-        // WaitEngine sat on measure 23 while the OSMD cursor sat back on
-        // measure 17, so the next correct note went green and advanced there
-        // instead. Re-walking after the crop is not the fix either: with a crop
-        // active, Sheet.SelectionStart means cursor.reset() starts at the
-        // section rather than the piece, so goToEventIndex's counting stops
-        // lining up with WaitEngine's indices at all (this is the same reason
-        // the walk itself must always run uncropped). So the iterator object is
-        // carried across the render and put back -- it holds source-model
-        // positions, which updateGraphic() rebuilds around rather than
-        // replacing.
-        const savedIterator = osmd.cursor.iterator
-        osmd.updateGraphic()
-        osmd.render()
-        if (savedIterator) {
-          osmd.cursor.iterator = savedIterator
-        }
-        if (layoutModeRef.current === 'scroll' && containerRef.current) {
-          applyStableVerticalOffset(containerRef.current, stableScrollHeightRef.current)
-        }
-        osmd.cursor.show()
-        osmd.cursor.cursorElement.style.opacity = '0'
-        reapplyColors(osmd)
-        // The crop's re-zoom changes the SVG's coordinate space -- the
-        // container's scrollLeft from before this call is now meaningless
-        // (same pixel offset, different content underneath), so the cursor
-        // has to be re-positioned into view under the new scale.
-        if (containerRef.current) {
-          scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
-        }
+        applyCrop(osmd, bounds)
       },
       setHandMode: (newHandMode: HandMode) => {
         // Plain synchronous ref write -- Practice.tsx calls this immediately

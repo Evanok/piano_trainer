@@ -168,7 +168,6 @@ export interface WindowSummary {
   completedCount: number
   totalMs: number
   minutesPerWeek: number
-  averageSuccessPercent: number
   averageResponseMs: number
   daysPracticed: number
   totalErrors: number
@@ -184,7 +183,6 @@ const EMPTY_SUMMARY: WindowSummary = {
   completedCount: 0,
   totalMs: 0,
   minutesPerWeek: 0,
-  averageSuccessPercent: 0,
   averageResponseMs: 0,
   daysPracticed: 0,
   totalErrors: 0,
@@ -204,7 +202,6 @@ function summarize(sessions: PracticeSessionRecord[], spanDays: number): WindowS
   }
 
   let totalMs = 0
-  let totalSuccess = 0
   let totalErrors = 0
   let totalEvents = 0
   let completedCount = 0
@@ -213,7 +210,6 @@ function summarize(sessions: PracticeSessionRecord[], spanDays: number): WindowS
 
   for (const session of sessions) {
     totalMs += session.durationMs
-    totalSuccess += session.successPercent
     totalErrors += session.errorCount
     totalEvents += session.totalEvents
     if (session.completed) {
@@ -239,7 +235,6 @@ function summarize(sessions: PracticeSessionRecord[], spanDays: number): WindowS
     completedCount,
     totalMs,
     minutesPerWeek: totalMs / 60000 / weeks,
-    averageSuccessPercent: Math.round(totalSuccess / sessions.length),
     averageResponseMs: responseCount === 0 ? 0 : Math.round(totalResponseMs / responseCount),
     daysPracticed: new Set(sessions.map(sessionDay)).size,
     totalErrors,

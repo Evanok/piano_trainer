@@ -7,3 +7,34 @@
 body {
   background-color: #f3f4f6;
 }
+
+/*
+ * ScoreBusyOverlay. Both animations are opacity/transform only, which Chromium
+ * runs on the compositor thread: they keep moving while the main thread is
+ * blocked by an OSMD render, which is the only time this overlay is shown, and
+ * they cost no JavaScript at all. The fade-in is delayed so a switch that ends
+ * quickly never flashes the overlay.
+ */
+@keyframes score-busy-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes score-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.score-busy-overlay {
+  animation: score-busy-fade-in 150ms ease-out 200ms both;
+}
+
+.score-busy-spinner {
+  animation: score-busy-spin 0.9s linear infinite;
+  will-change: transform;
+}

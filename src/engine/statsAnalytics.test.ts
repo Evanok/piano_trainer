@@ -188,7 +188,6 @@ describe('summarizeRecent', () => {
     // Two sittings a day apart, so per-sitting equals per-session here.
     expect(recent.blockCount).toBe(2)
     expect(recent.averageBlockMs).toBe(900000)
-    expect(recent.averageSuccessPercent).toBe(90)
     expect(recent.blocksPerWeek).toBe(2)
     expect(recent.longestBlockMs).toBe(1200000)
   })

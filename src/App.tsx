@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
-import { ExerciseSetup, type SetupTab } from './pages/ExerciseSetup'
+import { ExerciseSetup, type ExerciseSetupDraft, type SetupTab } from './pages/ExerciseSetup'
 import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
@@ -21,6 +21,7 @@ import type {
   PracticeSourceKind,
 } from './types/practice'
 import { exerciseSessionTitle } from './engine/sessionLog'
+import { loadPreference, savePreference } from './engine/preferencesStore'
 import type { ChordQuizSettings } from './types/chord'
 import type { ReadingQuizSettings } from './types/reading'
 import type { NoteSequenceSettings } from './types/sequence'
@@ -108,6 +109,17 @@ const DEFAULT_HANON_SETTINGS: HanonSettings = {
   length: 'full',
 }
 
+/** The exercise screen's options that are shared by the two keyboard drills. */
+interface ExerciseOptions {
+  keyboardAssistMode: KeyboardAssistMode
+  backingTrackEnabled: boolean
+}
+
+const DEFAULT_EXERCISE_OPTIONS: ExerciseOptions = {
+  keyboardAssistMode: 'none',
+  backingTrackEnabled: false,
+}
+
 /**
  * 'checking' only lasts one request. 'locked' shows the login screen; anything
  * else (no password configured, valid token, or an unreachable server) is
@@ -140,7 +152,13 @@ function App() {
   // Owned here (not inside ScoreLibrary) so it survives that component
   // unmounting when navigating away and back -- otherwise browsing the
   // catalog always resumed reset to page 1.
-  const [catalogBrowseState, setCatalogBrowseState] = useState<CatalogBrowseState>(DEFAULT_BROWSE_STATE)
+  // Also persisted across visits (see the effects below). The page is not: a
+  // filter is a preference, a page number is only a position in a listing that
+  // may have changed since.
+  const [catalogBrowseState, setCatalogBrowseState] = useState<CatalogBrowseState>(() => ({
+    ...loadPreference('catalog-browse', DEFAULT_BROWSE_STATE),
+    page: 1,
+  }))
   const handleCatalogBrowseChange = useCallback((state: CatalogBrowseState) => {
     setCatalogBrowseState(state)
   }, [])
@@ -152,14 +170,57 @@ function App() {
   // Which tab ExerciseSetup opens on. Separate from exerciseKind because the
   // reading quiz is a tab there but not an ExerciseKind, and kept here because
   // ExerciseSetup is remounted from scratch on every visit.
-  const [setupTab, setSetupTab] = useState<SetupTab>('generated')
-  const [exerciseSettings, setExerciseSettings] = useState<TrainingExerciseSettings>(DEFAULT_EXERCISE_SETTINGS)
-  const [hanonSettings, setHanonSettings] = useState<HanonSettings>(DEFAULT_HANON_SETTINGS)
-  const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>('none')
-  const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(false)
-  const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(DEFAULT_READING_SETTINGS)
-  const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(DEFAULT_NOTE_SEQUENCE_SETTINGS)
-  const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(DEFAULT_CHORD_SETTINGS)
+  // Every exercise setting below starts from what this device last used, so
+  // the setup screen reopens as it was left, reload included.
+  const [setupTab, setSetupTab] = useState<SetupTab>(() => loadPreference<SetupTab>('setup-tab', 'generated'))
+  const [exerciseSettings, setExerciseSettings] = useState<TrainingExerciseSettings>(() =>
+    loadPreference('exercise-training', DEFAULT_EXERCISE_SETTINGS),
+  )
+  const [hanonSettings, setHanonSettings] = useState<HanonSettings>(() =>
+    loadPreference('exercise-hanon', DEFAULT_HANON_SETTINGS),
+  )
+  const [initialExerciseOptions] = useState(() => loadPreference('exercise-options', DEFAULT_EXERCISE_OPTIONS))
+  const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>(
+    initialExerciseOptions.keyboardAssistMode,
+  )
+  const [exerciseBackingTrackEnabled, setExerciseBackingTrackEnabled] = useState(
+    initialExerciseOptions.backingTrackEnabled,
+  )
+  const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(() =>
+    loadPreference('reading', DEFAULT_READING_SETTINGS),
+  )
+  const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(() =>
+    loadPreference('sequence', DEFAULT_NOTE_SEQUENCE_SETTINGS),
+  )
+  const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(() =>
+    loadPreference('chords', DEFAULT_CHORD_SETTINGS),
+  )
+
+  useEffect(() => savePreference('catalog-browse', catalogBrowseState), [catalogBrowseState])
+  useEffect(() => savePreference('setup-tab', setupTab), [setupTab])
+  useEffect(() => savePreference('exercise-training', exerciseSettings), [exerciseSettings])
+  useEffect(() => savePreference('exercise-hanon', hanonSettings), [hanonSettings])
+  useEffect(
+    () =>
+      savePreference<ExerciseOptions>('exercise-options', {
+        keyboardAssistMode: exerciseKeyboardAssistMode,
+        backingTrackEnabled: exerciseBackingTrackEnabled,
+      }),
+    [exerciseKeyboardAssistMode, exerciseBackingTrackEnabled],
+  )
+  useEffect(() => savePreference('reading', readingSettings), [readingSettings])
+  useEffect(() => savePreference('sequence', sequenceSettings), [sequenceSettings])
+  useEffect(() => savePreference('chords', chordSettings), [chordSettings])
+
+  const handleExerciseSetupChange = useCallback((draft: ExerciseSetupDraft) => {
+    setExerciseSettings(draft.training)
+    setHanonSettings(draft.hanon)
+    setExerciseKeyboardAssistMode(draft.keyboardAssistMode)
+    setExerciseBackingTrackEnabled(draft.backingTrackEnabled)
+    setReadingSettings(draft.reading)
+    setSequenceSettings(draft.sequence)
+    setChordSettings(draft.chords)
+  }, [])
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
   // Practice because only App knows where the file came from -- a catalog entry,
@@ -420,6 +481,7 @@ function App() {
         initialChordSettings={chordSettings}
         onChordReady={startChordQuiz}
         onTabChange={setSetupTab}
+        onSettingsChange={handleExerciseSetupChange}
         onBack={handleBackToHome}
       />
     )

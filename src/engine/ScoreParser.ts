@@ -173,6 +173,57 @@ function targetStaffForHand(osmd: OpenSheetMusicDisplay, handMode: HandMode): St
   return selectHandStaff(handParts(osmd), handMode)
 }
 
+// Cursor.next() and Cursor.reset() each end in Cursor.update(), which moves
+// the cursor image AND redraws it from scratch (a fresh canvas, a gradient,
+// then toDataURL into a PNG) on every single step. A walk over the whole piece
+// paid that for every position in it: about 150ms per walk on a desktop and
+// 650ms on a mid-range phone for a 635-event score, which was nearly all of a
+// hand switch (bench/practiceSwitches.ts). These two move only the iterator,
+// which is all NotesUnderCursor reads, so a walk calls cursor.update() (or
+// show()) exactly once, where it stops.
+export function resetCursorSilently(osmd: OpenSheetMusicDisplay): void {
+  osmd.cursor.resetIterator()
+}
+
+export function advanceCursorSilently(osmd: OpenSheetMusicDisplay): void {
+  // Exactly what Cursor.next() does before its update().
+  osmd.cursor.Iterator.moveToNextVisibleVoiceEntry(false)
+}
+
+// Runs a cursor walk over the WHOLE piece whatever crop is drawn, without
+// rendering anything. The walk must not be confined to a crop: OSMD's
+// resetIterator() starts the iterator at Sheet.SelectionStart, which it sets
+// from MinMeasureToDrawIndex (and ends it at SelectionEnd, from
+// MaxMeasureToDrawIndex), so under a crop event indices count from the
+// section and stop at its end. That used to be solved by clearing the crop
+// with a full render before every walk and cropping again (a second full
+// render) after it -- but the iterator only reads the source model, so
+// lifting the two rules for the walk is enough. Both rules and the selection
+// are put back afterwards; the iterator itself is left where the walk stopped.
+export function withUncroppedCursor<T>(osmd: OpenSheetMusicDisplay, walk: () => T): T {
+  const rules = osmd.EngravingRules
+  const sheet = osmd.Sheet
+  const savedMin = rules.MinMeasureToDrawIndex
+  const savedMax = rules.MaxMeasureToDrawIndex
+  const savedSelectionStart = sheet.SelectionStart
+  const savedSelectionEnd = sheet.SelectionEnd
+  rules.MinMeasureToDrawIndex = 0
+  rules.MaxMeasureToDrawIndex = Number.MAX_VALUE
+  try {
+    return walk()
+  } finally {
+    rules.MinMeasureToDrawIndex = savedMin
+    rules.MaxMeasureToDrawIndex = savedMax
+    // The SelectionStart setter clones its value, so an unset one stays unset.
+    if (savedSelectionStart) {
+      sheet.SelectionStart = savedSelectionStart
+    }
+    if (savedSelectionEnd) {
+      sheet.SelectionEnd = savedSelectionEnd
+    }
+  }
+}
+
 // The single source of truth for "which notes under the cursor actually
 // require a keypress right now" -- extractExpectedEvents' initial walk and
 // PianoScore's live cursor-stepping (next()/goToEventIndex()/syncNotes())
@@ -194,9 +245,10 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: Han
   // Resolved once for the whole walk rather than per cursor position: the
   // staves belong to the loaded score, not to where the cursor happens to be.
   const handStaves = selectHandStaves(handParts(osmd))
-  cursor.reset()
 
   let index = 0
+  withUncroppedCursor(osmd, () => {
+  resetCursorSilently(osmd)
   while (!cursor.Iterator.EndReached) {
     const notes = requiredNotesUnderCursor(osmd, handMode)
     if (notes.length > 0) {
@@ -212,9 +264,12 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: Han
       events.push({ index, pitches, measureNumber, hands, fingers })
       index += 1
     }
-    cursor.next()
+    advanceCursorSilently(osmd)
   }
+  })
 
+  // Outside the uncropped walk, so the cursor goes back to the start of
+  // whatever is drawn.
   cursor.reset()
   return events
 }

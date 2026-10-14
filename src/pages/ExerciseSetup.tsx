@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isGuest } from '../api/auth'
 import { usableCatalogChords } from '../engine/chordQuiz'
 import { useCatalogChords } from '../hooks/useChordRoundInputs'
@@ -93,6 +93,17 @@ function readingNoteLabel(midi: number): string {
   return `${name} (${latinNameOf(name.slice(0, 1))})`
 }
 
+/** Every setting on this screen, whether or not a drill was started with it. */
+export interface ExerciseSetupDraft {
+  training: TrainingExerciseSettings
+  hanon: HanonSettings
+  keyboardAssistMode: KeyboardAssistMode
+  backingTrackEnabled: boolean
+  reading: ReadingQuizSettings
+  sequence: NoteSequenceSettings
+  chords: ChordQuizSettings
+}
+
 interface ExerciseSetupProps {
   devices: MidiDeviceInfo[]
   selectedDeviceId: string | null
@@ -125,6 +136,12 @@ interface ExerciseSetupProps {
    * keyboard-drill tab instead of the one the player left.
    */
   onTabChange: (tab: SetupTab) => void
+  /**
+   * Reported on every change, same reason as onTabChange: a setting picked and
+   * then left without starting anything is still the setting the player wants
+   * to find next time (App persists it, see preferencesStore.ts).
+   */
+  onSettingsChange: (draft: ExerciseSetupDraft) => void
   onBack: () => void
 }
 
@@ -147,6 +164,7 @@ export function ExerciseSetup({
   onSequenceReady,
   onChordReady,
   onTabChange,
+  onSettingsChange,
   onBack,
 }: ExerciseSetupProps) {
   const [streak] = useState(() => getStreakStats())
@@ -217,27 +235,38 @@ export function ExerciseSetup({
   const [leftOctaveLow, setLeftOctaveLow] = useState(initialSettings.leftOctaveLow)
   const [leftOctaveHigh, setLeftOctaveHigh] = useState(initialSettings.leftOctaveHigh)
 
+  const trainingSettings: TrainingExerciseSettings = {
+    handMode: trainingHandMode,
+    accidentalMode: trainingAccidentalMode,
+    difficulty: trainingDifficulty,
+    contentMode: trainingContentMode,
+    tonality: trainingTonality,
+    key: trainingKey,
+    measureCount: trainingMeasureCount,
+    rightOctaveLow,
+    rightOctaveHigh,
+    leftOctaveLow,
+    leftOctaveHigh,
+  }
+
+  // Keyed on the serialized draft rather than on a dozen state variables: the
+  // training settings object above is rebuilt on every render.
+  const draftKey = JSON.stringify({
+    training: trainingSettings,
+    hanon: hanonSettings,
+    keyboardAssistMode,
+    backingTrackEnabled,
+    reading: readingSettings,
+    sequence: sequenceSettings,
+    chords: chordSettings,
+  })
+  useEffect(() => {
+    onSettingsChange(JSON.parse(draftKey) as ExerciseSetupDraft)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey])
+
   const handleStartTrainingExercise = () => {
-    onExerciseReady(
-      {
-        kind: 'generated',
-        settings: {
-          handMode: trainingHandMode,
-          accidentalMode: trainingAccidentalMode,
-          difficulty: trainingDifficulty,
-          contentMode: trainingContentMode,
-          tonality: trainingTonality,
-          key: trainingKey,
-          measureCount: trainingMeasureCount,
-          rightOctaveLow,
-          rightOctaveHigh,
-          leftOctaveLow,
-          leftOctaveHigh,
-        },
-      },
-      keyboardAssistMode,
-      backingTrackEnabled,
-    )
+    onExerciseReady({ kind: 'generated', settings: trainingSettings }, keyboardAssistMode, backingTrackEnabled)
   }
 
   const handleStartHanonExercise = () => {

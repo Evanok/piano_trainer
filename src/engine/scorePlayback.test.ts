@@ -17,6 +17,19 @@ describe('buildTimeline', () => {
     ])
   })
 
+  it('starts the clock at the first step when a range begins mid-piece', () => {
+    // Measure 21 of a 4/4 piece starts 20 whole notes in.
+    const steps: RawTimelineStep[] = [
+      { pitches: [60], timestampWholeNotes: 20, lengthWholeNotes: 0.25, bpm: 120 },
+      { pitches: [62], timestampWholeNotes: 20.25, lengthWholeNotes: 0.25, bpm: 120 },
+    ]
+
+    expect(buildTimeline(steps)).toEqual([
+      { pitches: [60], startSeconds: 0, durationSeconds: 0.5 },
+      { pitches: [62], startSeconds: 0.5, durationSeconds: 0.5 },
+    ])
+  })
+
   it('skips steps with no required pitches (rests) without breaking later timing', () => {
     const steps: RawTimelineStep[] = [
       { pitches: [60], timestampWholeNotes: 0, lengthWholeNotes: 0.25, bpm: 120 },
