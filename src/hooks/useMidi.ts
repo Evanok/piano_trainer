@@ -49,7 +49,10 @@ export function useMidi(): UseMidiResult {
         }
         midiAccessRef.current = access
         const updateDevices = () => {
-          const inputs = Array.from(access.inputs.values())
+          // Chrome keeps an unplugged port in `inputs` with state 'disconnected', and a
+          // replugged keyboard (USB-OTG on a tablet that slept) can come back as a new
+          // port, so listing both would offer a dead one.
+          const inputs = Array.from(access.inputs.values()).filter((input) => input.state === 'connected')
           setDevices(inputs.map((input) => ({ id: input.id, name: input.name ?? input.id })))
         }
         updateDevices()
@@ -68,10 +71,22 @@ export function useMidi(): UseMidiResult {
     }
   }, [isSupported])
 
+  // The selection must always name a port that exists. A reconnected keyboard can get
+  // a new id, and a stale id here listened to nothing while the <select>, whose value
+  // then matched no option, still displayed the first device as if it were selected.
+  // Falls back to the same name first, so a reconnect keeps the player's choice.
+  const selectedNameRef = useRef<string | null>(null)
   useEffect(() => {
-    if (devices.length > 0 && selectedDeviceId === null) {
-      setSelectedDeviceId(devices[0].id)
+    if (devices.length === 0) {
+      return
     }
+    const current = devices.find((device) => device.id === selectedDeviceId)
+    if (current) {
+      selectedNameRef.current = current.name
+      return
+    }
+    const sameName = devices.find((device) => device.name === selectedNameRef.current)
+    setSelectedDeviceId((sameName ?? devices[0]).id)
   }, [devices, selectedDeviceId])
 
   useEffect(() => {
@@ -80,7 +95,7 @@ export function useMidi(): UseMidiResult {
       return
     }
     const input = access.inputs.get(selectedDeviceId)
-    if (!input) {
+    if (!input || input.state !== 'connected') {
       return
     }
 
@@ -95,6 +110,9 @@ export function useMidi(): UseMidiResult {
     }
 
     input.onmidimessage = handleMessage
+    // Setting the handler opens the port implicitly, but not reliably again on Android
+    // after the device woke up, so ask for it explicitly. A failure leaves nothing worse.
+    input.open().catch(() => {})
     return () => {
       input.onmidimessage = null
     }
