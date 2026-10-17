@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   createReadingRound,
+  diatonicIndex,
   generateReadingQuizMusicXml,
   isCountableOrder,
   latinNameOf,
+  MIN_QUESTION_DISTANCE,
   pitchLabel,
   shuffleNameOrder,
 } from './readingQuiz'
@@ -38,11 +40,19 @@ describe('createReadingRound', () => {
     expect(file.name.endsWith('.musicxml')).toBe(true)
   })
 
-  it('never repeats the same note twice in a row', () => {
+  it('keeps consecutive questions at least a fourth apart', () => {
     for (const seed of ['a', 'b', 'c', 'd', 'e']) {
-      const { questions } = createReadingRound({ seed, questionCount: 40, clefMode: 'both' })
-      for (let i = 1; i < questions.length; i += 1) {
-        expect(questions[i].midi === questions[i - 1].midi).toBe(false)
+      for (const clefMode of ['treble', 'bass', 'both'] as const) {
+        for (const ledgerLevel of [0, 1, 2, 3] as const) {
+          const { questions } = createReadingRound({ seed, questionCount: 40, clefMode, ledgerLevel })
+          for (let i = 1; i < questions.length; i += 1) {
+            const distance = Math.abs(
+              diatonicIndex(questions[i].step, questions[i].octave) -
+                diatonicIndex(questions[i - 1].step, questions[i - 1].octave),
+            )
+            expect(distance).toBeGreaterThanOrEqual(MIN_QUESTION_DISTANCE)
+          }
+        }
       }
     }
   })

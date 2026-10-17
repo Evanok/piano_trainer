@@ -1,4 +1,6 @@
-import { AuthRequiredError, authHeaders, notifyAuthRequired } from './auth'
+import { AuthRequiredError, authHeaders, isGuest, notifyAuthRequired } from './auth'
+import { mergeSessionLogs } from '../engine/sessionLog'
+import { getSessions, replaceSessions } from '../engine/sessionStore'
 import type { PracticeSessionRecord } from '../types/session'
 
 /**
@@ -40,4 +42,23 @@ export async function fetchSessions(): Promise<PracticeSessionRecord[]> {
   }
   const body = (await response.json()) as { sessions?: PracticeSessionRecord[] }
   return Array.isArray(body.sessions) ? body.sessions : []
+}
+
+/**
+ * Brings this device's stored log up to date with the shared history and
+ * returns it: the one sync every screen that reads the log performs, so the
+ * stats screen and Home cannot disagree on what was played elsewhere.
+ *
+ * A guest reads the shared history but never pushes into it, so it pulls
+ * instead of syncing. Merging rather than replacing keeps a device that has
+ * its own local history from losing it just because someone opened a guest
+ * link in that browser. Throws when the server cannot be reached, leaving the
+ * local log untouched.
+ */
+export async function syncLocalSessionLog(): Promise<PracticeSessionRecord[]> {
+  const guest = isGuest()
+  const remote = guest ? await fetchSessions() : await syncSessions(getSessions())
+  const merged = guest ? mergeSessionLogs(getSessions(), remote) : remote
+  replaceSessions(merged)
+  return merged
 }

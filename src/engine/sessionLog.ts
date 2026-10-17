@@ -76,6 +76,17 @@ export function isCountedSession(session: PracticeSessionRecord): boolean {
   return session.completed || session.durationMs >= MIN_COUNTED_SESSION_MS
 }
 
+/**
+ * Whether a session measured anything about how well it was played. "Page
+ * free" has no cursor and expects no note, so every key pressed there is
+ * recorded only to mark the session as real practice: its success, errors and
+ * progress are zeros that mean "not measured", not "played badly". They must
+ * be shown as such and left out of every average.
+ */
+export function isGradedSession(session: PracticeSessionRecord): boolean {
+  return session.practiceMode !== 'page'
+}
+
 export function countedSessions(sessions: PracticeSessionRecord[]): PracticeSessionRecord[] {
   return sessions.filter(isCountedSession)
 }
