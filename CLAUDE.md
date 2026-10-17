@@ -576,6 +576,8 @@ and `RoundSummary`.
 
 `StreakBadges.tsx` renders the streak as pastel pills (Home, ScoreLibrary and ExerciseSetup each used to carry their own plain-gray copy of that line) and renders nothing at all until there is a practice day, so a first-run screen doesn't announce three zeros.
 
+**The daily goal** (`engine/dailyGoal.ts`, `components/DailyGoal.tsx`, on Home under the streak) is today's minutes against a target picked from a fixed list in the bar itself (`DAILY_GOAL_CHOICES`, default 20, per device under the `daily-goal` preference). It counts exactly what the streak and the practice calendar count (`countedSessions`, every activity included), and Home now runs the same history sync as the stats screen on mount (`syncLocalSessionLog` in `api/stats.ts`, shared by both), so minutes played on another device reach the phone without opening Stats first. Hidden for a guest, whose practice is never recorded.
+
 **`src/theme.ts` holds the shared visual decisions** -- `PAGE_BACKGROUND` (the pastel wash, applied to a full-width wrapper, never to the content column), `PAGE_CARD`, `PRIMARY_BUTTON`/`SECONDARY_BUTTON` (one primary per screen), and `STAT_TONES`. Every screen except Practice uses them. `STAT_TONES` keys a pastel family to a *kind of number* rather than to a screen, so a stat keeps its color everywhere it appears (a streak is orange on Home, in the catalog header, on the End screen and in Stats); Home's tiles follow the same idea per intent (amber = exercise, indigo = scores, emerald = stats). Take an accent from those maps rather than inventing a new hue.
 
 **Practice deliberately opts out**: a score needs a calm near-white background to read notes against, and `ScoreHud` is the only accent that screen should carry.
