@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { isGuest } from '../api/auth'
-import { fetchSessions, syncSessions } from '../api/stats'
-import { countedSessions, isGradedSession, mergeSessionLogs } from '../engine/sessionLog'
-import { getSessions, replaceSessions } from '../engine/sessionStore'
+import { syncLocalSessionLog } from '../api/stats'
+import { countedSessions, isGradedSession } from '../engine/sessionLog'
+import { getSessions } from '../engine/sessionStore'
 import {
   bestCombo,
   computeStreak,
@@ -514,19 +514,12 @@ export function Stats({ onBack }: StatsProps) {
     let cancelled = false
     void (async () => {
       try {
-        // A guest reads the shared history but never pushes into it, so it
-        // pulls instead of syncing. Merging rather than replacing keeps a
-        // device that has its own local history from losing it just because
-        // someone opened a guest link in that browser.
-        const guest = isGuest()
-        const remote = guest ? await fetchSessions() : await syncSessions(getSessions())
+        const merged = await syncLocalSessionLog()
         if (cancelled) {
           return
         }
-        const merged = guest ? mergeSessionLogs(getSessions(), remote) : remote
-        replaceSessions(merged)
         setSessions(merged)
-        setSyncState(guest ? 'guest' : 'synced')
+        setSyncState(isGuest() ? 'guest' : 'synced')
       } catch {
         if (!cancelled) {
           setSyncState('local')
