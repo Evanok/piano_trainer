@@ -1,4 +1,5 @@
 import type { PracticeSessionRecord } from '../types/session'
+import { isGradedSession } from './sessionLog'
 
 /**
  * Every aggregate the stats screen shows, computed from the session log alone.
@@ -61,8 +62,9 @@ export interface PracticeBlock {
   /** Newest first, same order as the log itself. */
   sessions: PracticeSessionRecord[]
   completedCount: number
-  errorCount: number
-  successPercent: number
+  /** Null when none of its sessions was graded (see isGradedSession). */
+  errorCount: number | null
+  successPercent: number | null
   maxCombo: number
 }
 
@@ -90,6 +92,7 @@ export function groupPracticeBlocks(
   }
 
   return groups.map((group) => {
+    const graded = group.filter(isGradedSession)
     const oldest = group[group.length - 1]
     const newest = group[0]
     return {
@@ -99,8 +102,11 @@ export function groupPracticeBlocks(
       durationMs: group.reduce((total, session) => total + session.durationMs, 0),
       sessions: group,
       completedCount: group.filter((session) => session.completed).length,
-      errorCount: group.reduce((total, session) => total + session.errorCount, 0),
-      successPercent: Math.round(group.reduce((total, session) => total + session.successPercent, 0) / group.length),
+      errorCount: graded.length === 0 ? null : graded.reduce((total, session) => total + session.errorCount, 0),
+      successPercent:
+        graded.length === 0
+          ? null
+          : Math.round(graded.reduce((total, session) => total + session.successPercent, 0) / graded.length),
       maxCombo: group.reduce((best, session) => Math.max(best, session.maxCombo), 0),
     }
   })
@@ -340,6 +346,37 @@ export function dailyMinutes(sessions: PracticeSessionRecord[], days: number, no
   return result
 }
 
+/**
+ * One week of the practice calendar, Monday first. A day after today is null,
+ * so the current week's column is drawn short rather than as empty days that
+ * read as days missed.
+ */
+export type CalendarWeek = (DayMinutes | null)[]
+
+/**
+ * The last `weeks` calendar weeks (Monday to Sunday, the current one included)
+ * as columns of days, oldest first: the grid a year-of-practice calendar
+ * draws. Built on dailyMinutes so a day's minutes are the chart's own.
+ */
+export function practiceCalendar(
+  sessions: PracticeSessionRecord[],
+  weeks: number,
+  now: Date = new Date(),
+): CalendarWeek[] {
+  // getDay() is 0 on Sunday; Monday-first makes it the 7th day of its week.
+  const daysIntoWeek = (now.getDay() + 6) % 7
+  const totalDays = (weeks - 1) * 7 + daysIntoWeek + 1
+  const days: (DayMinutes | null)[] = dailyMinutes(sessions, totalDays, now)
+  while (days.length < weeks * 7) {
+    days.push(null)
+  }
+  const result: CalendarWeek[] = []
+  for (let week = 0; week < weeks; week += 1) {
+    result.push(days.slice(week * 7, week * 7 + 7))
+  }
+  return result
+}
+
 export interface ScoreProgress {
   /** catalogId when the score came from the library, else its scoreName --
    * see SessionSource, the same identity used to tell two sheets apart. */
@@ -348,7 +385,8 @@ export interface ScoreProgress {
    * catalog title was edited after an earlier session was recorded. */
   title: string
   sessionCount: number
-  bestSuccessPercent: number
+  /** Null while the score has only been read through in "Page free". */
+  bestSuccessPercent: number | null
   lastPlayedAt: string
 }
 
@@ -365,18 +403,21 @@ export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgres
     }
     const key = session.source.catalogId ?? session.source.scoreName
     const existing = byKey.get(key)
+    const success = isGradedSession(session) ? session.successPercent : null
     if (!existing) {
       byKey.set(key, {
         key,
         title: session.source.title,
         sessionCount: 1,
-        bestSuccessPercent: session.successPercent,
+        bestSuccessPercent: success,
         lastPlayedAt: session.startedAt,
       })
       continue
     }
     existing.sessionCount += 1
-    existing.bestSuccessPercent = Math.max(existing.bestSuccessPercent, session.successPercent)
+    if (success !== null) {
+      existing.bestSuccessPercent = Math.max(existing.bestSuccessPercent ?? 0, success)
+    }
     if (session.startedAt > existing.lastPlayedAt) {
       existing.lastPlayedAt = session.startedAt
       existing.title = session.source.title

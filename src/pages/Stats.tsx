@@ -1,14 +1,16 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { isGuest } from '../api/auth'
 import { fetchSessions, syncSessions } from '../api/stats'
-import { countedSessions, mergeSessionLogs } from '../engine/sessionLog'
+import { countedSessions, isGradedSession, mergeSessionLogs } from '../engine/sessionLog'
 import { getSessions, replaceSessions } from '../engine/sessionStore'
 import {
   bestCombo,
   computeStreak,
   dailyMinutes,
   groupPracticeBlocks,
+  localDayString,
   percentChange,
+  practiceCalendar,
   sessionsInLastDays,
   summarizeAllTime,
   summarizeRecent,
@@ -16,6 +18,7 @@ import {
   summarizeScores,
   type PracticeBlock,
   type ActivityTime,
+  type CalendarWeek,
   type DayMinutes,
   type WindowSummary,
 } from '../engine/statsAnalytics'
@@ -37,6 +40,7 @@ interface StatsProps {
 
 const RECENT_WINDOW_DAYS = 7
 const CHART_DAYS = 14
+const CALENDAR_WEEKS = 53
 const VISIBLE_BLOCK_ROWS = 12
 
 type SyncState = 'syncing' | 'synced' | 'guest' | 'local'
@@ -95,11 +99,22 @@ function formatTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string | number; tone: StatTone }) {
+function StatCard({
+  label,
+  value,
+  tone,
+  detail,
+}: {
+  label: string
+  value: string | number
+  tone: StatTone
+  detail?: string
+}) {
   return (
     <div className={`rounded-xl border p-4 ${STAT_TONES[tone]}`}>
       <dt className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</dt>
       <dd className="mt-1 text-2xl font-bold">{value}</dd>
+      {detail && <dd className="mt-0.5 text-xs font-medium opacity-80">{detail}</dd>}
     </div>
   )
 }
@@ -216,6 +231,125 @@ function PracticeChart({ days }: { days: DayMinutes[] }) {
   )
 }
 
+/**
+ * The calendar's colours, read like a habit tracker: green is a real practice
+ * day (darker for longer), orange a day that only just counted, grey a day
+ * with nothing on it. Missed days are deliberately grey rather than red: on a
+ * page opened for motivation, a wall of red is what the eye goes to first.
+ * Days before the first session ever recorded are hatched instead, since the
+ * app was not in use yet and nothing could have been played there.
+ */
+const SHORT_DAY_MAX_MINUTES = 10
+
+const CALENDAR_GREENS = [
+  { minMinutes: 40, tone: 'bg-green-700', label: '40+ min' },
+  { minMinutes: 20, tone: 'bg-green-500', label: '20-40 min' },
+  { minMinutes: SHORT_DAY_MAX_MINUTES, tone: 'bg-green-300', label: '10-20 min' },
+]
+
+const CALENDAR_SHORT_TONE = 'bg-orange-300'
+const CALENDAR_MISSED_TONE = 'bg-gray-200'
+const CALENDAR_BEFORE_TONE =
+  'bg-[repeating-linear-gradient(135deg,#d1d5db_0_1.5px,transparent_1.5px_4px)] bg-gray-50'
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function calendarTone(entry: DayMinutes, firstDay: string | null): string {
+  if (entry.sessionCount > 0) {
+    return CALENDAR_GREENS.find((level) => entry.minutes >= level.minMinutes)?.tone ?? CALENDAR_SHORT_TONE
+  }
+  // Day strings are YYYY-MM-DD, so they order as strings.
+  if (firstDay === null || entry.day < firstDay) {
+    return CALENDAR_BEFORE_TONE
+  }
+  return CALENDAR_MISSED_TONE
+}
+
+/**
+ * The month a week column starts, shown only where it changes. The first
+ * column is usually a partial month, and naming it would crowd the label of
+ * the next one a column or two later.
+ */
+function monthLabel(weeks: CalendarWeek[], index: number): string | null {
+  const month = (week: CalendarWeek) => Number(week[0]?.day.slice(5, 7)) - 1
+  if (index === 0 || month(weeks[index]) === month(weeks[index - 1])) {
+    return null
+  }
+  return MONTH_LABELS[month(weeks[index])]
+}
+
+/**
+ * A year of practice days, one column per week, Monday at the top. Same
+ * counted sessions as the streak, so a coloured square is exactly a day the
+ * streak counted. The grid is wider than a phone, so it opens scrolled to
+ * today and the past is a swipe to the left.
+ */
+function PracticeCalendar({ weeks, firstDay }: { weeks: CalendarWeek[]; firstDay: string | null }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const element = scrollRef.current
+    if (element) {
+      element.scrollLeft = element.scrollWidth
+    }
+  }, [])
+  const today = weeks[weeks.length - 1].filter((day) => day !== null).at(-1)?.day
+  const practicedDays = weeks.flat().filter((day) => day !== null && day.sessionCount > 0).length
+  return (
+    <section className={`p-4 ${PAGE_CARD}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-green-700">Practice days</h2>
+        <span className="text-xs text-gray-500">
+          {practicedDays} {practicedDays === 1 ? 'day' : 'days'} in the last year
+        </span>
+      </div>
+      <div ref={scrollRef} className="mt-3 overflow-x-auto pb-1">
+        <div className="flex w-max gap-[3px]">
+          {/* Pinned, so the weekday names stay readable once the past is scrolled into view. */}
+          <div className="sticky left-0 z-10 flex flex-col gap-[3px] bg-white pr-1 text-[10px] leading-3 text-gray-400">
+            {['', 'Mon', '', 'Wed', '', 'Fri', '', ''].map((label, index) => (
+              <span key={index} className="h-3">
+                {label}
+              </span>
+            ))}
+          </div>
+          {weeks.map((week, index) => (
+            <div key={week[0]?.day ?? index} className="flex flex-col gap-[3px]">
+              <span className="h-3 w-3 overflow-visible whitespace-nowrap text-[10px] leading-3 text-gray-400">
+                {monthLabel(weeks, index) ?? ''}
+              </span>
+              {week.map((entry, dayIndex) =>
+                entry === null ? (
+                  <div key={dayIndex} className="h-3 w-3" />
+                ) : (
+                  <div
+                    key={entry.day}
+                    className={`h-3 w-3 rounded-sm ${calendarTone(entry, firstDay)} ${
+                      entry.day === today ? 'ring-1 ring-gray-500 ring-offset-1' : ''
+                    }`}
+                    title={dayTitle(entry)}
+                  />
+                ),
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[10px] text-gray-500">
+        {[
+          { tone: CALENDAR_MISSED_TONE, label: 'no practice' },
+          { tone: CALENDAR_SHORT_TONE, label: `under ${SHORT_DAY_MAX_MINUTES} min` },
+          ...[...CALENDAR_GREENS].reverse(),
+        ].map(({ tone, label }) => (
+          <span key={tone} className="flex items-center gap-1">
+            <span className={`h-3 w-3 rounded-sm ${tone}`} />
+            {label}
+          </span>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function dayTitle(entry: DayMinutes): string {
   if (entry.minutes === 0) {
     return `${entry.day}: nothing`
@@ -226,7 +360,13 @@ function dayTitle(entry: DayMinutes): string {
   return `${entry.day}: ${parts.join(', ')}`
 }
 
+/** What a cell shows for a figure the session never measured. */
+const NOT_MEASURED = '-'
+
 function CompletionCell({ session }: { session: PracticeSessionRecord }) {
+  if (!isGradedSession(session)) {
+    return <span className="text-xs text-gray-400">{NOT_MEASURED}</span>
+  }
   return session.completed ? (
     <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700">completed</span>
   ) : (
@@ -291,8 +431,10 @@ function SessionRow({ session }: { session: PracticeSessionRecord }) {
       <td className="whitespace-nowrap py-1.5 pr-4">
         <CompletionCell session={session} />
       </td>
-      <td className="whitespace-nowrap py-1.5 pr-4 text-xs">{session.successPercent}%</td>
-      <td className="whitespace-nowrap py-1.5 text-xs">{session.errorCount}</td>
+      <td className="whitespace-nowrap py-1.5 pr-4 text-xs">
+        {isGradedSession(session) ? `${session.successPercent}%` : NOT_MEASURED}
+      </td>
+      <td className="whitespace-nowrap py-1.5 text-xs">{isGradedSession(session) ? session.errorCount : NOT_MEASURED}</td>
     </tr>
   )
 }
@@ -339,8 +481,10 @@ function BlockRow({
           </span>
         )}
       </td>
-      <td className="whitespace-nowrap py-2 pr-4">{block.successPercent}%</td>
-      <td className="whitespace-nowrap py-2">{block.errorCount}</td>
+      <td className="whitespace-nowrap py-2 pr-4">
+        {block.successPercent === null ? NOT_MEASURED : `${block.successPercent}%`}
+      </td>
+      <td className="whitespace-nowrap py-2">{block.errorCount ?? NOT_MEASURED}</td>
     </tr>
   )
 }
@@ -406,6 +550,9 @@ export function Stats({ onBack }: StatsProps) {
       recent: summarizeRecent(counted, RECENT_WINDOW_DAYS, now),
       streak: computeStreak(counted, now),
       chart: dailyMinutes(counted, CHART_DAYS, now),
+      calendar: practiceCalendar(counted, CALENDAR_WEEKS, now),
+      // Days before the first session ever are not "missed", the app was not in use yet.
+      firstDay: counted.length === 0 ? null : localDayString(new Date(Math.min(...counted.map((session) => Date.parse(session.startedAt))))),
       combo: bestCombo(counted),
       blocks: groupPracticeBlocks(counted),
       scores: summarizeScores(counted),
@@ -456,7 +603,12 @@ export function Stats({ onBack }: StatsProps) {
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <StatCard label="Sessions" value={view.allTime.blockCount} tone="neutral" />
             <StatCard label="Total time" value={formatClock(view.allTime.totalMs)} tone="time" />
-            <StatCard label="Streak" value={view.streak.currentStreak} tone="streak" />
+            <StatCard
+              label="Streak"
+              value={view.streak.currentStreak}
+              tone="streak"
+              detail={`record ${view.streak.longestStreak}`}
+            />
             <StatCard label="Days practiced" value={view.streak.totalDaysPracticed} tone="days" />
             <StatCard label="Longest session" value={formatSessionLength(view.allTime.longestBlockMs)} tone="grade" />
             <StatCard label="Best combo" value={view.combo} tone="good" />
@@ -471,13 +623,10 @@ export function Stats({ onBack }: StatsProps) {
             </section>
           ) : (
             <>
+              <PracticeCalendar weeks={view.calendar} firstDay={view.firstDay} />
+
               <section className={`p-4 ${PAGE_CARD}`}>
-                <div className="flex items-baseline justify-between gap-4">
-                  <h2 className="text-sm font-semibold text-gray-900">Last {RECENT_WINDOW_DAYS} days vs all time</h2>
-                  <span className="text-xs text-gray-500">
-                    best streak {view.streak.longestStreak}
-                  </span>
-                </div>
+                <h2 className="text-sm font-semibold text-gray-900">Last {RECENT_WINDOW_DAYS} days vs all time</h2>
                 <div className="mt-3 overflow-x-auto">
                   <table className="min-w-full text-left text-sm">
                     <thead className="text-xs uppercase text-gray-500">
@@ -576,7 +725,7 @@ export function Stats({ onBack }: StatsProps) {
                               {score.title}
                             </td>
                             <td className="whitespace-nowrap py-2 pr-4">{score.sessionCount}</td>
-                            <td className="whitespace-nowrap py-2 pr-4">{score.bestSuccessPercent}%</td>
+                            <td className="whitespace-nowrap py-2 pr-4">{score.bestSuccessPercent === null ? NOT_MEASURED : `${score.bestSuccessPercent}%`}</td>
                             <td className="whitespace-nowrap py-2">{formatDay(score.lastPlayedAt)}</td>
                           </tr>
                         ))}
