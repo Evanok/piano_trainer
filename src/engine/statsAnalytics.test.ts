@@ -5,6 +5,7 @@ import {
   groupPracticeBlocks,
   localDayString,
   percentChange,
+  practiceCalendar,
   sessionsInLastDays,
   summarizeAllTime,
   summarizeRecent,
@@ -71,6 +72,18 @@ function minutesAfter(date: Date, minutes: number): Date {
 }
 
 describe('groupPracticeBlocks', () => {
+  it('leaves "Page free" sessions out of a sitting\'s accuracy and errors', () => {
+    const scroll = session(daysAgo(0, 10), { successPercent: 80, errorCount: 4 })
+    const page = session(minutesAfter(new Date(scroll.endedAt), 1), { practiceMode: 'page', successPercent: 0, errorCount: 0 })
+    const [mixed] = groupPracticeBlocks([page, scroll])
+    expect(mixed.successPercent).toBe(80)
+    expect(mixed.errorCount).toBe(4)
+
+    const [pageOnly] = groupPracticeBlocks([session(daysAgo(3), { practiceMode: 'page' })])
+    expect(pageOnly.successPercent).toBeNull()
+    expect(pageOnly.errorCount).toBeNull()
+  })
+
   it('groups pieces worked back to back into one sitting', () => {
     const first = daysAgo(0, 10)
     const sessions = [
@@ -239,6 +252,31 @@ describe('percentChange', () => {
   })
 })
 
+describe('practiceCalendar', () => {
+  it('lays out whole weeks, Monday first, ending on the current week', () => {
+    // NOW is a Monday: the last week holds today and six days still to come.
+    const weeks = practiceCalendar([session(daysAgo(0), { durationMs: 600000 })], 3, NOW)
+
+    expect(weeks).toHaveLength(3)
+    expect(weeks.every((week) => week.length === 7)).toBe(true)
+    expect(weeks[0][0]?.day).toBe(localDayString(daysAgo(14)))
+    expect(new Date(daysAgo(14)).getDay()).toBe(1)
+    expect(weeks[2][0]?.day).toBe(localDayString(NOW))
+    expect(weeks[2][0]?.minutes).toBe(10)
+    expect(weeks[2].slice(1)).toEqual([null, null, null, null, null, null])
+  })
+
+  it('fills the current week up to a Sunday', () => {
+    const sunday = daysAgo(-6)
+    const weeks = practiceCalendar([session(daysAgo(1), { durationMs: 300000 })], 2, sunday)
+
+    expect(weeks[1].every((day) => day !== null)).toBe(true)
+    expect(weeks[1][6]?.day).toBe(localDayString(sunday))
+    // Yesterday relative to NOW is the Sunday ending the first week.
+    expect(weeks[0][6]).toMatchObject({ day: localDayString(daysAgo(1)), minutes: 5 })
+  })
+})
+
 describe('dailyMinutes', () => {
   it('returns one entry per day, oldest first, including empty days', () => {
     const days = dailyMinutes([session(daysAgo(0), { durationMs: 900000 })], 14, NOW)
@@ -269,6 +307,17 @@ describe('dailyMinutes', () => {
 })
 
 describe('summarizeScores', () => {
+  it('has no best accuracy for a score only ever read in "Page free"', () => {
+    const [readOnly] = summarizeScores([session(daysAgo(1), { practiceMode: 'page', successPercent: 0 })])
+    expect(readOnly.bestSuccessPercent).toBeNull()
+
+    const [played] = summarizeScores([
+      session(daysAgo(2), { successPercent: 60 }),
+      session(daysAgo(1), { practiceMode: 'page', successPercent: 0 }),
+    ])
+    expect(played.bestSuccessPercent).toBe(60)
+  })
+
   it('groups sessions of the same score and keeps the best accuracy', () => {
     const sessions = [
       session(daysAgo(2), { successPercent: 60 }),

@@ -20,6 +20,7 @@ export type PreferenceKey =
   | 'reading'
   | 'sequence'
   | 'chords'
+  | 'daily-goal'
 
 /**
  * Lays a stored value over its defaults, keeping only what still has the shape

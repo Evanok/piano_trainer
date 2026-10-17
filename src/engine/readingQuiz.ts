@@ -157,6 +157,12 @@ const STAFF_BOUNDS = {
   bass: { low: diatonicIndex('G', 2), high: diatonicIndex('A', 3) },
 } as const
 
+/**
+ * The minimum distance, in staff positions, between two consecutive
+ * questions: 3 is a fourth, so seconds and thirds never follow each other.
+ */
+export const MIN_QUESTION_DISTANCE = 3
+
 function boundsFor(clef: 'treble' | 'bass', ledgerLevel: number): { low: number; high: number } {
   const base = STAFF_BOUNDS[clef]
   return { low: base.low - 2 * ledgerLevel, high: base.high + 2 * ledgerLevel }
@@ -183,12 +189,18 @@ function pickQuestions(settings: ReadingQuizSettings): ReadingQuestion[] {
     const clef: 'treble' | 'bass' =
       settings.clefMode === 'both' ? (rng() < 0.5 ? 'treble' : 'bass') : settings.clefMode
     const { low, high } = boundsFor(clef, settings.ledgerLevel)
-    // Never ask the same note twice in a row: the answer would be visible
-    // without reading it, and a repeat looks like the screen failed to advance.
-    let index = previousIndex
-    for (let attempt = 0; attempt < 8 && index === previousIndex; attempt += 1) {
-      index = low + Math.floor(rng() * (high - low + 1))
+    // Never ask a note within a third of the previous one: a neighbour is
+    // answered by stepping one name from the last answer rather than by
+    // reading the staff, and a repeat looks like the screen failed to advance.
+    // The narrowest range (one clef, no ledger line) still spans nine
+    // positions, so at least four candidates always remain.
+    const candidates: number[] = []
+    for (let candidate = low; candidate <= high; candidate += 1) {
+      if (previousIndex < 0 || Math.abs(candidate - previousIndex) >= MIN_QUESTION_DISTANCE) {
+        candidates.push(candidate)
+      }
     }
+    const index = candidates[Math.floor(rng() * candidates.length)]
     previousIndex = index
     const pitch = pitchAtDiatonicIndex(index)
     questions.push({

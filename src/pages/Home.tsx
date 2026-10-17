@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { syncLocalSessionLog } from '../api/stats'
 import { ChartIcon, LibraryIcon, NotesIcon } from '../components/icons'
+import { DailyGoal } from '../components/DailyGoal'
 import { GuestLinkShare } from '../components/GuestLinkShare'
 import { StreakBadges } from '../components/StreakBadges'
-import { getStreakStats } from '../engine/streak'
+import { DEFAULT_DAILY_GOAL, dailyGoalProgress } from '../engine/dailyGoal'
+import { loadPreference, savePreference } from '../engine/preferencesStore'
+import { countedSessions } from '../engine/sessionLog'
+import { getSessions } from '../engine/sessionStore'
+import { computeStreak } from '../engine/statsAnalytics'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { PAGE_BACKGROUND } from '../theme'
 
@@ -33,7 +39,34 @@ interface Tile {
 
 export function Home({ onStartExercise, onPracticeScore, onViewStats, isGuestSession, guestToken }: HomeProps) {
   const isMobile = useIsMobile()
-  const [streak] = useState(() => getStreakStats())
+  const [sessions, setSessions] = useState(() => getSessions())
+  const [goal, setGoal] = useState(() => loadPreference('daily-goal', DEFAULT_DAILY_GOAL))
+
+  // Pull what the other devices played, so the goal and the streak count the
+  // desktop's minutes on the phone too, not only once the stats screen has
+  // been opened. The local log is shown first and stays if the sync fails.
+  useEffect(() => {
+    let cancelled = false
+    syncLocalSessionLog()
+      .then((merged) => {
+        if (!cancelled) {
+          setSessions(merged)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const streak = useMemo(() => computeStreak(countedSessions(sessions)), [sessions])
+  const goalProgress = dailyGoalProgress(sessions, goal.minutes)
+
+  const changeGoal = (minutes: number) => {
+    const next = { minutes }
+    setGoal(next)
+    savePreference('daily-goal', next)
+  }
 
   const tiles: Tile[] = [
     {
@@ -94,6 +127,8 @@ export function Home({ onStartExercise, onPracticeScore, onViewStats, isGuestSes
             <span className="text-xs font-normal text-gray-400">{import.meta.env.VITE_APP_VERSION}</span>
           </div>
           <StreakBadges streak={streak} className="mt-3 justify-center" />
+          {/* A guest's practice is never recorded, so a goal could never move. */}
+          {!isGuestSession && <DailyGoal progress={goalProgress} onGoalChange={changeGoal} className="mt-3" />}
           {isGuestSession && (
             <p className="mt-3 inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
               Guest access, read only
