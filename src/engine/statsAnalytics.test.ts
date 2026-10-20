@@ -205,6 +205,28 @@ describe('summarizeRecent', () => {
     expect(recent.longestBlockMs).toBe(1200000)
   })
 
+  it('averages per day practiced, so two short sittings on one day still make one long day', () => {
+    const readingSource = {
+      kind: 'reading' as const,
+      title: 'Reading - treble clef',
+      settings: {} as never,
+    }
+    const sessions = [
+      // Day 0: a 20-minute score in the morning, a 10-minute quiz in the evening.
+      session(daysAgo(0, 9), { durationMs: 1200000 }),
+      session(daysAgo(0, 20), { durationMs: 600000, source: readingSource }),
+      // Day 2: a single 10-minute score.
+      session(daysAgo(2, 9), { durationMs: 600000 }),
+    ]
+
+    const recent = summarizeRecent(sessions, 7, NOW)
+
+    // 40 minutes over 3 sittings, but over 2 days.
+    expect(recent.averageBlockMs).toBe(800000)
+    expect(recent.averageDayMs).toBe(1200000)
+    expect(recent.averageDayMsByActivity).toEqual({ score: 900000, exercise: 0, reading: 300000 })
+  })
+
   it('weights average response time by how many responses each session had', () => {
     const sessions = [
       session(daysAgo(0), { notes: notes({ responseCount: 100, averageResponseMs: 1000 }) }),

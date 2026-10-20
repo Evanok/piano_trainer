@@ -137,21 +137,63 @@ interface ComparisonRow {
   recent: string
   allTime: string
   change: number | null
+  /** A breakdown of the row above it, drawn indented and lighter. */
+  detail?: boolean
 }
 
+function durationRow(label: string, recentMs: number, allTimeMs: number, detail?: boolean): ComparisonRow {
+  return {
+    label,
+    recent: formatSessionLength(recentMs),
+    allTime: formatSessionLength(allTimeMs),
+    change: percentChange(recentMs, allTimeMs),
+    detail,
+  }
+}
+
+/**
+ * An average duration, then the same average split between time at the piano
+ * (scores and keyboard exercises) and the screen drills, labelled theory
+ * exercises. The total stays the headline because a day of quizzes is still a
+ * day of practice; the split is there so a week that grew only on the phone
+ * does not pass for one at the piano.
+ */
+function durationRows(
+  label: string,
+  recentMs: number,
+  allTimeMs: number,
+  recentByActivity: Record<ActivityTime['kind'], number>,
+  allTimeByActivity: Record<ActivityTime['kind'], number>,
+): ComparisonRow[] {
+  const atPiano = (byActivity: Record<ActivityTime['kind'], number>) => byActivity.score + byActivity.exercise
+  return [
+    durationRow(label, recentMs, allTimeMs),
+    durationRow('At the piano', atPiano(recentByActivity), atPiano(allTimeByActivity), true),
+    durationRow('Theory exercises', recentByActivity.reading, allTimeByActivity.reading, true),
+  ]
+}
+
+/**
+ * The practice day leads: it is the number that answers "how much do I
+ * practice". The per-sitting average follows it without a breakdown, since it
+ * mostly measures how the day was cut up and read alone it can fall on a week
+ * that grew (more, shorter sittings).
+ */
 function buildComparison(recent: WindowSummary, allTime: WindowSummary): ComparisonRow[] {
   return [
+    ...durationRows(
+      'Average practice day',
+      recent.averageDayMs,
+      allTime.averageDayMs,
+      recent.averageDayMsByActivity,
+      allTime.averageDayMsByActivity,
+    ),
+    durationRow('Average practice session', recent.averageBlockMs, allTime.averageBlockMs),
     {
       label: 'Practice sessions per week',
       recent: Math.round(recent.blocksPerWeek).toString(),
       allTime: Math.round(allTime.blocksPerWeek).toString(),
       change: percentChange(recent.blocksPerWeek, allTime.blocksPerWeek),
-    },
-    {
-      label: 'Average practice session',
-      recent: formatSessionLength(recent.averageBlockMs),
-      allTime: formatSessionLength(allTime.averageBlockMs),
-      change: percentChange(recent.averageBlockMs, allTime.averageBlockMs),
     },
     {
       label: 'Minutes per week',
@@ -165,7 +207,7 @@ function buildComparison(recent: WindowSummary, allTime: WindowSummary): Compari
 const ACTIVITY_LABELS: Record<ActivityTime['kind'], string> = {
   score: 'Scores',
   exercise: 'Keyboard exercises',
-  reading: 'Reading and note order',
+  reading: 'Theory exercises',
 }
 
 function ActivityLegend() {
@@ -630,13 +672,24 @@ export function Stats({ onBack }: StatsProps) {
                         <th className="py-2 font-medium">Change</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100 text-gray-700">
-                      {comparison.map((row) => (
-                        <tr key={row.label}>
-                          <td className="whitespace-nowrap py-2 pr-4">{row.label}</td>
-                          <td className="whitespace-nowrap py-2 pr-4 font-medium text-gray-900">{row.recent}</td>
-                          <td className="whitespace-nowrap py-2 pr-4">{row.allTime}</td>
-                          <td className="whitespace-nowrap py-2">
+                    {/* Separators drawn per row rather than with divide-y, so a
+                        breakdown stays attached to the metric above it. */}
+                    <tbody className="text-gray-700">
+                      {comparison.map((row, index) => (
+                        <tr
+                          key={index}
+                          className={
+                            row.detail ? 'text-xs text-gray-500' : index > 0 ? 'border-t border-gray-100' : undefined
+                          }
+                        >
+                          <td className={`whitespace-nowrap pr-4 ${row.detail ? 'py-1 pl-4' : 'py-2'}`}>{row.label}</td>
+                          <td
+                            className={`whitespace-nowrap pr-4 ${row.detail ? 'py-1' : 'py-2 font-medium text-gray-900'}`}
+                          >
+                            {row.recent}
+                          </td>
+                          <td className={`whitespace-nowrap pr-4 ${row.detail ? 'py-1' : 'py-2'}`}>{row.allTime}</td>
+                          <td className={`whitespace-nowrap ${row.detail ? 'py-1' : 'py-2'}`}>
                             <DeltaChip change={row.change} />
                           </td>
                         </tr>

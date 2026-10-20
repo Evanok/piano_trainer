@@ -169,6 +169,16 @@ export interface WindowSummary {
   blocksPerWeek: number
   averageBlockMs: number
   longestBlockMs: number
+  /**
+   * Practice time per day practiced, every activity included. Divided by the
+   * days with something on them, not by the window's calendar days: the
+   * calendar-day rate is already minutesPerWeek / 7, and this answers "when I
+   * practice, how long do I practice that day", which the per-sitting average
+   * cannot -- two short sittings on one day halve it while the day was long.
+   */
+  averageDayMs: number
+  /** averageDayMs split by activity; the parts sum to it, rounding aside. */
+  averageDayMsByActivity: Record<ActivityKind, number>
   /** Pieces worked -- one session per visit to the practice screen. */
   sessionCount: number
   completedCount: number
@@ -185,6 +195,8 @@ const EMPTY_SUMMARY: WindowSummary = {
   blocksPerWeek: 0,
   averageBlockMs: 0,
   longestBlockMs: 0,
+  averageDayMs: 0,
+  averageDayMsByActivity: { score: 0, exercise: 0, reading: 0 },
   sessionCount: 0,
   completedCount: 0,
   totalMs: 0,
@@ -213,9 +225,11 @@ function summarize(sessions: PracticeSessionRecord[], spanDays: number): WindowS
   let completedCount = 0
   let totalResponseMs = 0
   let responseCount = 0
+  const msByActivity: Record<ActivityKind, number> = { score: 0, exercise: 0, reading: 0 }
 
   for (const session of sessions) {
     totalMs += session.durationMs
+    msByActivity[activityOf(session.source)] += session.durationMs
     totalErrors += session.errorCount
     totalEvents += session.totalEvents
     if (session.completed) {
@@ -232,17 +246,25 @@ function summarize(sessions: PracticeSessionRecord[], spanDays: number): WindowS
   // and reporting practice time that isn't in it.
   const blocks = groupPracticeBlocks(sessions)
   const weeks = Math.max(spanDays, WEEKLY_RATE_MINIMUM_DAYS) / 7
+  const daysPracticed = new Set(sessions.map(sessionDay)).size
+  const perActivity = (divisor: number): Record<ActivityKind, number> => ({
+    score: Math.round(msByActivity.score / divisor),
+    exercise: Math.round(msByActivity.exercise / divisor),
+    reading: Math.round(msByActivity.reading / divisor),
+  })
   return {
     blockCount: blocks.length,
     blocksPerWeek: blocks.length / weeks,
     averageBlockMs: Math.round(totalMs / blocks.length),
     longestBlockMs: blocks.reduce((longest, block) => Math.max(longest, block.durationMs), 0),
+    averageDayMs: Math.round(totalMs / daysPracticed),
+    averageDayMsByActivity: perActivity(daysPracticed),
     sessionCount: sessions.length,
     completedCount,
     totalMs,
     minutesPerWeek: totalMs / 60000 / weeks,
     averageResponseMs: responseCount === 0 ? 0 : Math.round(totalResponseMs / responseCount),
-    daysPracticed: new Set(sessions.map(sessionDay)).size,
+    daysPracticed,
     totalErrors,
     totalEvents,
   }
