@@ -12,14 +12,32 @@ import type { PracticeSessionRecord } from '../types/session.ts'
  * link sees it too without having opened the stats screen first.
  */
 export interface ScorePlayProgress {
-  /** Furthest point reached, 0-100. 100 exactly when a session finished it. */
+  /** Furthest point reached, 0-100. 100 exactly when a session finished it
+   * with both hands; a one-hand session counts for half (see HAND_WEIGHT). */
   percent: number
-  /** True once any session played the piece through to its last event. */
+  /** True once a both-hands session played the piece through to its last event. */
   completed: boolean
   /** How many practice sessions this piece has, for the "most played" sort. */
   sessionCount: number
   /** ISO-8601 start of the most recent session, for the "last played" sort. */
   lastPlayedAt: string
+}
+
+/**
+ * How much of the piece a session covers by its hand mode. A one-hand run plays
+ * half the notes, so finishing it is half the piece, not all of it: a full bar
+ * must mean the piece was played as written. Both halves played separately
+ * still do not add up to 100 (the max is taken, not the sum), since playing
+ * the hands together is the step that remains. A record with no hand mode was
+ * written before hand mode existed, when every session required both.
+ */
+function handWeight(session: PracticeSessionRecord): number {
+  return session.handMode === 'left' || session.handMode === 'right' ? 0.5 : 1
+}
+
+/** True when the session played the piece to its end with both hands. */
+export function sessionCompletedPiece(session: PracticeSessionRecord): boolean {
+  return session.completed && handWeight(session) === 1
 }
 
 /**
@@ -36,8 +54,9 @@ export interface ScorePlayProgress {
  * piece as that session played it rather than mixing two scales.
  */
 export function sessionReachedPercent(session: PracticeSessionRecord): number {
+  const weight = handWeight(session)
   if (session.completed) {
-    return 100
+    return Math.round(100 * weight)
   }
   if (!Number.isFinite(session.totalEvents) || session.totalEvents <= 0) {
     return 0
@@ -49,7 +68,7 @@ export function sessionReachedPercent(session: PracticeSessionRecord): number {
   // Capped at 99 below: 100 is reserved for a session that actually finished,
   // so a full bar always means the piece was played to its end rather than
   // rounded up from its second-to-last event.
-  return Math.max(0, Math.min(99, Math.round((100 * reached) / session.totalEvents)))
+  return Math.max(0, Math.min(99, Math.round((100 * weight * reached) / session.totalEvents)))
 }
 
 /**
@@ -71,14 +90,14 @@ export function progressByCatalogId(sessions: PracticeSessionRecord[]): Map<stri
     if (!existing) {
       byId.set(id, {
         percent: sessionReachedPercent(session),
-        completed: session.completed,
+        completed: sessionCompletedPiece(session),
         sessionCount: 1,
         lastPlayedAt: session.startedAt,
       })
       continue
     }
     existing.percent = Math.max(existing.percent, sessionReachedPercent(session))
-    existing.completed = existing.completed || session.completed
+    existing.completed = existing.completed || sessionCompletedPiece(session)
     existing.sessionCount += 1
     // ISO-8601 compares lexicographically in chronological order.
     if (session.startedAt > existing.lastPlayedAt) {

@@ -47,7 +47,27 @@ describe('sessionReachedPercent', () => {
   })
 })
 
+describe('sessionReachedPercent with one hand', () => {
+  it('counts a one-hand session for half the piece, so finishing it reads 50, not 100', () => {
+    expect(sessionReachedPercent(session({ handMode: 'right', completed: true }))).toBe(50)
+    expect(sessionReachedPercent(session({ handMode: 'left', furthestEventIndex: 100 }))).toBe(25)
+  })
+
+  it('treats a record without a hand mode as both hands, as every session was before it existed', () => {
+    expect(sessionReachedPercent(session({ handMode: undefined, completed: true }))).toBe(100)
+  })
+})
+
 describe('progressByCatalogId', () => {
+  it('does not mark a piece finished from one-hand runs, even with both hands done separately', () => {
+    const progress = progressByCatalogId([
+      session({ id: 'a', handMode: 'right', completed: true }),
+      session({ id: 'b', handMode: 'left', completed: true }),
+    ])
+    expect(progress.get('score-1')).toMatchObject({ percent: 50, completed: false })
+  })
+
+
   it('keeps the furthest point across sessions, not the latest one', () => {
     const progress = progressByCatalogId([
       session({ id: 'a', furthestEventIndex: 150, startedAt: '2026-08-20T10:00:00.000Z' }),

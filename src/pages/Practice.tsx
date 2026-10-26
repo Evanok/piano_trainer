@@ -19,7 +19,7 @@ import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
-import { extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
+import { effectiveHandMode, extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
 import {
@@ -440,7 +440,10 @@ export function Practice({
       durationMs: endedAt - Date.parse(sessionStartedAtRef.current),
       completed,
       practiceMode: practiceModeRef.current,
-      handMode: handModeRef.current,
+      // What was actually required, not what the selector says: on a score
+      // without two hands, 'right' still plays every note, and the catalog's
+      // progress counts a one-hand session for half the piece.
+      handMode: osmdRef.current ? effectiveHandMode(osmdRef.current, handModeRef.current) : handModeRef.current,
       source: sessionSourceRef.current,
       totalEvents: totalEventsRef.current,
       eventsPlayed,

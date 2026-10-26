@@ -169,6 +169,16 @@ function handParts(osmd: OpenSheetMusicDisplay): Array<{ name: string | null; st
   return playableInstruments(osmd).map((instrument) => ({ name: instrument.Name ?? null, staves: instrument.Staves }))
 }
 
+/**
+ * The hand mode actually in force: 'left'/'right' on a score with no
+ * unambiguous pair of hands (a single staff, say) require every note, exactly
+ * like 'both', so that is what a session on it should be recorded as.
+ * Otherwise a run of a one-hand piece would count as half of it.
+ */
+export function effectiveHandMode(osmd: OpenSheetMusicDisplay, handMode: HandMode): HandMode {
+  return targetStaffForHand(osmd, handMode) ? handMode : 'both'
+}
+
 function targetStaffForHand(osmd: OpenSheetMusicDisplay, handMode: HandMode): Staff | undefined {
   return selectHandStaff(handParts(osmd), handMode)
 }
