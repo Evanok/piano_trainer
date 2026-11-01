@@ -29,7 +29,9 @@ function resolveAppVersion(): string {
   return git('git status --porcelain') ? `${version}-dirty` : version
 }
 
-process.env.VITE_APP_VERSION = resolveAppVersion()
+// A deploy builds from a `git archive` with no .git, so the deploy kit resolves the
+// version on the dev machine and passes it in DEPLOY_VERSION.
+process.env.VITE_APP_VERSION = process.env.DEPLOY_VERSION || resolveAppVersion()
 
 // Mounts the catalog API on the dev server so `npm run dev` stays a single
 // process. Production runs the exact same handler from server/index.ts.
