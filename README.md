@@ -53,17 +53,21 @@ The Exercise page generates a short training exercise without uploading a score.
 
 ## Deployment
 
-Piano Trainer is served **directly on port 5173** of the VPS it is deployed to.
-There is no Nginx or reverse proxy in this deployment, and no TLS: the address is
-`http://<vps-host>:5173/`. Set `PIANO_TRAINER_PUBLIC_URL` if you want
-`deploy.sh` to print the real one.
+Piano Trainer runs on port 5173 of the VPS (PM2, via `deploy.sh`), behind an
+nginx reverse proxy that serves it over HTTPS on its own subdomain (certbot).
+The nginx site config lives on the server, not in this repository. Set
+`PIANO_TRAINER_PUBLIC_URL` to the HTTPS address if you want `deploy.sh` to print
+the real one.
 
-Because the port is public and there is no proxy in front of it, set
-`PIANO_TRAINER_PASSWORD` on the production server. Without it the whole API is
-open to anyone who can reach the port: the practice history can be read, scores
-can be uploaded or deleted, and stats can be overwritten. The password is asked
-once per device. It travels unencrypted over plain HTTP, so it guards against
-passers-by and bots, not against someone able to sniff the network.
+The server currently listens on all interfaces, so the bare port
+(`http://<vps-host>:5173/`) is also reachable and bypasses TLS. Binding it to
+`127.0.0.1` and closing port 5173 in the firewall is the intended next step.
+
+Set `PIANO_TRAINER_PASSWORD` on the production server. Without it the whole API
+is open to anyone who can reach the app: the practice history can be read,
+scores can be uploaded or deleted, and stats can be overwritten. The password
+is asked once per device. It is encrypted on the HTTPS address, but travels in
+clear on the bare port while that stays open.
 
 ### Showing the app to someone else
 
@@ -74,7 +78,7 @@ history, but cannot upload, rename, star or delete a score, and nothing they
 play is recorded: the API refuses every write for a guest token, so this holds
 for `curl` too, not just for the hidden buttons.
 
-The link is `http://<vps-host>:5173/?guest=<token>`. `deploy.sh prod start`
+The link is `https://<public-host>/?guest=<token>`. `deploy.sh prod start`
 prints it, and the app itself offers it on the Home screen ("Share a guest
 link"). It carries the credential, so treat it as a password: anyone it is
 forwarded to gets the same access, and revoking it means changing
@@ -118,8 +122,9 @@ git pull --ff-only
 ./deploy.sh prod start
 ```
 
-Production runs directly on `0.0.0.0:5173`; development is deliberately bound
-to `127.0.0.1:5173`. Ensure the VPS/firewall permits incoming TCP on port 5173.
+Production currently listens on `0.0.0.0:5173` behind nginx (HTTPS); development
+is deliberately bound to `127.0.0.1:5173`. nginx is the public entry point, so
+port 5173 does not need to be open in the firewall.
 
 In development the same API handler is mounted on the Vite dev server (see
 `vite.config.ts`), so `npm run dev` stays a single process and dev/production

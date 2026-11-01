@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start or stop Piano Trainer without a reverse proxy.
+# Start or stop Piano Trainer (production sits behind nginx on the VPS).
 #
 # Usage:
 #   ./deploy.sh dev start|stop

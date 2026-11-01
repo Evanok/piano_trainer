@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `npm run dev` -- start the Vite dev server (port 5173 by default); the catalog API is mounted on it, so this is still a single process
 - `npm run build` -- typecheck (`tsc -b`) then production build
-- `npm start` -- production server: serves `dist/` + the catalog API (`PORT`, default 5173). It is exposed directly on port 5173 of the VPS (`http://<vps-host>:5173/`, kept out of this repo since it is public); do not use Nginx or a reverse proxy for Piano Trainer.
+- `npm start` -- production server: serves `dist/` + the catalog API (`PORT`, default 5173). In production it sits behind nginx (HTTPS on a subdomain, see Production deployment); the real domain and host are kept out of this repo since it is public (see `CLAUDE.local.md`).
 - `npm test` -- run the vitest suite once
 - `npx vitest run src/engine/WaitEngine.test.ts` -- run a single test file
 - `npx tsc -b --noEmit` -- typecheck only, no build output
@@ -17,12 +17,21 @@ There is no test runner watch mode wired up as a script; use `npx vitest` (no `r
 
 ## Production deployment
 
-The VPS runs the app directly on TCP port 5173, managed by PM2. There is no
-Nginx configuration for this project. Use the repository script rather than
-running PM2 commands by hand:
+The VPS runs the app on TCP port 5173, managed by PM2, and **nginx reverse-proxies
+an HTTPS subdomain to it** (TLS via certbot). The nginx site config lives only on
+the server, not in this repo. The real domain and host are in `CLAUDE.local.md`
+(not committed: this repo is public).
+
+**Known gap (2026-11-01):** `server/index.ts` calls `listen(PORT)` on all
+interfaces, so the app is *also* reachable in plain HTTP on `<vps-host>:5173`,
+bypassing nginx and TLS. The intended state is loopback-only (`127.0.0.1`, like
+my_finary) with port 5173 closed in the firewall; until that is done, keep
+treating the bare-port access path as live (see API password gate).
+
+Use the repository script rather than running PM2 commands by hand:
 
 ```bash
-./deploy.sh prod start  # npm ci, production build, then public server on :5173
+./deploy.sh prod start  # npm ci, production build, then server on :5173 (behind nginx)
 ./deploy.sh prod stop
 ./deploy.sh dev start   # Vite, bound only to 127.0.0.1:5173
 ./deploy.sh dev stop
@@ -32,8 +41,7 @@ For later production deployments, run `git pull --ff-only` then
 `./deploy.sh prod start`. The script deliberately does not pull implicitly,
 so it never unexpectedly changes a checked-out VPS worktree. It stops the
 other mode before starting one because both use port 5173. If production is
-not reachable publicly, check that TCP 5173 is open in the VPS firewall/security
-group.
+not reachable, check `pm2 status` and the nginx site on the server (`sudo nginx -t`).
 
 ## What this is
 
@@ -73,7 +81,7 @@ _Versions verified against `package.json` on 2026-08-18._
 - Vitest 4.1 (`npm test`), `tsc -b` for typecheck, oxlint 1.71 for lint
 
 **Deployment**
-- PM2 via `./deploy.sh`, serving `dist/` + the API directly on TCP 5173. No nginx, no reverse proxy.
+- PM2 via `./deploy.sh`, serving `dist/` + the API on TCP 5173, behind nginx (HTTPS subdomain, config on the server only).
 
 ## Architecture
 
@@ -107,7 +115,7 @@ The pattern table was derived from the exercises' own note content and cross-che
 
 ### API password gate (`server/auth.ts`, `src/api/auth.ts`, `pages/Login.tsx`)
 
-The API is public (plain HTTP, no proxy, no TLS), and until this existed anyone who reached the port could read the whole practice history, upload files until the disk filled, delete catalog entries and overwrite stats records. A single shared password now gates it: `PIANO_TRAINER_PASSWORD` on the server, `GET /api/auth` + `POST /api/login` open, **everything else 401 without a valid token, reads included** -- the practice history is the thing most worth keeping private and it is only readable.
+The API is public (originally plain HTTP on a bare port; now behind nginx + HTTPS, but the bare port is still open, see Production deployment), and until this existed anyone who reached the port could read the whole practice history, upload files until the disk filled, delete catalog entries and overwrite stats records. A single shared password now gates it: `PIANO_TRAINER_PASSWORD` on the server, `GET /api/auth` + `POST /api/login` open, **everything else 401 without a valid token, reads included** -- the practice history is the thing most worth keeping private and it is only readable.
 
 - **The gate is on the API, not on the login screen.** A screen alone stops nobody, since `curl .../api/scores` never loads it. `Login.tsx` exists only so the player has somewhere to type the password.
 - **The token is derived from the password** (`sha256('piano-trainer:' + password)`), not randomly generated and remembered server-side, so a deploy or a restart doesn't log every device out; it is password-equivalent, it just keeps the plaintext out of each device's `localStorage`. Compared with `timingSafeEqual`, after a length check (which throws there otherwise).
@@ -115,18 +123,18 @@ The API is public (plain HTTP, no proxy, no TLS), and until this existed anyone 
 - `POST /api/login` is the one open write, so it carries `createLoginThrottle` (10 failures per minute, then 429). Failures are counted globally rather than per IP: for a single-user app a burst can only mean guessing, and a per-IP map is just a slower way to be wrong behind NAT.
 - **An unreachable server is not a locked door**: `App`'s `authGate` goes to `'open'` when `/api/auth` cannot be reached at all, so practice still works offline, the same degradation the catalog already had. Only an explicit `required && !authenticated` shows the login screen.
 - A 401 from any later call routes through `notifyAuthRequired()` (`src/api/auth.ts`), which clears the stored token and flips `App` back to the login screen -- otherwise a password change would leave every screen showing its own error until the next reload.
-- **The password travels in clear** over plain HTTP. That stops passers-by, bots and port scanners, not someone sniffing the network; TLS would mean a domain and a reverse proxy, which this deployment deliberately does not have.
-- **The public address is deliberately absent from the repo** (it is a public GitHub repo): `deploy.sh` prints `PIANO_TRAINER_PUBLIC_URL` if set, and the docs say `<vps-host>`. That is discoverability, not security -- a port scan finds it anyway.
+- **The password is encrypted only on the HTTPS domain.** Through nginx it travels over TLS; on the still-open bare port (`<vps-host>:5173`) it travels in clear. Closing that port (loopback bind + firewall) removes the clear-text path.
+- **The public address is deliberately absent from the repo** (it is a public GitHub repo): `deploy.sh` prints `PIANO_TRAINER_PUBLIC_URL` if set, and the docs say `<vps-host>` / "the HTTPS subdomain" (real values in the gitignored `CLAUDE.local.md`). That is discoverability, not security -- a port scan or certificate-transparency log finds it anyway.
 
 ### Guest links (`ApiRole`, `PIANO_TRAINER_GUEST_PASSWORD`, `GuestLinkShare.tsx`)
 
 A second, optional password mints a **read-only** token, so the deployment can be shown to someone without handing them the owner's password (which is all-or-nothing: it lets them upload, rename, delete, and merge their own practice into the shared `stats.json`). `resolveRole(token)` answers `'owner' | 'guest' | null` and is the only thing that decides; `isAllowedForGuest` (exported from `catalogApi.ts` and unit-tested, since it is the actual boundary) allows exactly `GET /api/scores`, `GET /api/scores/:id/file`, `GET /api/key-signatures`, `GET /api/chords` and `GET /api/stats`.
 
-- **The share link carries the token, it is not a mode flag.** `http://<host>:5173/?guest=<token>`, adopted by `adoptGuestLinkToken()` (called once in `App`'s auth effect, before the first request) which stores it and strips the parameter from the address bar. A `?guest` that only flipped a front-end flag would protect nothing, since the API answers `curl` too and the visitor would still need a real credential to see anything at all. The link therefore *is* a credential: whoever holds it is in, and revoking it means changing the password and restarting.
+- **The share link carries the token, it is not a mode flag.** `https://<domain>/?guest=<token>`, adopted by `adoptGuestLinkToken()` (called once in `App`'s auth effect, before the first request) which stores it and strips the parameter from the address bar. A `?guest` that only flipped a front-end flag would protect nothing, since the API answers `curl` too and the visitor would still need a real credential to see anything at all. The link therefore *is* a credential: whoever holds it is in, and revoking it means changing the password and restarting.
 - **A blocked call answers 403, never 401.** `src/api/auth.ts` treats every 401 as "this token is dead", clears it and shows the login screen, so a 401 here would throw the guest out on their first blocked request instead of refusing that one call.
 - **The role is stored per device next to the token** and refreshed from `GET /api/auth` on every startup (the server is the authority, which also repairs a device whose stored role drifted). The UI reads it via `isGuest()` to hide what the server would refuse -- upload/edit/delete/star in `ScoreLibrary`, the whole session recording in `Practice` -- but hiding is never the enforcement.
 - **A guest's practice is not recorded at all**, not merely un-synced: `persistSession` returns early. They are looking at the owner's history, so recording locally would mix their own sessions into what their stats screen shows them. `Stats.tsx` correspondingly pulls (`fetchSessions`) instead of syncing, and merges into the local store rather than replacing it, so opening a guest link in a browser that already had a history does not wipe it.
-- **The guest token only ever goes back to the owner**, in `GET /api/auth`'s `guestToken` field, which is what `GuestLinkShare` (Home, collapsed by default) turns into a link to copy. That copy path must not assume a secure context: production is plain HTTP, where `navigator.clipboard` does not exist, so it falls back to `document.execCommand('copy')` and, failing that, leaves the link selected in a readonly field.
+- **The guest token only ever goes back to the owner**, in `GET /api/auth`'s `guestToken` field, which is what `GuestLinkShare` (Home, collapsed by default) turns into a link to copy. That copy path must not assume a secure context: production used to be plain HTTP (and the bare port still is), where `navigator.clipboard` does not exist, so it falls back to `document.execCommand('copy')` and, failing that, leaves the link selected in a readonly field.
 - **Both passwords live in `piano-trainer.env`** next to `deploy.sh` (gitignored, template committed as `piano-trainer.env.example`), sourced by the script under `set -a` so plain `KEY=value` lines are exported and reach PM2 through `--update-env`. It is read only when its mode ends in `00`, since it holds passwords in clear and a world-readable secrets file on a VPS is worse than no file at all. Sourcing is optional in both directions: an environment that exports the variables by hand still works, and `PIANO_TRAINER_ENV_FILE` relocates it.
 - **A guest password equal to the owner's is treated as unset**, since login checks the owner's first and would silently hand full access to whoever was given the "read only" one. `tokenForPassword` hashes the role into the material for the same reason, while leaving the owner's derivation byte-identical so tokens already stored on the owner's devices survive the upgrade.
 
@@ -593,7 +601,7 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
 - **Note-level stats (missed/wrong/confusions/response times) are now collected for real scores too**, and stored on every record; the End screen still shows the response-time breakdown for exercises only, since on a real score those timings are sight-reading pauses rather than reaction times.
 - `successPercent` inside a record is first-try accuracy over *the events actually reached*, not over the whole piece -- otherwise every abandoned session would report a near-zero score.
 - **`eventsPlayed` and `furthestEventIndex` are different questions and both are kept.** The first is the cursor's final position ("where did they stop"), the second the highest index the cursor ever *advanced* to ("how far did they get"), which is what the catalog's progress bar reads (`engine/scoreProgress.ts`, shared with the server). Only real advances move it, so jumping to the last page invents no progress and working a hard passage backwards throws none away; a hand-mode switch resets it, since the event indices then mean something else. It is optional on the record, and `sessionReachedPercent` falls back to `eventsPlayed` for sessions written before it existed. 100% is reserved for `completed` sessions (a partial run caps at 99), so a full bar always means the piece was actually played to its end rather than rounded up. A one-hand session (`handMode` left/right) counts for half (`handWeight`): finishing it reads 50%, and only a both-hands session can mark the piece finished. The two hands played separately still read 50%, since the max is taken rather than the sum and playing them together is what remains. `Practice` records the *effective* hand mode (`effectiveHandMode`), so on a score with no pair of hands (single staff), where left/right still require every note, the session is recorded as `both` and counts in full.
-- **Production is plain HTTP on a bare IP and port, so it is NOT a secure context** -- every `[SecureContext]` browser API is missing there while working fine in dev, since localhost always counts as secure. This shipped broken once: `crypto.randomUUID()` for the session id threw `crypto.randomUUID is not a function` and crashed the practice screen in production only. Session ids come from `createSessionId()` (`crypto.getRandomValues`, which has no such restriction, with a `Math.random` fallback); `useWakeLock` guards on `'wakeLock' in navigator`. Anything new must do the same, and testing it means dropping the API in the browser (`delete crypto.randomUUID`) rather than trusting a localhost run.
+- **Production was plain HTTP on a bare IP and port for a long time (and that path is still open), so do NOT assume a secure context** -- every `[SecureContext]` browser API is missing there while working fine in dev, since localhost always counts as secure. This shipped broken once: `crypto.randomUUID()` for the session id threw `crypto.randomUUID is not a function` and crashed the practice screen in production only. Session ids come from `createSessionId()` (`crypto.getRandomValues`, which has no such restriction, with a `Math.random` fallback); `useWakeLock` guards on `'wakeLock' in navigator`. Anything new must do the same, and testing it means dropping the API in the browser (`delete crypto.randomUUID`) rather than trusting a localhost run.
 - **What is recorded and what is shown are two different sets** (`isCountedSession`/`countedSessions` in `sessionLog.ts`). Recording starts when the practice screen opens, so the log necessarily also holds screens that were merely opened; those are hidden from everything the player sees -- a session counts only if at least one key was pressed (right or wrong) and it either completed or lasted `MIN_COUNTED_SESSION_MS` (60s). A *finished* session always counts however short, since a generated 8-measure drill played cleanly in 45 seconds is real practice. This matters most for the streak: without the filter, opening a score and going straight back would earn a practice day. Applied in exactly two read paths -- `getStreakStats()` and the `view` memo in `Stats.tsx` -- so the table, chart, streak and every average agree; the store and the sync still carry the full log, and **nothing is ever deleted**, so the threshold can be revised later without having lost the excluded sessions.
 - **A session is one *piece* worked, a `PracticeBlock` is one *sitting*.** A record is created per visit to the practice screen, so a 45-minute sitting spread over three scores is three sessions -- the wrong unit for "how long do I practice". `groupPracticeBlocks` (in `statsAnalytics.ts`, gap `DEFAULT_BLOCK_GAP_MS` = 15 min) groups consecutive sessions into sittings, and the sitting is the unit for every headline number (`blockCount`, `blocksPerWeek`, `averageBlockMs`, `longestBlockMs`); session-level counts stay available as "pieces worked". The stats table lists sittings with their pieces nested underneath, expandable only when there is more than one (a single-piece sitting names it inline instead of costing a row that repeats itself). A block's `durationMs` is the **sum of its sessions' durations, not the wall-clock span** -- the breaks between pieces would otherwise count as practice and disagree with the per-day minutes chart. Changing the mode or hand mode mid-session keeps the same record (same id, same start), so it never splits a sitting.
 - **The comparison table leads with the average practice *day*, not the average sitting** (`averageDayMs`, divided by the days with something on them). The per-sitting average was shown alone first and read as a regression on the best week so far: the player was practising more often, in more and shorter sittings, so the average sitting shrank while every day got longer. It is kept, on the row below and without a breakdown. The table splits it underneath into "At the piano" (scores + keyboard exercises) and "Theory exercises" (the screen drills, `activityOf` = `reading`), the total staying the headline since a day of quizzes is still a practice day.
@@ -697,3 +705,9 @@ The automatic section advance (`handleSectionCompleted`, from the note handler) 
 ### Testing without physical MIDI hardware
 
 There's no MIDI test harness checked into the repo, but the pattern used during development (not committed) is worth knowing: stub `navigator.requestMIDIAccess` in a Playwright `page.addInitScript` with a fake `MIDIInput` whose `onmidimessage` is exposed on `window`, then dispatch `Uint8Array([0x90, pitch, velocity])` note-on messages through it. This drives the real `useMidi` -> `Practice` -> `WaitEngine` -> `PianoScore` pipeline end-to-end, including reaching the End screen, without a keyboard. When scripting multiple notes of a chord this way, send them back-to-back (or within `chordToleranceMs`), not spaced out with `waitForTimeout` between each, or the tolerance window resets and the chord never completes.
+
+## Changelog
+
+Shipped work and the decisions behind it go in `CHANGELOG.md` (newest first, `## <Title> (YYYY-MM-DD)`).
+Do not add per-feature history or "recent completions" to this file: it describes the current state only
+(architecture, commands, conventions). Update it only when one of those changes.

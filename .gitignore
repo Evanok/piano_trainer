@@ -47,3 +47,6 @@ dist-ssr
 # outside version control: it is a manual copy on each machine, and this
 # repository is public.
 /public/audio
+
+# Personal notes for Claude Code (real host/domain, kept out of this public repo)
+/CLAUDE.local.md
