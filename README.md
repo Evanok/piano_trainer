@@ -54,8 +54,8 @@ The Exercise page generates a short training exercise without uploading a score.
 ## Deployment
 
 Piano Trainer runs on `127.0.0.1:5173` (PM2), behind an nginx reverse proxy that
-serves it over HTTPS on its own subdomain (certbot). The nginx site config lives on
-the server, not in this repository. The server listens on loopback by default
+serves it over HTTPS on its own subdomain (certbot). The nginx site config is
+`deploy/nginx.conf`, a template whose domain comes from the gitignored `deploy/.env`. The server listens on loopback by default
 (`HOST`); set `HOST=0.0.0.0` only for a deployment without a proxy.
 
 Set `PIANO_TRAINER_PASSWORD` on the production server. Without it the whole API

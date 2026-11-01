@@ -30,7 +30,9 @@ Settings are in `deploy/deploy.conf`. On the VPS the app lives in `~/apps/piano_
 (`data/`, `public/audio/`, `piano-trainer.env`, `backups/`), symlinked into each release. Only
 the commit pushed to `origin/master` can be deployed.
 
-nginx (config on the server only) serves the HTTPS subdomain and proxies to `127.0.0.1:5173`;
+nginx serves the HTTPS subdomain and proxies to `127.0.0.1:5173`. Its site config is `deploy/nginx.conf`, a
+template whose `${PIANO_DOMAIN}` comes from `deploy/.env` (gitignored, like the host): `./deploy.sh nginx-diff`
+compares it with the server, `./deploy.sh nginx` installs it (sudo, run it in a real terminal);
 the server listens on loopback by default (`HOST`), so the bare port is not reachable from
 outside. The real domain and host are in `CLAUDE.local.md` (this repo is public).
 
@@ -76,7 +78,7 @@ _Versions verified against `package.json` on 2026-08-18._
 - Vitest 4.1 (`npm test`), `tsc -b` for typecheck, oxlint 1.71 for lint
 
 **Deployment**
-- deploy kit (`./deploy.sh`, release directories), PM2, `dist/` + the API on `127.0.0.1:5173` behind nginx (HTTPS subdomain, config on the server only).
+- deploy kit (`./deploy.sh`, release directories), PM2, `dist/` + the API on `127.0.0.1:5173` behind nginx (HTTPS subdomain, `deploy/nginx.conf`).
 
 ## Architecture
 
