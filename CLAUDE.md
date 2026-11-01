@@ -25,7 +25,8 @@ Deployed from the dev machine with the shared deploy kit (`~/work/deploy_kit`, s
 ./deploy.sh rollback   # back to the previous release
 ```
 
-Settings are in `deploy/deploy.conf`. On the VPS the app lives in `~/apps/piano_trainer/`:
+Settings are in `deploy/deploy.conf`. Dependencies are copied from the live release instead of `npm ci`
+when `package-lock.json`, `package.json` and the node version are unchanged (deploy kit `REUSE_DEPS`). On the VPS the app lives in `~/apps/piano_trainer/`:
 `releases/<date>_<sha>/`, `current` (symlink run by PM2 as `piano-trainer-prod`) and `shared/`
 (`data/`, `public/audio/`, `piano-trainer.env`, `backups/`), symlinked into each release. Only
 the commit pushed to `origin/master` can be deployed.

@@ -6,6 +6,11 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Faster deploys: dependency reuse (2026-11-01)
+
+- `deploy.conf` splits `INSTALL_CMD` (npm ci) from `REMOTE_BUILD`; with `REUSE_DEPS`, the deploy kit copies the
+  live release's `node_modules` when the lock, the `package.json` files and the node version are unchanged.
+
 ## Deploy kit, loopback bind, data backups (2026-11-01)
 
 - Deployment moved to the shared deploy kit (`./deploy.sh` from the dev machine): local tests/lint/build
