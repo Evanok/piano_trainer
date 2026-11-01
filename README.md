@@ -53,21 +53,15 @@ The Exercise page generates a short training exercise without uploading a score.
 
 ## Deployment
 
-Piano Trainer runs on port 5173 of the VPS (PM2, via `deploy.sh`), behind an
-nginx reverse proxy that serves it over HTTPS on its own subdomain (certbot).
-The nginx site config lives on the server, not in this repository. Set
-`PIANO_TRAINER_PUBLIC_URL` to the HTTPS address if you want `deploy.sh` to print
-the real one.
-
-The server currently listens on all interfaces, so the bare port
-(`http://<vps-host>:5173/`) is also reachable and bypasses TLS. Binding it to
-`127.0.0.1` and closing port 5173 in the firewall is the intended next step.
+Piano Trainer runs on `127.0.0.1:5173` (PM2), behind an nginx reverse proxy that
+serves it over HTTPS on its own subdomain (certbot). The nginx site config lives on
+the server, not in this repository. The server listens on loopback by default
+(`HOST`); set `HOST=0.0.0.0` only for a deployment without a proxy.
 
 Set `PIANO_TRAINER_PASSWORD` on the production server. Without it the whole API
 is open to anyone who can reach the app: the practice history can be read,
 scores can be uploaded or deleted, and stats can be overwritten. The password
-is asked once per device. It is encrypted on the HTTPS address, but travels in
-clear on the bare port while that stays open.
+is asked once per device and travels over HTTPS.
 
 ### Showing the app to someone else
 
@@ -78,53 +72,31 @@ history, but cannot upload, rename, star or delete a score, and nothing they
 play is recorded: the API refuses every write for a guest token, so this holds
 for `curl` too, not just for the hidden buttons.
 
-The link is `https://<public-host>/?guest=<token>`. `deploy.sh prod start`
-prints it, and the app itself offers it on the Home screen ("Share a guest
+The link is `https://<public-host>/?guest=<token>`. The app offers it on the Home screen ("Share a guest
 link"). It carries the credential, so treat it as a password: anyone it is
 forwarded to gets the same access, and revoking it means changing
 `PIANO_TRAINER_GUEST_PASSWORD` and restarting.
 
-Use the repository's deployment script. It manages the two PM2 processes and
-prevents them from fighting over port 5173:
+Both passwords live in `piano-trainer.env` on the server (gitignored, mode 600),
+in `~/apps/piano_trainer/shared/`, and are loaded when the process starts.
 
-Both passwords live in `piano-trainer.env`, next to `deploy.sh`, which sources
-it on every run. That file is gitignored and never committed; copy the template
-and fill it in once on the VPS:
-
-```bash
-cp piano-trainer.env.example piano-trainer.env
-chmod 600 piano-trainer.env   # deploy.sh refuses to read it otherwise
-$EDITOR piano-trainer.env
-```
-
-Exporting the variables by hand still works, and `PIANO_TRAINER_ENV_FILE` points
-the script at the file somewhere else.
+Deployment runs from the development machine with a small shared deploy kit
+(kept outside this repository): it checks that the commit is pushed and that
+tests, lint and build pass, builds a new release directory on the server,
+switches to it, checks that the app answers and rolls back automatically if it
+does not:
 
 ```bash
-# On the VPS, once piano-trainer.env holds the passwords:
-./deploy.sh prod start
-
-# Stop the public production server.
-./deploy.sh prod stop
-
-# On a development machine: start Vite on localhost only.
-./deploy.sh dev start
-
-# Stop the local development server.
-./deploy.sh dev stop
+./deploy.sh            # deploy origin/master
+./deploy.sh status
+./deploy.sh rollback
 ```
 
-To deploy the latest committed version on the VPS, first update the checkout,
-then run the production command:
+Settings: `deploy/deploy.conf`. The previous on-server script is kept as
+`deploy/legacy_deploy.sh`.
 
-```bash
-git pull --ff-only
-./deploy.sh prod start
-```
-
-Production currently listens on `0.0.0.0:5173` behind nginx (HTTPS); development
-is deliberately bound to `127.0.0.1:5173`. nginx is the public entry point, so
-port 5173 does not need to be open in the firewall.
+Production and development both listen on `127.0.0.1:5173`; nginx is the public
+entry point, so port 5173 must not be open in the firewall.
 
 In development the same API handler is mounted on the Vite dev server (see
 `vite.config.ts`), so `npm run dev` stays a single process and dev/production
@@ -135,7 +107,7 @@ cannot drift apart.
 - `npm run dev` -- dev server (front-end + catalog API)
 - `npm run build` -- typecheck + production build
 - `npm start` -- production server on port 5173 (serves `dist/` + the catalog API)
-- `./deploy.sh dev|prod start|stop` -- start or stop the corresponding managed server
+- `./deploy.sh [status|rollback]` -- deploy from the development machine (see Deployment)
 - `npm test` -- run the test suite
 - `npm run lint` -- oxlint
 

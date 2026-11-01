@@ -6,6 +6,15 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Deploy kit, loopback bind, data backups (2026-11-01)
+
+- Deployment moved to the shared deploy kit (`./deploy.sh` from the dev machine): local tests/lint/build
+  gate, release directories in `~/apps/piano_trainer`, atomic switch, health check, automatic rollback.
+  The old on-server script is kept as `deploy/legacy_deploy.sh`.
+- The server listens on `127.0.0.1` by default (`HOST`): the bare port no longer bypasses nginx/TLS.
+- `deploy/backup_data.sh`: nightly tar.gz of `data/` (7 kept) mirrored to Google Drive, plus a
+  `predeploy` copy before every deploy.
+
 ## Docs: production runs behind nginx (2026-11-01)
 
 - `CLAUDE.md` and `README.md` said production was plain HTTP on a bare port with no reverse proxy. In

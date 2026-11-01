@@ -4,7 +4,7 @@
 //
 //   npm run build && npm start
 //
-// Environment: PORT (default 5173), PIANO_TRAINER_DATA_DIR (default ./data),
+// Environment: PORT (default 5173), HOST (default 127.0.0.1), PIANO_TRAINER_DATA_DIR (default ./data),
 // PIANO_TRAINER_PASSWORD (no password gate when unset -- see server/auth.ts).
 
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
@@ -15,8 +15,11 @@ import { createCatalogApi } from './catalogApi.ts'
 import { migrateCatalog, resolveDataDir } from './catalogStore.ts'
 import { configuredPassword } from './auth.ts'
 
-// Piano Trainer is exposed directly on this port; there is no Nginx proxy.
+// In production nginx is the only public entry point (HTTPS) and proxies to this
+// port, so the server listens on loopback by default: the bare port must not be
+// reachable from outside, it would bypass TLS. Set HOST=0.0.0.0 to expose it.
 const PORT = Number(process.env.PORT ?? 5173)
+const HOST = process.env.HOST ?? '127.0.0.1'
 const DIST_DIR = path.resolve(process.cwd(), 'dist')
 
 const MIME_TYPES: Record<string, string> = {
@@ -124,8 +127,8 @@ const catalogApi = createCatalogApi(dataDir)
 
 createServer((req, res) => {
   catalogApi(req, res, () => serveStatic(req, res))
-}).listen(PORT, () => {
-  console.log(`Piano Trainer listening on http://localhost:${PORT}`)
+}).listen(PORT, HOST, () => {
+  console.log(`Piano Trainer listening on http://${HOST}:${PORT}`)
   console.log(`Catalog data directory: ${dataDir}`)
   // Loud, because an open server on a public port means anyone can read the
   // practice history and delete catalog entries. Unset stays permitted so an
