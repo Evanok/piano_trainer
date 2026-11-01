@@ -50,3 +50,4 @@ dist-ssr
 
 # Personal notes for Claude Code (real host/domain, kept out of this public repo)
 /CLAUDE.local.md
+/deploy/.env
