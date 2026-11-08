@@ -529,7 +529,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         // pickup measure or an explicit numbering offset makes differ). Every
         // other measure number in the app counts this same way:
         // ExpectedEvent.measureNumber (CurrentMeasureIndex + 1),
-        // extractNaturalBreakMeasures, getCurrentMeasure, and the indices
+        // getCurrentMeasure, and the indices
         // setSectionBounds hands to Min/MaxMeasureToDrawIndex.
         const index = (osmd.Sheet?.SourceMeasures ?? []).indexOf(sourceMeasure)
         return index < 0 ? null : index + 1

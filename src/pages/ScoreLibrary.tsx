@@ -5,6 +5,7 @@ import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { PencilIcon, StarIcon, TrashIcon } from '../components/icons'
 import { isGuest } from '../api/auth'
+import { syncLocalSessionLog } from '../api/stats'
 import { deleteScoreEntry, downloadScoreFile, fetchCatalogPage, updateScoreEntry, uploadScore } from '../api/catalog'
 import { getStreakStats } from '../engine/streak'
 import {
@@ -155,6 +156,13 @@ export function ScoreLibrary({
   // calls anyway (see server/auth.ts); hiding the controls is so a guest is
   // never offered a button that can only fail.
   const guest = isGuest()
+  // Each row's progress and the "last played" order are computed by the
+  // server from the shared stats.json, while a practice session is only ever
+  // written to this device's own log. Coming straight back from a piece, the
+  // server has not seen it yet unless Home or Stats happened to sync in
+  // between, so the first listing waits for this device's log to be pushed.
+  // A guest never pushes, and a failed sync still lets the listing through.
+  const [historySynced, setHistorySynced] = useState(guest)
   const [fileError, setFileError] = useState<string | null>(null)
   // Set only when saving to the catalog failed: the score is still perfectly
   // playable, so we offer to practice it without keeping it server-side rather
@@ -277,6 +285,26 @@ export function ScoreLibrary({
   }
 
   useEffect(() => {
+    if (historySynced) {
+      return
+    }
+    let cancelled = false
+    syncLocalSessionLog()
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) {
+          setHistorySynced(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [historySynced])
+
+  useEffect(() => {
+    if (!historySynced) {
+      return
+    }
     const controller = new AbortController()
     setIsCatalogLoading(true)
     fetchCatalogPage({
@@ -307,7 +335,7 @@ export function ScoreLibrary({
         }
       })
     return () => controller.abort()
-  }, [search, difficultyFilter, keyFilter, favoritesOnly, tagFilter, sort, page, reloadToken])
+  }, [historySynced, search, difficultyFilter, keyFilter, favoritesOnly, tagFilter, sort, page, reloadToken])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]

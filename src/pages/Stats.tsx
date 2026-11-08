@@ -49,6 +49,8 @@ const PRACTICE_MODE_LABELS: Record<string, string> = {
   page: 'Page',
   scroll: 'Scroll',
   scrollLoop: 'Scroll loop',
+  suddenDeath: 'Sudden death',
+  // Removed modes, still found in older records.
   sectionFree: 'Sections',
   sectionTraining: 'Section training',
 }

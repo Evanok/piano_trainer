@@ -17,29 +17,6 @@ export function isTieContinuation(note: Note): boolean {
   return !!tie && tie.StartNote !== note
 }
 
-// Measure numbers (1-based, matching ExpectedEvent.measureNumber) that are
-// known to start a new musical section: either it carries a rehearsal mark
-// (e.g. "A", "B", "Chorus"), or the previous measure ends on a double/final
-// barline. Used by sections.ts to snap a fixed-size training-mode boundary
-// onto an actual phrase break instead of cutting mid-phrase. `rehearsalExpression`
-// and `endingBarStyleXml` aren't part of OSMD's public type exports, hence the
-// untyped access here -- same pattern as tryColorNoteFast's VexFlow internals
-// in PianoScore.tsx.
-export function extractNaturalBreakMeasures(osmd: OpenSheetMusicDisplay): Set<number> {
-  const breaks = new Set<number>()
-  const sourceMeasures = osmd.Sheet?.SourceMeasures ?? []
-  sourceMeasures.forEach((measure, i) => {
-    const measureNumber = i + 1
-    if (measure.rehearsalExpression) {
-      breaks.add(measureNumber)
-    }
-    if (measure.endingBarStyleXml === 'light-light' || measure.endingBarStyleXml === 'light-heavy') {
-      breaks.add(measureNumber + 1)
-    }
-  })
-  return breaks
-}
-
 // Some "piano/vocal" sheet music editions add a separate vocal melody staff
 // above the actual piano part, for a singer to follow -- left unfiltered, its
 // notes would silently join every expected chord alongside the real piano

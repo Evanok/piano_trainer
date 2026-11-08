@@ -6,6 +6,50 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Livelier combo counter (2026-11-08)
+
+- Every 10, the counter hops to another of five slots along the top row of the score (left, centre left, centre,
+  centre right, right, picked at random) and bursts where it lands (ring and sparks), without being cut short
+  by the next note. It stays in the top band: bursting in the middle of the screen, over the notes, was too
+  distracting.
+- Each pop settles tilted to alternate sides. From 25 the counter floats, from 50 it beats like a heart.
+- Arcade font (Luckiest Guy, Apache 2.0, bundled in `src/assets/fonts/`).
+
+## Dev keyboard shortcuts for playing without MIDI (2026-11-08)
+
+- Under `npm run dev`, the practice screen takes `o` (play the expected notes, the whole chord) and `k` (play a
+  wrong note), through the same handler as a MIDI note. Dev only, absent from the production build.
+
+## Combo counter over the score (2026-11-08)
+
+- `ComboOverlay`: the live combo drawn big over the top-right corner of the score, in every mode except Page
+  free, on desktop and mobile. It pops on every event, changes hue at 10/25/50 (shimmering from 50), sends a
+  ring every 10, shows "New best" when a run beats an earlier one, and the broken number falls struck through
+  when a run ends on a wrong note. CSS animations only, off under reduced motion.
+- The desktop stat strip (`ScoreHud`) drops its Combo tile, which the overlay now replaces.
+
+## Sudden death mode (2026-11-08)
+
+- New practice mode "Sudden death": the scroll layout over the whole piece, where any wrong note sends the
+  cursor back to the first note. A message names the measure, the run that was lost and the best run.
+- The combo now counts per attempt: an event missed in an earlier pass counts again once replayed cleanly
+  (it never did before, which also stalled the combo in Scroll loop). First-try accuracy is unchanged.
+
+## Section modes removed (2026-11-08)
+
+- "Section free" and "Section training" are gone: in practice only Page free, Scroll loop and a little Scroll
+  were used, and the loop covers drilling a passage with a range the player picks. Removed with them:
+  `computeSections`, `extractNaturalBreakMeasures`, the section picker, prev/next and measures-per-section
+  controls. `sectionForMeasureRange` and the crop machinery stay, the loop runs on them. Old session records
+  keep their mode labels in Stats.
+
+## Catalog "last played" up to date after practice (2026-11-08)
+
+- The catalog's progress and "last played" order come from the server's `stats.json`, but a session is only
+  written to the device's own log, which was pushed only when Home or Stats opened. Going straight from a
+  piece back to the catalog therefore showed stale values. `ScoreLibrary` now syncs the local log before its
+  first listing (owner only, a failed sync does not block the listing).
+
 ## Playback preview follows hand mode (2026-11-08)
 
 - The "Play" preview used to play both hands whatever the hand mode. Practising one hand, it now plays that

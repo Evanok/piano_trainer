@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TouchEvent as ReactTouchEvent } from 'react'
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
   HomeIcon,
   KeyboardIcon,
   LibraryIcon,
@@ -14,21 +12,16 @@ import {
 } from '../components/icons'
 import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
+import { ComboOverlay, type ComboBreak } from '../components/ComboOverlay'
 import { LoopRangeBar } from '../components/LoopRangeBar'
 import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
-import { effectiveHandMode, extractExpectedEvents, extractNaturalBreakMeasures } from '../engine/ScoreParser'
+import { effectiveHandMode, extractExpectedEvents } from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
-import {
-  computeSections,
-  eventIndexAtOrAfterMeasure,
-  lastMeasureNumber,
-  sectionForMeasureRange,
-  type Section,
-} from '../engine/sections'
+import { eventIndexAtOrAfterMeasure, lastMeasureNumber, sectionForMeasureRange, type Section } from '../engine/sections'
 import { createSessionId } from '../engine/sessionLog'
 import { saveSession } from '../engine/sessionStore'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
@@ -48,7 +41,6 @@ import type {
 } from '../types/practice'
 import type { ExerciseSessionStats, PracticeSessionRecord, SessionSource, SessionStats } from '../types/session'
 
-const DEFAULT_MEASURES_PER_SECTION = 8
 const MAX_EXERCISE_STAT_ROWS = 3
 
 /**
@@ -75,15 +67,8 @@ const LONG_PRESS_MOVE_TOLERANCE_PX = 12
 /** Returned by runWhileBusy's work to keep the overlay up until the remounted score is ready. */
 const WAIT_FOR_READY = 'wait-for-ready'
 
-function isSectionPracticeMode(mode: PracticeMode): boolean {
-  return mode === 'sectionFree' || mode === 'sectionTraining'
-}
-
-// Reproduces today's actual starting point for every (platform x sourceKind)
-// combination: desktop always starts in Page free; mobile always starts in
-// Scroll free (both real scores and generated exercises) -- this used to
-// default a real score into Section training on mobile, but that's now just
-// one of the choices in the mode picker rather than the starting point.
+// Desktop starts in Page free, mobile in Scroll free, for real scores and
+// generated exercises alike.
 function defaultPracticeMode(_sourceKind: PracticeSourceKind, isMobile: boolean): PracticeMode {
   if (isMobile) {
     return 'scroll'
@@ -172,6 +157,9 @@ export function Practice({
   const [errorCount, setErrorCount] = useState(0)
   const [currentCombo, setCurrentCombo] = useState(0)
   const [bestCombo, setBestCombo] = useState(0)
+  // Set only by a wrong note that ends a run, never by a jump or a hand switch
+  // (those reset the combo too, but nothing was broken).
+  const [comboBreak, setComboBreak] = useState<ComboBreak | null>(null)
   const [correctNoteCount, setCorrectNoteCount] = useState(0)
   const [totalEvents, setTotalEvents] = useState(0)
   const [currentMeasure, setCurrentMeasure] = useState(1)
@@ -189,7 +177,6 @@ export function Practice({
   const [pendingSelection, setPendingSelection] = useState<{
     mode?: PracticeMode
     hand?: HandMode
-    section?: number
   }>({})
   const [wrongNoteFeedback, setWrongNoteFeedback] = useState<string | null>(null)
   const [debugLog, setDebugLog] = useState<string[]>([])
@@ -220,23 +207,12 @@ export function Practice({
   const [expectedHandPitches, setExpectedHandPitches] = useState(NO_HAND_PITCHES)
 
   const [events, setEvents] = useState<ExpectedEvent[]>([])
-  const [naturalBreaks, setNaturalBreaks] = useState<Set<number>>(new Set())
-  const [measuresPerSection, setMeasuresPerSection] = useState(DEFAULT_MEASURES_PER_SECTION)
-  const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
   const [sectionMessage, setSectionMessage] = useState<string | null>(null)
   // Scroll loop's range, in measures. It starts as the whole piece, which
   // is what makes the mode behave exactly like plain Scroll until a bound is
   // actually moved. Kept in measure space rather than event indices so it
   // survives a hand-mode change, which renumbers every event.
   const [loopRange, setLoopRange] = useState({ start: 1, end: 1 })
-
-  // currentSectionIndex === sections.length is the implicit "Whole piece"
-  // choice -- practice every event with no section boundary, same as being
-  // in a non-section-scoped practiceMode.
-  const sections = useMemo(
-    () => computeSections(events, measuresPerSection, naturalBreaks),
-    [events, measuresPerSection, naturalBreaks],
-  )
 
   const totalMeasures = useMemo(() => lastMeasureNumber(events), [events])
   const isLoopMode = practiceMode === 'scrollLoop'
@@ -313,6 +289,11 @@ export function Practice({
   // starting a new session.
   const comboRef = useRef(0)
   const maxComboRef = useRef(0)
+  // Whether the CURRENT attempt at the current event had a wrong note, which is
+  // what the combo asks. Not eventsWithErrorsRef (any attempt this session,
+  // what first-try accuracy asks): replaying a passage after a loop restart or
+  // a sudden-death reset would otherwise never count towards the combo again.
+  const currentEventErredRef = useRef(false)
   const correctNoteCountRef = useRef(0)
   const sourceKindRef = useRef(sourceKind)
   sourceKindRef.current = sourceKind
@@ -330,26 +311,14 @@ export function Practice({
   const sectionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null)
-  // errors within the CURRENT attempt of the current section (not the whole
-  // session) -- resets every time a section (re)starts, see goToEventIndex.
-  const sectionErrorCountRef = useRef(0)
   // The onNoteEvent effect below only runs once (stable deps), so it reads
   // practice-mode state through this ref rather than a stale closure value.
   const practiceModeRef = useRef(practiceMode)
   practiceModeRef.current = practiceMode
-  const sectionsRef = useRef<Section[]>(sections)
-  sectionsRef.current = sections
-  const currentSectionIndexRef = useRef(currentSectionIndex)
-  currentSectionIndexRef.current = currentSectionIndex
-  // The range practice is currently confined to, whichever mode put it there:
-  // the selected section, Scroll loop's range, or nothing at all. Every
-  // crop, every end-of-range check and every "back to start" reads this one
-  // value, so the two mechanisms can't drift apart.
-  const activeBounds: Section | null = isLoopMode
-    ? loopSection
-    : isSectionPracticeMode(practiceMode) && currentSectionIndex < sections.length
-      ? sections[currentSectionIndex]
-      : null
+  // The range practice is currently confined to: Scroll loop's range, or
+  // nothing at all. Every crop, every end-of-range check and every "back to
+  // start" reads this one value.
+  const activeBounds: Section | null = isLoopMode ? loopSection : null
   const activeBoundsRef = useRef<Section | null>(activeBounds)
   activeBoundsRef.current = activeBounds
   const handModeRef = useRef(handMode)
@@ -363,8 +332,6 @@ export function Practice({
   const sessionIdRef = useRef(createSessionId())
   const sessionStartedAtRef = useRef(new Date().toISOString())
   const sessionCompletedRef = useRef(false)
-  const supportsSectionNavigation = sourceKind !== 'generated-training'
-  const isSectionMode = isSectionPracticeMode(practiceMode)
   // Page free has no wait-gating and no cursor at all -- see PracticeMode's
   // doc comment. Every cursor-position control (back to start, go to measure,
   // the measure/event counter) is meaningless without a cursor to move, and
@@ -510,8 +477,8 @@ export function Practice({
   }, [])
 
   // "Hear the tune" preview, unrelated to Wait Mode's gating: plays the hand(s)
-  // selected by hand mode over the range practice is confined to -- the loop or
-  // the current section, else the whole piece -- via a plain Web Audio synth,
+  // selected by hand mode over the range practice is confined to -- the loop,
+  // else the whole piece -- via a plain Web Audio synth,
   // independent of the live practice cursor. See extractTimedNotes for why it
   // walks its own OSMD iterator instead of the shared osmd.cursor.
   const handleTogglePreviewPlayback = () => {
@@ -567,13 +534,11 @@ export function Practice({
       bounds === undefined ? undefined : bounds && { startMeasure: bounds.startMeasure, endMeasure: bounds.endMeasure },
     )
     previousIndexRef.current = engine.state.currentIndex
+    currentEventErredRef.current = false
     // Only the in-progress streak resets on a jump -- the session's best
     // combo (maxComboRef) is a record, not live progress, so it survives.
     comboRef.current = 0
     setCurrentCombo(0)
-    // A fresh attempt of whatever section is landed on starts with 0 errors
-    // so far, whether this jump is a repeat, an advance, or a manual pick.
-    sectionErrorCountRef.current = 0
     setEngineState(engine.state)
     setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
     setWrongNoteFeedback(null)
@@ -586,10 +551,7 @@ export function Practice({
     eventStartedAtRef.current = nowMs()
   }
 
-  // Shared by both completion paths below: the WaitEngine reaching its last
-  // event (whole-piece modes), and a section-scoped mode clearing its last
-  // section (see handleSectionCompleted) -- either one means the piece is
-  // actually done, so both build and report the same SessionStats shape.
+  // The WaitEngine reached its last event: the piece is done.
   const finishSession = () => {
     const total = totalEventsRef.current
     persistSession(true)
@@ -604,43 +566,6 @@ export function Practice({
       ...(sourceKindRef.current === 'generated-training' ? { exercise: buildNoteStats() } : {}),
     }
     onComplete(stats)
-  }
-
-  // Called when the section currently being practiced has just been
-  // completed (see the note-event handler below). Section free always
-  // advances; section training only advances on a clean pass (zero errors
-  // this attempt), otherwise it repeats the same section. Clearing the LAST
-  // section ends the session right there -- no extra whole-piece replay.
-  const handleSectionCompleted = () => {
-    const wasPerfect = sectionErrorCountRef.current === 0
-    const completedSectionNumber = currentSectionIndexRef.current + 1
-    const shouldAdvance = practiceModeRef.current === 'sectionFree' || wasPerfect
-
-    if (shouldAdvance) {
-      const nextIndex = completedSectionNumber // 0-based next index === 1-based completed number
-      const nextBounds = nextIndex < sectionsRef.current.length ? sectionsRef.current[nextIndex] : null
-      if (nextBounds === null) {
-        finishSession()
-        return
-      }
-      setCurrentSectionIndex(nextIndex)
-      // Cursor navigation MUST happen with NO crop active -- OSMD's own
-      // tie/rest counting only lines up with WaitEngine's indices on the
-      // fully uncropped model (the one extractExpectedEvents originally
-      // walked). Walking with any crop active can corrupt that counting
-      // whenever the walk doesn't pass through the crop's own drawn range
-      // (confirmed: jumping forward past an adjacent section worked by
-      // accident since the walk grazed the old crop, but jumping backward
-      // past a non-adjacent one landed measures away with no highlight at
-      // all). goToEventIndex with bounds walks uncropped and then crops to the
-      // new section, in a single render.
-      goToEventIndex(nextBounds.startEventIndex, nextBounds)
-      showSectionMessage(`Section ${completedSectionNumber} complete! Moving to section ${nextIndex + 1}.`)
-    } else {
-      const activeSection = sectionsRef.current[currentSectionIndexRef.current]
-      goToEventIndex(activeSection.startEventIndex, activeSection)
-      showSectionMessage(`Section ${completedSectionNumber} had errors -- let's try again.`)
-    }
   }
 
   // Scroll loop never advances and never ends: reaching the last measure
@@ -666,14 +591,14 @@ export function Practice({
     setLoopRange({ start: clampedStart, end: clampedEnd })
     setSectionMessage(null)
     // The loopSection memo has not recomputed at this point, so the bounds to
-    // apply are derived here -- same pattern as handleReady's freshSections.
+    // apply are derived here.
     const bounds =
       clampedStart <= 1 && clampedEnd >= totalMeasures ? null : sectionForMeasureRange(events, clampedStart, clampedEnd)
     goToEventIndex(bounds ? bounds.startEventIndex : eventIndexAtOrAfterMeasure(events, clampedStart), bounds)
   }
 
   useEffect(() => {
-    return onNoteEvent((event) => {
+    const handleNoteEvent = (event: MidiNoteEvent) => {
       // A note landing between a switch and its work would be judged against
       // the event list the switch is about to replace.
       if (event.type !== 'noteon' || busyRef.current) {
@@ -708,16 +633,31 @@ export function Practice({
         eventsWithErrorsRef.current.add(indexBeforeNote)
         errorCountRef.current += 1
         setErrorCount(errorCountRef.current)
+        const brokenRun = comboRef.current
         comboRef.current = 0
         setCurrentCombo(0)
-        if (activeSection) {
-          sectionErrorCountRef.current += 1
+        if (brokenRun > 0) {
+          setComboBreak({ id: Date.now(), value: brokenRun })
         }
+        currentEventErredRef.current = true
         recordNoteError(expectedPitchesBeforeNote, event.pitch)
-        scoreRef.current?.syncNotes(engine.currentHeldPitches)
+        // Sudden death: any wrong note sends the cursor back to the very first
+        // note of the piece. Done before the wrong key is shown below, since
+        // the jump clears the keyboard's colours and this one must survive it.
+        // A miss on the first note has nowhere to go back to.
+        if (practiceModeRef.current === 'suddenDeath' && indexBeforeNote > 0) {
+          const measure = scoreRef.current?.getCurrentMeasure() ?? 1
+          goToEventIndex(0)
+          showSectionMessage(
+            `Wrong note in measure ${measure} after ${brokenRun} clean in a row -- back to the start` +
+              ` (best run: ${maxComboRef.current})`,
+          )
+        } else {
+          scoreRef.current?.syncNotes(engine.currentHeldPitches)
+        }
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
-        const expectedNames = engine.currentExpectedPitches.map(midiToNoteName).join(', ')
+        const expectedNames = expectedPitchesBeforeNote.map(midiToNoteName).join(', ')
         setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
       } else {
         setWrongNoteFeedback(null)
@@ -730,7 +670,7 @@ export function Practice({
           recordNoteResponse()
           clearDecayTimer()
           setWrongPitches([])
-          if (!eventsWithErrorsRef.current.has(indexBeforeNote)) {
+          if (!currentEventErredRef.current) {
             comboRef.current += 1
             maxComboRef.current = Math.max(maxComboRef.current, comboRef.current)
             setCurrentCombo(comboRef.current)
@@ -739,18 +679,11 @@ export function Practice({
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
+          currentEventErredRef.current = false
           furthestIndexRef.current = Math.max(furthestIndexRef.current, newIndex)
 
           if (activeSection && newIndex >= activeSection.endEventIndex) {
-            if (practiceModeRef.current === 'scrollLoop') {
-              restartLoop(activeSection)
-            } else {
-              // Finishing the LAST section ends the session immediately
-              // (handleSectionCompleted calls finishSession itself in that
-              // case) -- a bounded section only wins over plain completion
-              // while there's another section still ahead of it.
-              handleSectionCompleted()
-            }
+            restartLoop(activeSection)
           } else if (engine.state.completed) {
             finishSession()
           } else {
@@ -767,7 +700,51 @@ export function Practice({
       setExpectedPitches(engine.currentExpectedPitches)
       setExpectedHandPitches(handPitchesOf(engine.currentEvent))
       setHeldPitches(engine.currentHeldPitches)
-    })
+    }
+    const unsubscribe = onNoteEvent(handleNoteEvent)
+    if (!import.meta.env.DEV) {
+      return unsubscribe
+    }
+    // Development only, compiled away like the debug panel: plays without a
+    // MIDI keyboard by feeding the same handler a real note would reach.
+    // `o` plays every expected note not already held (a whole chord at once,
+    // within the chord tolerance), `k` plays one note that is not expected.
+    const handleDebugKey = (keyEvent: KeyboardEvent) => {
+      const target = keyEvent.target as HTMLElement | null
+      if (
+        keyEvent.repeat ||
+        keyEvent.ctrlKey ||
+        keyEvent.metaKey ||
+        keyEvent.altKey ||
+        (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
+      ) {
+        return
+      }
+      const key = keyEvent.key.toLowerCase()
+      if (key !== 'o' && key !== 'k') {
+        return
+      }
+      const engine = waitEngineRef.current
+      const expected = engine?.currentExpectedPitches ?? []
+      const held = engine?.currentHeldPitches ?? []
+      let pitches: number[]
+      if (key === 'o') {
+        pitches = expected.filter((pitch) => !held.includes(pitch))
+      } else {
+        let wrong = (expected[0] ?? 60) + 1
+        while (expected.includes(wrong)) {
+          wrong += 1
+        }
+        pitches = [wrong]
+      }
+      const timestamp = performance.now()
+      pitches.forEach((pitch) => handleNoteEvent({ pitch, velocity: 100, timestamp, type: 'noteon' }))
+    }
+    window.addEventListener('keydown', handleDebugKey)
+    return () => {
+      unsubscribe()
+      window.removeEventListener('keydown', handleDebugKey)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNoteEvent, onComplete])
 
@@ -783,23 +760,13 @@ export function Practice({
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
     setEvents(newEvents)
-    const freshNaturalBreaks = extractNaturalBreakMeasures(osmd)
-    setNaturalBreaks(freshNaturalBreaks)
     // A remount reloads the piece from the top, so the loop goes back to
     // covering all of it (which applies no crop, matching the branch below).
     setLoopRange({ start: 1, end: Math.max(1, lastMeasureNumber(newEvents)) })
-    // A remount (e.g. a layoutMode change from switching modes) loses any
-    // previously-set section crop -- the `sections` memo above hasn't
-    // recomputed yet at this point in the render cycle, so section 0's
-    // bounds are derived fresh here instead of read from that stale value.
-    if (isSectionPracticeMode(practiceMode)) {
-      const freshSections = computeSections(newEvents, measuresPerSection, freshNaturalBreaks)
-      scoreRef.current?.setSectionBounds(freshSections[0]?.startMeasure ?? null, freshSections[0]?.endMeasure ?? null)
-    } else {
-      scoreRef.current?.setSectionBounds(null, null)
-    }
+    scoreRef.current?.setSectionBounds(null, null)
     waitEngineRef.current = new WaitEngine(newEvents)
     previousIndexRef.current = 0
+    currentEventErredRef.current = false
     furthestIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
@@ -807,11 +774,9 @@ export function Practice({
     maxComboRef.current = 0
     correctNoteCountRef.current = 0
     resetNoteStats()
-    sectionErrorCountRef.current = 0
     setCurrentCombo(0)
     setBestCombo(0)
     setCorrectNoteCount(0)
-    setCurrentSectionIndex(0)
     setSectionMessage(null)
     startedAtRef.current = Date.now()
     setWrongNoteFeedback(null)
@@ -864,12 +829,7 @@ export function Practice({
 
   // Every measure-addressed cursor jump goes through here -- desktop's "Go to
   // measure" box and mobile's long press on the staff -- so the two can never
-  // disagree about what a jump means. Two things it has to get right in a
-  // section mode, neither of which the earlier jump-to-measure did: the crop
-  // follows the target measure into whichever section contains it (a jump
-  // outside the drawn range otherwise left the cursor on measures that aren't
-  // on screen), and the cursor walk itself runs with NO crop active, per the
-  // rule handleSectionCompleted documents. Returns whether a jump actually
+  // disagree about what a jump means. Returns whether a jump actually
   // happened, so a caller can skip its own feedback for a measure that holds
   // no playable event.
   const jumpToMeasure = (measureNumber: number): boolean => {
@@ -894,19 +854,7 @@ export function Practice({
       goToEventIndex(eventIndex, loop)
       return true
     }
-    // Outside a section mode, and on the explicit "Whole piece" choice inside
-    // one, no crop is active and none should become active -- cropping here
-    // would cost a full render to narrow the score the player just chose to
-    // see in full.
-    if (!isSectionMode || currentSectionIndex >= sections.length) {
-      goToEventIndex(eventIndex)
-      return true
-    }
-    const target = sections.find(
-      (section) => eventIndex >= section.startEventIndex && eventIndex < section.endEventIndex,
-    )
-    setCurrentSectionIndex(target ? target.index : sections.length)
-    goToEventIndex(eventIndex, target ?? null)
+    goToEventIndex(eventIndex)
     return true
   }
 
@@ -967,30 +915,6 @@ export function Practice({
     }
   }
 
-  // Manual section navigation (dropdown or Prev/Next) always jumps
-  // immediately, bypassing the perfect-run requirement -- that gate only
-  // applies to automatic advancement.
-  const handleSelectSection = (newSectionIndex: number) => {
-    if (busyRef.current) {
-      return
-    }
-    setPendingSelection({ section: newSectionIndex })
-    runWhileBusy('Moving...', () => selectSection(newSectionIndex))
-  }
-
-  const selectSection = (newSectionIndex: number) => {
-    setCurrentSectionIndex(newSectionIndex)
-    setSectionMessage(null)
-    const bounds = newSectionIndex < sections.length ? sections[newSectionIndex] : null
-    // See handleSectionCompleted for why the cursor jump must happen with no
-    // crop active at all, not just before the NEW crop is applied.
-    goToEventIndex(bounds ? bounds.startEventIndex : 0, bounds)
-  }
-
-  const handlePrevSection = () => handleSelectSection(Math.max(0, currentSectionIndex - 1))
-  const handleNextSection = () => handleSelectSection(Math.min(sections.length, currentSectionIndex + 1))
-  const handleBackToSection1 = () => handleSelectSection(0)
-
   const handleSelectPracticeMode = (newMode: PracticeMode) => {
     if (newMode === practiceMode || busyRef.current) {
       return
@@ -1005,8 +929,6 @@ export function Practice({
   }
 
   const selectPracticeMode = (newMode: PracticeMode, remounts: boolean) => {
-    const entering = isSectionPracticeMode(newMode)
-    const wasIn = isSectionPracticeMode(practiceMode)
     const wasCropped = activeBounds !== null
     setPracticeMode(newMode)
     setSectionMessage(null)
@@ -1015,9 +937,6 @@ export function Practice({
       // from the top with the new mode's crop. Moving the cursor or the crop
       // here would be a full render of the instance about to be thrown away
       // (it was 1.7s of a 4s section -> page switch on a throttled phone).
-      if (entering) {
-        setCurrentSectionIndex(0)
-      }
       if (newMode === 'scrollLoop') {
         setLoopRange({ start: 1, end: Math.max(1, totalMeasures) })
       }
@@ -1032,46 +951,28 @@ export function Practice({
       if (wasCropped) {
         goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0, null)
       }
-    } else if (entering && !wasIn) {
-      // Fresh entry into section-scoped practice: always restart at section 1.
-      setCurrentSectionIndex(0)
-      goToEventIndex(0, sections[0] ?? null)
-    } else if (!entering && (wasIn || wasCropped)) {
-      // Leaving section-scoped practice: uncrop and walk in one call -- see
-      // handleSectionCompleted for why the cursor walk must always happen
-      // with no crop active (OSMD's own tie/rest counting only lines up with
-      // WaitEngine's indices on the fully uncropped model). cursor.show()
+    } else if (newMode === 'suddenDeath') {
+      // A run only means something from the first note, so entering the mode
+      // starts the piece over (uncropping a loop on the way, in the same walk).
+      goToEventIndex(0, wasCropped ? null : undefined)
+    } else if (wasCropped) {
+      // Leaving a cropped loop: uncrop and walk in one call -- the cursor walk
+      // must always happen with no crop active (OSMD's own tie/rest counting
+      // only lines up with WaitEngine's indices on the fully uncropped model,
+      // see setSectionBounds in PianoScore). cursor.show()
       // alone doesn't reliably relocate onto the freshly-uncropped, much
       // larger graphical model either, so a fresh walk is required even
       // though the logical index isn't changing.
       goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0, null)
     }
-    // else: page <-> scroll (no section state to touch), or sectionFree <->
-    // sectionTraining (already section-scoped, stays put -- only the
-    // completion rule used by handleSectionCompleted changes).
-  }
-
-  const handleMeasuresPerSectionChange = (value: number) => {
-    if (!Number.isFinite(value) || value < 1) {
-      return
-    }
-    setMeasuresPerSection(value)
-    setSectionMessage(null)
-    // The `sections` memo hasn't recomputed yet at this point, so the new
-    // section 0 is derived fresh here, same pattern as handleReady -- this is
-    // only reachable while already in a section mode (the input is gated by
-    // isSectionMode), so re-cropping to it is always correct.
-    const freshSections = computeSections(events, value, naturalBreaks)
-    setCurrentSectionIndex(0)
-    goToEventIndex(freshSections[0]?.startEventIndex ?? 0, freshSections[0] ?? null)
+    // else: page <-> scroll with nothing cropped, nothing to move.
   }
 
   // Live hand-mode switch: which notes are required changes, which changes
   // how many cursor positions count as a real event (a step where only the
   // deselected hand plays is no longer required at all) -- so the event
   // count/indices can shift, and the safest thing is to recompute events and
-  // restart from the current section (or the very start outside section
-  // modes), same trade-off already made for a layoutMode remount.
+  // restart from the top of the loop (or of the piece), same trade-off already made for a layoutMode remount.
   const handleSelectHandMode = (newHandMode: HandMode) => {
     if (newHandMode === handMode || busyRef.current) {
       return
@@ -1094,7 +995,6 @@ export function Practice({
     // Walks the whole piece even under a crop (withUncroppedCursor), so the
     // fresh event list covers the piece rather than the drawn range, with no
     // render to clear the crop first.
-    const inSectionMode = isSectionPracticeMode(practiceMode)
     const newEvents = extractExpectedEvents(osmd, newHandMode)
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
@@ -1123,10 +1023,6 @@ export function Practice({
       setLoopRange({ start, end })
       const bounds = start <= 1 && end >= freshTotal ? null : sectionForMeasureRange(newEvents, start, end)
       goToEventIndex(bounds ? bounds.startEventIndex : 0, bounds)
-    } else if (inSectionMode) {
-      const freshSections = computeSections(newEvents, measuresPerSection, naturalBreaks)
-      setCurrentSectionIndex(0)
-      goToEventIndex(freshSections[0]?.startEventIndex ?? 0, freshSections[0] ?? null)
     } else {
       goToEventIndex(0)
     }
@@ -1178,8 +1074,8 @@ export function Practice({
     }
   }
 
-  // Mobile gets a single compact icon-button header (name, home, back-to-
-  // section-1, prev/next section) with every other row -- HUD, the desktop
+  // Mobile gets a single compact icon-button header (name, home, back to
+  // start) with every other row -- HUD, the desktop
   // controls, the training panel, banners, the debug panel -- omitted
   // entirely so the score gets the whole rest of a landscape phone screen.
   // Gamification stats still update underneath, just without a home for
@@ -1254,8 +1150,7 @@ export function Practice({
             <option value="page">Page</option>
             <option value="scroll">Scroll</option>
             <option value="scrollLoop">Loop</option>
-            {supportsSectionNavigation && <option value="sectionFree">Sect. free</option>}
-            {supportsSectionNavigation && <option value="sectionTraining">Sect. drill</option>}
+            <option value="suddenDeath">S. death</option>
           </select>
           <select
             value={pendingSelection.hand ?? handMode}
@@ -1281,44 +1176,15 @@ export function Practice({
               <KeyboardIcon className="h-5 w-5" />
             </button>
           )}
-          {supportsSectionNavigation && isSectionMode ? (
-            <>
-              <button
-                type="button"
-                onClick={handleBackToSection1}
-                aria-label="Back to section 1"
-                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-              >
-                <SkipToStartIcon className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={handlePrevSection}
-                aria-label="Previous section"
-                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-              >
-                <ChevronLeftIcon className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleNextSection}
-                aria-label="Next section"
-                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-              >
-                <ChevronRightIcon className="h-5 w-5" />
-              </button>
-            </>
-          ) : (
-            !isFreePageMode && (
-              <button
-                type="button"
-                onClick={handleBackToStart}
-                aria-label="Back to start"
-                className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
-              >
-                <SkipToStartIcon className="h-5 w-5" />
-              </button>
-            )
+          {!isFreePageMode && (
+            <button
+              type="button"
+              onClick={handleBackToStart}
+              aria-label="Back to start"
+              className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+            >
+              <SkipToStartIcon className="h-5 w-5" />
+            </button>
           )}
         </div>
 
@@ -1364,10 +1230,12 @@ export function Practice({
             onReady={handleReady}
             onError={handleLoadError}
           />
+          {!isFreePageMode && (
+            <ComboOverlay compact combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />
+          )}
           {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
-          {/* Mobile had no home for sectionMessage at all, so a section
-              repeat/advance was silent here. Floated over the score rather
-              than given a row of its own: a landscape phone has no vertical
+          {/* Transient messages (loop restarts, long-press jumps), floated
+              over the score rather than given a row of its own: a landscape phone has no vertical
               room to spare, and the message is transient either way. */}
           {sectionMessage && (
             <p className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-md bg-indigo-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
@@ -1427,7 +1295,6 @@ export function Practice({
       )}
 
       <ScoreHud
-        currentCombo={currentCombo}
         bestCombo={bestCombo}
         correctNoteCount={correctNoteCount}
         errorCount={errorCount}
@@ -1531,8 +1398,7 @@ export function Practice({
             <option value="page">Page free</option>
             <option value="scroll">Scroll free</option>
             <option value="scrollLoop">Scroll loop</option>
-            {supportsSectionNavigation && <option value="sectionFree">Section free</option>}
-            {supportsSectionNavigation && <option value="sectionTraining">Section training</option>}
+            <option value="suddenDeath">Sudden death</option>
           </select>
         </label>
         <label className="flex items-center gap-2">
@@ -1549,57 +1415,6 @@ export function Practice({
         </label>
       </div>
 
-      {supportsSectionNavigation && isSectionMode && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
-          <label className="flex items-center gap-2">
-            Section
-            <select
-              value={pendingSelection.section ?? currentSectionIndex}
-              onChange={(e) => handleSelectSection(Number(e.target.value))}
-              className="rounded-md border border-indigo-300 bg-white px-2 py-1"
-            >
-              {sections.map((section) => (
-                <option key={section.index} value={section.index}>
-                  Section {section.index + 1} ({section.label})
-                </option>
-              ))}
-              <option value={sections.length}>Whole piece</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={handlePrevSection}
-            className="rounded-md border border-indigo-300 bg-white px-2.5 py-1 hover:bg-indigo-100"
-          >
-            Prev section
-          </button>
-          <button
-            type="button"
-            onClick={handleNextSection}
-            className="rounded-md border border-indigo-300 bg-white px-2.5 py-1 hover:bg-indigo-100"
-          >
-            Next section
-          </button>
-          <label className="flex items-center gap-2">
-            Measures per section
-            <input
-              type="number"
-              min={1}
-              value={measuresPerSection}
-              onChange={(e) => handleMeasuresPerSectionChange(Number(e.target.value))}
-              className="w-16 rounded-md border border-indigo-300 bg-white px-2 py-1"
-            />
-          </label>
-          {currentSectionIndex < sections.length && (
-            <span>
-              {practiceMode === 'sectionTraining'
-                ? 'Any error repeats this section -- a clean pass advances.'
-                : 'Advances automatically once you reach the end of the section.'}
-            </span>
-          )}
-        </div>
-      )}
-
       {sectionMessage && <p className="rounded-md bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{sectionMessage}</p>}
 
       {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
@@ -1611,6 +1426,7 @@ export function Practice({
       {import.meta.env.DEV && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900">
           <p>DEBUG -- expected: [{debugExpected}] -- held: [{debugHeld}]</p>
+          <p className="mt-1">Keys: o = play the expected notes, k = play a wrong note</p>
           <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
         </div>
       )}
@@ -1634,6 +1450,7 @@ export function Practice({
           onReady={handleReady}
           onError={handleLoadError}
         />
+        {!isFreePageMode && <ComboOverlay combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />}
         {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
       </div>
 
