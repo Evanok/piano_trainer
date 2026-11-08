@@ -409,12 +409,16 @@ export interface ScoreProgress {
   sessionCount: number
   /** Null while the score has only been read through in "Page free". */
   bestSuccessPercent: number | null
+  /** Longest run of clean events ever played on it, null on the same
+   * condition as the accuracy: "Page free" tracks no combo at all. */
+  bestCombo: number | null
   lastPlayedAt: string
 }
 
 /**
  * Every real score (not a generated exercise) with at least one session,
- * each with the best first-try accuracy ever reached on it -- a sheet never
+ * each with the best first-try accuracy and the best combo ever reached on
+ * it, whatever the hand or practice mode -- a sheet never
  * attempted has no session to group, so it never appears here.
  */
 export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgress[] {
@@ -425,13 +429,16 @@ export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgres
     }
     const key = session.source.catalogId ?? session.source.scoreName
     const existing = byKey.get(key)
-    const success = isGradedSession(session) ? session.successPercent : null
+    const graded = isGradedSession(session)
+    const success = graded ? session.successPercent : null
+    const combo = graded ? session.maxCombo : null
     if (!existing) {
       byKey.set(key, {
         key,
         title: session.source.title,
         sessionCount: 1,
         bestSuccessPercent: success,
+        bestCombo: combo,
         lastPlayedAt: session.startedAt,
       })
       continue
@@ -439,6 +446,9 @@ export function summarizeScores(sessions: PracticeSessionRecord[]): ScoreProgres
     existing.sessionCount += 1
     if (success !== null) {
       existing.bestSuccessPercent = Math.max(existing.bestSuccessPercent ?? 0, success)
+    }
+    if (combo !== null) {
+      existing.bestCombo = Math.max(existing.bestCombo ?? 0, combo)
     }
     if (session.startedAt > existing.lastPlayedAt) {
       existing.lastPlayedAt = session.startedAt

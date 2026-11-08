@@ -763,6 +763,7 @@ export function Stats({ onBack }: StatsProps) {
                           <th className="py-2 pr-4 font-medium">Title</th>
                           <th className="whitespace-nowrap py-2 pr-4 font-medium">Times played</th>
                           <th className="whitespace-nowrap py-2 pr-4 font-medium">Best accuracy</th>
+                          <th className="whitespace-nowrap py-2 pr-4 font-medium">Best combo</th>
                           <th className="whitespace-nowrap py-2 font-medium">Last played</th>
                         </tr>
                       </thead>
@@ -774,6 +775,7 @@ export function Stats({ onBack }: StatsProps) {
                             </td>
                             <td className="whitespace-nowrap py-2 pr-4">{score.sessionCount}</td>
                             <td className="whitespace-nowrap py-2 pr-4">{score.bestSuccessPercent === null ? NOT_MEASURED : `${score.bestSuccessPercent}%`}</td>
+                            <td className="whitespace-nowrap py-2 pr-4">{score.bestCombo === null ? NOT_MEASURED : score.bestCombo}</td>
                             <td className="whitespace-nowrap py-2">{formatDay(score.lastPlayedAt)}</td>
                           </tr>
                         ))}

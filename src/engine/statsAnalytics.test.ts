@@ -340,6 +340,18 @@ describe('summarizeScores', () => {
     expect(played.bestSuccessPercent).toBe(60)
   })
 
+  it('keeps the best combo of a score across its sessions, ignoring "Page free"', () => {
+    const [score] = summarizeScores([
+      session(daysAgo(3), { maxCombo: 12 }),
+      session(daysAgo(2), { maxCombo: 40 }),
+      session(daysAgo(1), { practiceMode: 'page', maxCombo: 0 }),
+    ])
+    expect(score.bestCombo).toBe(40)
+
+    const [readOnly] = summarizeScores([session(daysAgo(1), { practiceMode: 'page', maxCombo: 0 })])
+    expect(readOnly.bestCombo).toBeNull()
+  })
+
   it('groups sessions of the same score and keeps the best accuracy', () => {
     const sessions = [
       session(daysAgo(2), { successPercent: 60 }),
