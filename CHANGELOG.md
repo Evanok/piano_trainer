@@ -6,6 +6,20 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Livelier combo counter (2026-11-08)
+
+- Every 10, the counter hops to another of five slots along the top row of the score (left, centre left, centre,
+  centre right, right, picked at random) and bursts where it lands (ring and sparks), without being cut short
+  by the next note. It stays in the top band: bursting in the middle of the screen, over the notes, was too
+  distracting.
+- Each pop settles tilted to alternate sides. From 25 the counter floats, from 50 it beats like a heart.
+- Arcade font (Luckiest Guy, Apache 2.0, bundled in `src/assets/fonts/`).
+
+## Dev keyboard shortcuts for playing without MIDI (2026-11-08)
+
+- Under `npm run dev`, the practice screen takes `o` (play the expected notes, the whole chord) and `k` (play a
+  wrong note), through the same handler as a MIDI note. Dev only, absent from the production build.
+
 ## Combo counter over the score (2026-11-08)
 
 - `ComboOverlay`: the live combo drawn big over the top-right corner of the score, in every mode except Page

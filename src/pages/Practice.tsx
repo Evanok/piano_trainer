@@ -598,7 +598,7 @@ export function Practice({
   }
 
   useEffect(() => {
-    return onNoteEvent((event) => {
+    const handleNoteEvent = (event: MidiNoteEvent) => {
       // A note landing between a switch and its work would be judged against
       // the event list the switch is about to replace.
       if (event.type !== 'noteon' || busyRef.current) {
@@ -700,7 +700,51 @@ export function Practice({
       setExpectedPitches(engine.currentExpectedPitches)
       setExpectedHandPitches(handPitchesOf(engine.currentEvent))
       setHeldPitches(engine.currentHeldPitches)
-    })
+    }
+    const unsubscribe = onNoteEvent(handleNoteEvent)
+    if (!import.meta.env.DEV) {
+      return unsubscribe
+    }
+    // Development only, compiled away like the debug panel: plays without a
+    // MIDI keyboard by feeding the same handler a real note would reach.
+    // `o` plays every expected note not already held (a whole chord at once,
+    // within the chord tolerance), `k` plays one note that is not expected.
+    const handleDebugKey = (keyEvent: KeyboardEvent) => {
+      const target = keyEvent.target as HTMLElement | null
+      if (
+        keyEvent.repeat ||
+        keyEvent.ctrlKey ||
+        keyEvent.metaKey ||
+        keyEvent.altKey ||
+        (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
+      ) {
+        return
+      }
+      const key = keyEvent.key.toLowerCase()
+      if (key !== 'o' && key !== 'k') {
+        return
+      }
+      const engine = waitEngineRef.current
+      const expected = engine?.currentExpectedPitches ?? []
+      const held = engine?.currentHeldPitches ?? []
+      let pitches: number[]
+      if (key === 'o') {
+        pitches = expected.filter((pitch) => !held.includes(pitch))
+      } else {
+        let wrong = (expected[0] ?? 60) + 1
+        while (expected.includes(wrong)) {
+          wrong += 1
+        }
+        pitches = [wrong]
+      }
+      const timestamp = performance.now()
+      pitches.forEach((pitch) => handleNoteEvent({ pitch, velocity: 100, timestamp, type: 'noteon' }))
+    }
+    window.addEventListener('keydown', handleDebugKey)
+    return () => {
+      unsubscribe()
+      window.removeEventListener('keydown', handleDebugKey)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNoteEvent, onComplete])
 
@@ -1382,6 +1426,7 @@ export function Practice({
       {import.meta.env.DEV && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900">
           <p>DEBUG -- expected: [{debugExpected}] -- held: [{debugHeld}]</p>
+          <p className="mt-1">Keys: o = play the expected notes, k = play a wrong note</p>
           <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
         </div>
       )}
