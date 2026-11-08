@@ -1,4 +1,4 @@
-import type { PracticeSessionRecord } from '../types/session'
+import type { PracticeSessionRecord, SessionSource } from '../types/session'
 import { isGradedSession } from './sessionLog'
 
 /**
@@ -516,6 +516,36 @@ export function timeByActivity(sessions: PracticeSessionRecord[]): ActivityTime[
     entry.sessionCount += 1
   }
   return order.map((kind) => totals.get(kind) as ActivityTime)
+}
+
+/**
+ * The record to beat when playing `source`: the best combo of every earlier
+ * session on the same score (same identity as summarizeScores: catalog id,
+ * else file name), any hand or mode, "Page free" excluded since it tracks
+ * none. `excludeId` leaves out the session being played, whose record keeps
+ * growing as it is saved. Only real scores have one: a generated exercise is
+ * a different piece every time.
+ */
+export function scoreBestCombo(
+  sessions: PracticeSessionRecord[],
+  source: SessionSource,
+  excludeId: string | null = null,
+): number {
+  if (source.kind !== 'score') {
+    return 0
+  }
+  const key = source.catalogId ?? source.scoreName
+  return sessions.reduce((best, session) => {
+    if (
+      session.id === excludeId ||
+      session.source.kind !== 'score' ||
+      (session.source.catalogId ?? session.source.scoreName) !== key ||
+      !isGradedSession(session)
+    ) {
+      return best
+    }
+    return Math.max(best, session.maxCombo)
+  }, 0)
 }
 
 export function bestCombo(sessions: PracticeSessionRecord[]): number {

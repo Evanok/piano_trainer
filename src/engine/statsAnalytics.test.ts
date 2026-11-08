@@ -10,6 +10,7 @@ import {
   summarizeAllTime,
   summarizeRecent,
   summarizeScores,
+  scoreBestCombo,
   activityOf,
   timeByActivity,
 } from './statsAnalytics'
@@ -475,5 +476,28 @@ describe('timeByActivity', () => {
     expect(activityOf(played)).toBe('exercise')
     // A record written before the steps existed must still be readable.
     expect(activityOf({ ...named, settings: chordSettings as never })).toBe('reading')
+  })
+})
+
+describe('scoreBestCombo', () => {
+  const source = { kind: 'score' as const, title: 'Fur Elise', scoreName: 'elise.mxl', catalogId: 'score-1' }
+
+  it('takes the best combo of earlier sessions on the same score only', () => {
+    const sessions = [
+      session(daysAgo(3), { id: 'a', maxCombo: 20, source }),
+      session(daysAgo(2), { id: 'b', maxCombo: 55, source }),
+      session(daysAgo(2), { id: 'c', maxCombo: 90, source: { ...source, catalogId: 'other' } }),
+      session(daysAgo(1), { id: 'd', maxCombo: 99, source, practiceMode: 'page' }),
+      session(daysAgo(0), { id: 'current', maxCombo: 70, source }),
+    ]
+    expect(scoreBestCombo(sessions, source, 'current')).toBe(55)
+    expect(scoreBestCombo(sessions, source)).toBe(70)
+  })
+
+  it('has no record for a generated exercise', () => {
+    // Only the kind matters here, the exercise payload is irrelevant.
+    const exerciseSource = { kind: 'exercise', title: 'Drill' } as unknown as PracticeSessionRecord['source']
+    const exercise = session(daysAgo(1), { maxCombo: 30, source: exerciseSource })
+    expect(scoreBestCombo([exercise], exerciseSource)).toBe(0)
   })
 })

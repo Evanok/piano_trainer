@@ -9,7 +9,11 @@ export interface ComboBreak {
 
 interface ComboOverlayProps {
   combo: number
-  /** Session best, which rises together with `combo` while a record run is on. */
+  /**
+   * The run to beat: the piece's record across every earlier session, or this
+   * session's best when that is higher (it rises together with `combo` while
+   * a record run is on). "New best" means beating it.
+   */
   best: number
   comboBreak: ComboBreak | null
   compact?: boolean
@@ -211,7 +215,7 @@ export function ComboOverlay({ combo, best, comboBreak, compact = false }: Combo
           </div>
         </div>
         {combo > 0 && (
-          <div className="combo-label mt-1 flex items-baseline gap-2">
+          <div className="combo-label mt-1 flex items-baseline gap-2 whitespace-nowrap">
             {isNewBest && (
               <span className="combo-new-best font-combo rounded-full bg-amber-400 px-2 pb-0.5 pt-1 text-[11px] uppercase tracking-wider text-white">
                 New best
@@ -220,10 +224,13 @@ export function ComboOverlay({ combo, best, comboBreak, compact = false }: Combo
             <span className={`font-combo uppercase tracking-[0.25em] ${tier.label} ${compact ? 'text-xs' : 'text-base'}`}>
               Combo
             </span>
+            {/* The record to beat, on the label's own line so it costs no
+                height (a phone has none to spare), and gone once beaten,
+                which is when "New best" takes over. */}
+            {best > combo && (
+              <span className={`font-semibold text-gray-500 ${compact ? 'text-[10px]' : 'text-xs'}`}>· best {best}</span>
+            )}
           </div>
-        )}
-        {combo > 0 && !compact && best > combo && (
-          <span className="combo-label mt-0.5 text-xs font-semibold text-gray-500">best {best}</span>
         )}
       </div>
     </div>

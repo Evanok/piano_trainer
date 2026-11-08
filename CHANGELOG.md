@@ -6,6 +6,13 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Play against the piece's combo record (2026-11-08)
+
+- On a real score, the combo counter's "best" is now the piece's record across every earlier session (any
+  device, any hand or mode), not just this session's, and "New best" only lights up when it is beaten. The
+  record sits on the "Combo" label's own line ("· best 83"), so it costs no height on a phone, and disappears
+  once beaten. The sudden-death card shows the same record.
+
 ## Best combo in the catalog (2026-11-08)
 
 - Each catalog row shows the best combo ever played on the piece ("Combo 83") beside its progress bar. Computed

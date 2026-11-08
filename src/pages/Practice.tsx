@@ -24,7 +24,8 @@ import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
 import { eventIndexAtOrAfterMeasure, lastMeasureNumber, sectionForMeasureRange, type Section } from '../engine/sections'
 import { createSessionId } from '../engine/sessionLog'
-import { saveSession } from '../engine/sessionStore'
+import { getSessions, saveSession } from '../engine/sessionStore'
+import { scoreBestCombo } from '../engine/statsAnalytics'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import { midiToNoteName } from '../engine/noteNames'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -343,6 +344,19 @@ export function Practice({
   // hand-mode change) and resets that one, but the session the player is in the
   // middle of is still the same session.
   const sessionIdRef = useRef(createSessionId())
+  // The piece's combo record from every earlier session, read once per piece
+  // from the local log (merged with the server's at every sync, so it holds
+  // records made on other devices too). Keyed on the score's identity rather
+  // than on the sessionSource object, which may be rebuilt on any App render.
+  const sourceKey = sessionSource.kind === 'score' ? (sessionSource.catalogId ?? sessionSource.scoreName) : null
+  const pieceRecord = useMemo(
+    () => scoreBestCombo(getSessions(), sessionSource, sessionIdRef.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sourceKey],
+  )
+  // What the combo overlay and the sudden-death card call "best": the record
+  // to beat, which this session takes over once it goes past it.
+  const comboToBeat = Math.max(bestCombo, pieceRecord)
   const sessionStartedAtRef = useRef(new Date().toISOString())
   const sessionCompletedRef = useRef(false)
   // Page free has no wait-gating and no cursor at all -- see PracticeMode's
@@ -1271,10 +1285,10 @@ export function Practice({
             onError={handleLoadError}
           />
           {!isFreePageMode && (
-            <ComboOverlay compact combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />
+            <ComboOverlay compact combo={currentCombo} best={comboToBeat} comboBreak={comboBreak} />
           )}
           {suddenDeathMiss && (
-            <SuddenDeathCard compact miss={suddenDeathMiss} best={bestCombo} onRetry={handleRetry} />
+            <SuddenDeathCard compact miss={suddenDeathMiss} best={comboToBeat} onRetry={handleRetry} />
           )}
           {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
           {/* Transient messages (loop restarts, long-press jumps), floated
@@ -1482,8 +1496,8 @@ export function Practice({
           onReady={handleReady}
           onError={handleLoadError}
         />
-        {!isFreePageMode && <ComboOverlay combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />}
-        {suddenDeathMiss && <SuddenDeathCard miss={suddenDeathMiss} best={bestCombo} onRetry={handleRetry} />}
+        {!isFreePageMode && <ComboOverlay combo={currentCombo} best={comboToBeat} comboBreak={comboBreak} />}
+        {suddenDeathMiss && <SuddenDeathCard miss={suddenDeathMiss} best={comboToBeat} onRetry={handleRetry} />}
         {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
       </div>
 
