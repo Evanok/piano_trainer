@@ -6,6 +6,12 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Best combo in the catalog (2026-11-08)
+
+- Each catalog row shows the best combo ever played on the piece ("Combo 83") beside its progress bar. Computed
+  by the server from the shared history like the progress (`ScorePlayProgress.bestCombo`), so it shows on every
+  device and to a guest. "Page free" sessions do not count, since they track no combo.
+
 ## Faster catalog (2026-11-08)
 
 - The catalog no longer waits for the history sync before listing: it lists at once, pushes the device's

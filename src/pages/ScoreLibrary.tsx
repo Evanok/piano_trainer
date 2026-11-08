@@ -117,25 +117,37 @@ function formatUploadedAt(iso: string): string {
  * bars. Spans rather than divs: this sits inside the row's <button>.
  */
 function ProgressBar({ progress }: { progress: CatalogEntry['progress'] }) {
-  if (!progress || progress.percent <= 0) {
+  const percent = progress?.percent ?? 0
+  // Optional on the wire: a server from before it existed sends none.
+  const bestCombo = progress?.bestCombo ?? 0
+  if (!progress || (percent <= 0 && bestCombo <= 0)) {
     return null
   }
   const finished = progress.completed
   const sessions = `${progress.sessionCount} session${progress.sessionCount === 1 ? '' : 's'}`
   return (
-    <span
-      className="mt-1.5 flex items-center gap-2"
-      title={`Played to ${progress.percent}% over ${sessions}`}
-    >
-      <span className="block h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
+    <span className="mt-1.5 flex items-center gap-2" title={`Played to ${percent}% over ${sessions}`}>
+      {percent > 0 && (
+        <>
+          <span className="block h-1.5 w-24 overflow-hidden rounded-full bg-gray-200">
+            <span
+              className={`block h-full rounded-full ${finished ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+              style={{ width: `${percent}%` }}
+            />
+          </span>
+          <span className={`text-[11px] font-medium ${finished ? 'text-emerald-600' : 'text-gray-500'}`}>
+            {finished ? 'Finished' : `${percent}%`}
+          </span>
+        </>
+      )}
+      {bestCombo > 0 && (
         <span
-          className={`block h-full rounded-full ${finished ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-          style={{ width: `${progress.percent}%` }}
-        />
-      </span>
-      <span className={`text-[11px] font-medium ${finished ? 'text-emerald-600' : 'text-gray-500'}`}>
-        {finished ? 'Finished' : `${progress.percent}%`}
-      </span>
+          className="rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-1.5 text-[11px] font-semibold text-white"
+          title="Best combo on this piece"
+        >
+          Combo {bestCombo}
+        </span>
+      )}
     </span>
   )
 }

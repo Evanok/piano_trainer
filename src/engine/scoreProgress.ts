@@ -1,4 +1,4 @@
-import { countedSessions } from './sessionLog.ts'
+import { countedSessions, isGradedSession } from './sessionLog.ts'
 import type { PracticeSessionRecord } from '../types/session.ts'
 
 /**
@@ -21,6 +21,9 @@ export interface ScorePlayProgress {
   sessionCount: number
   /** ISO-8601 start of the most recent session, for the "last played" sort. */
   lastPlayedAt: string
+  /** Longest run of clean events ever played on it, any hand or mode; 0 when
+   * it was only ever read in "Page free", which tracks no combo. */
+  bestCombo: number
 }
 
 /**
@@ -71,6 +74,10 @@ export function sessionReachedPercent(session: PracticeSessionRecord): number {
   return Math.max(0, Math.min(99, Math.round((100 * weight * reached) / session.totalEvents)))
 }
 
+function comboOf(session: PracticeSessionRecord): number {
+  return isGradedSession(session) ? session.maxCombo : 0
+}
+
 /**
  * Keyed by catalog id, so one-off uploads (which have none) are left out: they
  * have no row in the catalog to show progress on.
@@ -93,9 +100,11 @@ export function progressByCatalogId(sessions: PracticeSessionRecord[]): Map<stri
         completed: sessionCompletedPiece(session),
         sessionCount: 1,
         lastPlayedAt: session.startedAt,
+        bestCombo: comboOf(session),
       })
       continue
     }
+    existing.bestCombo = Math.max(existing.bestCombo, comboOf(session))
     existing.percent = Math.max(existing.percent, sessionReachedPercent(session))
     existing.completed = existing.completed || sessionCompletedPiece(session)
     existing.sessionCount += 1

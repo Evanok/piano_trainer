@@ -194,7 +194,14 @@ function progressMap(
   return new Map(
     Object.entries(byId).map(([id, value]) => [
       id,
-      { percent: 0, completed: false, sessionCount: 1, lastPlayedAt: '2026-01-01T10:00:00.000Z', ...value },
+      {
+        percent: 0,
+        completed: false,
+        sessionCount: 1,
+        lastPlayedAt: '2026-01-01T10:00:00.000Z',
+        bestCombo: 0,
+        ...value,
+      } as ScorePlayProgress,
     ]),
   )
 }

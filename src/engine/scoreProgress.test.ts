@@ -59,6 +59,15 @@ describe('sessionReachedPercent with one hand', () => {
 })
 
 describe('progressByCatalogId', () => {
+  it('keeps the best combo across sessions and ignores "Page free"', () => {
+    const progress = progressByCatalogId([
+      session({ id: 'a', maxCombo: 12 }),
+      session({ id: 'b', maxCombo: 45, startedAt: '2026-08-21T10:00:00.000Z' }),
+      session({ id: 'c', maxCombo: 99, practiceMode: 'page', startedAt: '2026-08-22T10:00:00.000Z' }),
+    ])
+    expect(progress.get('score-1')?.bestCombo).toBe(45)
+  })
+
   it('does not mark a piece finished from one-hand runs, even with both hands done separately', () => {
     const progress = progressByCatalogId([
       session({ id: 'a', handMode: 'right', completed: true }),
