@@ -6,6 +6,13 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Catalog "last played" up to date after practice (2026-11-08)
+
+- The catalog's progress and "last played" order come from the server's `stats.json`, but a session is only
+  written to the device's own log, which was pushed only when Home or Stats opened. Going straight from a
+  piece back to the catalog therefore showed stale values. `ScoreLibrary` now syncs the local log before its
+  first listing (owner only, a failed sync does not block the listing).
+
 ## Playback preview follows hand mode (2026-11-08)
 
 - The "Play" preview used to play both hands whatever the hand mode. Practising one hand, it now plays that
