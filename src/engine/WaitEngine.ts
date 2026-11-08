@@ -1,6 +1,13 @@
 import type { ExpectedEvent, EventStatus } from '../types/score'
 
-export const DEFAULT_CHORD_TOLERANCE_MS = 2000
+/**
+ * How far apart the notes of one chord may be struck and still count as
+ * played together. Notes written at the same time are meant to sound at the
+ * same time: 2s used to be the window, which accepted one note and then the
+ * other a second later, i.e. a chord played as two separate notes. 300ms
+ * leaves room for two hands landing slightly apart, and no more.
+ */
+export const DEFAULT_CHORD_TOLERANCE_MS = 300
 
 export interface WaitEngineState {
   currentIndex: number
