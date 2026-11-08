@@ -6,6 +6,18 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Faster catalog (2026-11-08)
+
+- The catalog no longer waits for the history sync before listing: it lists at once, pushes the device's
+  sessions in the background only when some were written since the last sync, and lists again once pushed
+  (which is when a piece just played gets its progress and "last played"). The earlier fix made it wait for a
+  full sync (the whole log up and back) on every opening, slow on a phone, and twice in a row coming from Home.
+
+## Best combo per score in Stats (2026-11-08)
+
+- The "Scores you've played" table has a Best combo column: the longest clean run ever played on each score,
+  any hand or mode ("Page free" tracks none and shows a dash).
+
 ## Sudden death waits for Retry, chords must be struck together, tablet scroll (2026-11-08)
 
 - Sudden death no longer jumps back to the start by itself: practice freezes on the missed note (expected note

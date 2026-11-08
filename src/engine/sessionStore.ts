@@ -9,6 +9,54 @@ import { MAX_STORED_SESSIONS, sortSessions, upsertSession } from './sessionLog'
  */
 const STORAGE_KEY = 'piano-trainer:sessions'
 
+/**
+ * Whether the server has seen this device's latest writes, as two counters:
+ * every local write bumps the first, and a successful sync stores the value
+ * it started from in the second. Counters rather than a flag, so a session
+ * saved while a sync is in flight is not marked as sent by that sync. Kept in
+ * storage, so a session left unsent by a tab killed mid-practice is still
+ * pushed after a reload.
+ */
+const WRITE_VERSION_KEY = 'piano-trainer:sessions-write-version'
+const SYNCED_VERSION_KEY = 'piano-trainer:sessions-synced-version'
+
+function readCounter(key: string): number | null {
+  try {
+    const raw = localStorage.getItem(key)
+    const value = raw === null ? NaN : Number(raw)
+    return Number.isFinite(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function writeCounter(key: string, value: number): void {
+  try {
+    localStorage.setItem(key, String(value))
+  } catch {
+    // Storage unavailable: the next screen simply syncs again.
+  }
+}
+
+/** The local write counter, to hand back to markSyncedUpTo once a sync succeeds. */
+export function sessionWriteVersion(): number {
+  return readCounter(WRITE_VERSION_KEY) ?? 0
+}
+
+/**
+ * True when something was written locally since the last successful sync. A
+ * device that has never recorded a sync answers true, since its log may hold
+ * sessions from before this bookkeeping existed.
+ */
+export function hasUnsyncedSessions(): boolean {
+  const synced = readCounter(SYNCED_VERSION_KEY)
+  return synced === null || synced !== sessionWriteVersion()
+}
+
+export function markSyncedUpTo(version: number): void {
+  writeCounter(SYNCED_VERSION_KEY, version)
+}
+
 export function getSessions(): PracticeSessionRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -34,6 +82,7 @@ function writeSessions(sessions: PracticeSessionRecord[]): void {
  */
 export function saveSession(record: PracticeSessionRecord): void {
   writeSessions(upsertSession(getSessions(), record))
+  writeCounter(WRITE_VERSION_KEY, sessionWriteVersion() + 1)
 }
 
 /** Replaces the whole local log, used after a merge with the server's copy. */

@@ -1,6 +1,12 @@
 import { AuthRequiredError, authHeaders, isGuest, notifyAuthRequired } from './auth'
 import { mergeSessionLogs } from '../engine/sessionLog'
-import { getSessions, replaceSessions } from '../engine/sessionStore'
+import {
+  getSessions,
+  hasUnsyncedSessions,
+  markSyncedUpTo,
+  replaceSessions,
+  sessionWriteVersion,
+} from '../engine/sessionStore'
 import type { PracticeSessionRecord } from '../types/session'
 
 /**
@@ -57,8 +63,28 @@ export async function fetchSessions(): Promise<PracticeSessionRecord[]> {
  */
 export async function syncLocalSessionLog(): Promise<PracticeSessionRecord[]> {
   const guest = isGuest()
+  const version = sessionWriteVersion()
   const remote = guest ? await fetchSessions() : await syncSessions(getSessions())
   const merged = guest ? mergeSessionLogs(getSessions(), remote) : remote
   replaceSessions(merged)
+  if (!guest) {
+    markSyncedUpTo(version)
+  }
   return merged
+}
+
+/**
+ * Pushes this device's log only when it holds writes the server has not seen
+ * (a session just played, typically), and answers whether it did. For screens
+ * that read history the server derives (the catalog's progress and "last
+ * played"), which need the device's latest sessions on the server but not the
+ * merged log back. Coming from Home, which has just synced, it sends nothing.
+ * A guest never pushes. Throws when the server cannot be reached.
+ */
+export async function pushUnsyncedSessions(): Promise<boolean> {
+  if (isGuest() || !hasUnsyncedSessions()) {
+    return false
+  }
+  await syncLocalSessionLog()
+  return true
 }
