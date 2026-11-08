@@ -6,6 +6,13 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Sudden death mode (2026-11-08)
+
+- New practice mode "Sudden death": the scroll layout over the whole piece, where any wrong note sends the
+  cursor back to the first note. A message names the measure, the run that was lost and the best run.
+- The combo now counts per attempt: an event missed in an earlier pass counts again once replayed cleanly
+  (it never did before, which also stalled the combo in Scroll loop). First-try accuracy is unchanged.
+
 ## Section modes removed (2026-11-08)
 
 - "Section free" and "Section training" are gone: in practice only Page free, Scroll loop and a little Scroll

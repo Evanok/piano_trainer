@@ -285,6 +285,11 @@ export function Practice({
   // starting a new session.
   const comboRef = useRef(0)
   const maxComboRef = useRef(0)
+  // Whether the CURRENT attempt at the current event had a wrong note, which is
+  // what the combo asks. Not eventsWithErrorsRef (any attempt this session,
+  // what first-try accuracy asks): replaying a passage after a loop restart or
+  // a sudden-death reset would otherwise never count towards the combo again.
+  const currentEventErredRef = useRef(false)
   const correctNoteCountRef = useRef(0)
   const sourceKindRef = useRef(sourceKind)
   sourceKindRef.current = sourceKind
@@ -525,6 +530,7 @@ export function Practice({
       bounds === undefined ? undefined : bounds && { startMeasure: bounds.startMeasure, endMeasure: bounds.endMeasure },
     )
     previousIndexRef.current = engine.state.currentIndex
+    currentEventErredRef.current = false
     // Only the in-progress streak resets on a jump -- the session's best
     // combo (maxComboRef) is a record, not live progress, so it survives.
     comboRef.current = 0
@@ -623,13 +629,28 @@ export function Practice({
         eventsWithErrorsRef.current.add(indexBeforeNote)
         errorCountRef.current += 1
         setErrorCount(errorCountRef.current)
+        const brokenRun = comboRef.current
         comboRef.current = 0
         setCurrentCombo(0)
+        currentEventErredRef.current = true
         recordNoteError(expectedPitchesBeforeNote, event.pitch)
-        scoreRef.current?.syncNotes(engine.currentHeldPitches)
+        // Sudden death: any wrong note sends the cursor back to the very first
+        // note of the piece. Done before the wrong key is shown below, since
+        // the jump clears the keyboard's colours and this one must survive it.
+        // A miss on the first note has nowhere to go back to.
+        if (practiceModeRef.current === 'suddenDeath' && indexBeforeNote > 0) {
+          const measure = scoreRef.current?.getCurrentMeasure() ?? 1
+          goToEventIndex(0)
+          showSectionMessage(
+            `Wrong note in measure ${measure} after ${brokenRun} clean in a row -- back to the start` +
+              ` (best run: ${maxComboRef.current})`,
+          )
+        } else {
+          scoreRef.current?.syncNotes(engine.currentHeldPitches)
+        }
         setWrongPitches((pitches) => [...pitches, event.pitch])
         scheduleDecay()
-        const expectedNames = engine.currentExpectedPitches.map(midiToNoteName).join(', ')
+        const expectedNames = expectedPitchesBeforeNote.map(midiToNoteName).join(', ')
         setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
       } else {
         setWrongNoteFeedback(null)
@@ -642,7 +663,7 @@ export function Practice({
           recordNoteResponse()
           clearDecayTimer()
           setWrongPitches([])
-          if (!eventsWithErrorsRef.current.has(indexBeforeNote)) {
+          if (!currentEventErredRef.current) {
             comboRef.current += 1
             maxComboRef.current = Math.max(maxComboRef.current, comboRef.current)
             setCurrentCombo(comboRef.current)
@@ -651,6 +672,7 @@ export function Practice({
           scoreRef.current?.next()
           setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
           previousIndexRef.current = newIndex
+          currentEventErredRef.current = false
           furthestIndexRef.current = Math.max(furthestIndexRef.current, newIndex)
 
           if (activeSection && newIndex >= activeSection.endEventIndex) {
@@ -693,6 +715,7 @@ export function Practice({
     scoreRef.current?.setSectionBounds(null, null)
     waitEngineRef.current = new WaitEngine(newEvents)
     previousIndexRef.current = 0
+    currentEventErredRef.current = false
     furthestIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
@@ -877,6 +900,10 @@ export function Practice({
       if (wasCropped) {
         goToEventIndex(waitEngineRef.current?.state.currentIndex ?? 0, null)
       }
+    } else if (newMode === 'suddenDeath') {
+      // A run only means something from the first note, so entering the mode
+      // starts the piece over (uncropping a loop on the way, in the same walk).
+      goToEventIndex(0, wasCropped ? null : undefined)
     } else if (wasCropped) {
       // Leaving a cropped loop: uncrop and walk in one call -- the cursor walk
       // must always happen with no crop active (OSMD's own tie/rest counting
@@ -1072,6 +1099,7 @@ export function Practice({
             <option value="page">Page</option>
             <option value="scroll">Scroll</option>
             <option value="scrollLoop">Loop</option>
+            <option value="suddenDeath">S. death</option>
           </select>
           <select
             value={pendingSelection.hand ?? handMode}
@@ -1317,6 +1345,7 @@ export function Practice({
             <option value="page">Page free</option>
             <option value="scroll">Scroll free</option>
             <option value="scrollLoop">Scroll loop</option>
+            <option value="suddenDeath">Sudden death</option>
           </select>
         </label>
         <label className="flex items-center gap-2">
