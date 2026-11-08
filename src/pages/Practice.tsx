@@ -12,6 +12,7 @@ import {
 } from '../components/icons'
 import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
+import { ComboOverlay, type ComboBreak } from '../components/ComboOverlay'
 import { LoopRangeBar } from '../components/LoopRangeBar'
 import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
@@ -156,6 +157,9 @@ export function Practice({
   const [errorCount, setErrorCount] = useState(0)
   const [currentCombo, setCurrentCombo] = useState(0)
   const [bestCombo, setBestCombo] = useState(0)
+  // Set only by a wrong note that ends a run, never by a jump or a hand switch
+  // (those reset the combo too, but nothing was broken).
+  const [comboBreak, setComboBreak] = useState<ComboBreak | null>(null)
   const [correctNoteCount, setCorrectNoteCount] = useState(0)
   const [totalEvents, setTotalEvents] = useState(0)
   const [currentMeasure, setCurrentMeasure] = useState(1)
@@ -632,6 +636,9 @@ export function Practice({
         const brokenRun = comboRef.current
         comboRef.current = 0
         setCurrentCombo(0)
+        if (brokenRun > 0) {
+          setComboBreak({ id: Date.now(), value: brokenRun })
+        }
         currentEventErredRef.current = true
         recordNoteError(expectedPitchesBeforeNote, event.pitch)
         // Sudden death: any wrong note sends the cursor back to the very first
@@ -1179,6 +1186,9 @@ export function Practice({
             onReady={handleReady}
             onError={handleLoadError}
           />
+          {!isFreePageMode && (
+            <ComboOverlay compact combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />
+          )}
           {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
           {/* Transient messages (loop restarts, long-press jumps), floated
               over the score rather than given a row of its own: a landscape phone has no vertical
@@ -1241,7 +1251,6 @@ export function Practice({
       )}
 
       <ScoreHud
-        currentCombo={currentCombo}
         bestCombo={bestCombo}
         correctNoteCount={correctNoteCount}
         errorCount={errorCount}
@@ -1396,6 +1405,7 @@ export function Practice({
           onReady={handleReady}
           onError={handleLoadError}
         />
+        {!isFreePageMode && <ComboOverlay combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />}
         {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
       </div>
 

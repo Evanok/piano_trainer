@@ -6,6 +6,14 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Combo counter over the score (2026-11-08)
+
+- `ComboOverlay`: the live combo drawn big over the top-right corner of the score, in every mode except Page
+  free, on desktop and mobile. It pops on every event, changes hue at 10/25/50 (shimmering from 50), sends a
+  ring every 10, shows "New best" when a run beats an earlier one, and the broken number falls struck through
+  when a run ends on a wrong note. CSS animations only, off under reduced motion.
+- The desktop stat strip (`ScoreHud`) drops its Combo tile, which the overlay now replaces.
+
 ## Sudden death mode (2026-11-08)
 
 - New practice mode "Sudden death": the scroll layout over the whole piece, where any wrong note sends the
