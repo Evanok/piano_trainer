@@ -6,6 +6,12 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Playback preview follows hand mode (2026-11-08)
+
+- The "Play" preview used to play both hands whatever the hand mode. Practising one hand, it now plays that
+  hand only, through the same staff choice as the practice filter (`targetStaffForHand`, now exported), so a
+  score with no unambiguous pair of hands still plays everything.
+
 ## Faster deploys: dependency reuse (2026-11-01)
 
 - `deploy.conf` splits `INSTALL_CMD` (npm ci) from `REMOTE_BUILD`; with `REUSE_DEPS`, the deploy kit copies the

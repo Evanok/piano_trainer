@@ -179,7 +179,13 @@ export function effectiveHandMode(osmd: OpenSheetMusicDisplay, handMode: HandMod
   return targetStaffForHand(osmd, handMode) ? handMode : 'both'
 }
 
-function targetStaffForHand(osmd: OpenSheetMusicDisplay, handMode: HandMode): Staff | undefined {
+/**
+ * The one staff a hand mode keeps, or undefined when every staff counts
+ * ('both', or a score with no unambiguous pair of hands). Shared by the
+ * practice filter and the playback preview so both hear and require the
+ * same notes.
+ */
+export function targetStaffForHand(osmd: OpenSheetMusicDisplay, handMode: HandMode): Staff | undefined {
   return selectHandStaff(handParts(osmd), handMode)
 }
 

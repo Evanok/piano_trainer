@@ -1,5 +1,6 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { isTieContinuation, noteToMidi, playableInstrument } from './ScoreParser'
+import type { HandMode } from '../types/practice'
+import { isTieContinuation, noteToMidi, playableInstrument, targetStaffForHand } from './ScoreParser'
 
 const DEFAULT_BPM = 120
 // MusicXML/OSMD tempo (BPM) counts quarter notes per minute, and a whole note
@@ -68,15 +69,21 @@ export interface PlaybackRange {
 // Walks a fresh, independent iterator (osmd.Sheet.MusicPartManager
 // .getIterator()) instead of the shared osmd.cursor that PianoScore/WaitEngine
 // use for the live practice position -- so previewing the score can never
-// disturb the player's actual place, held notes, or coloring. Always both
-// hands: this is a "remind me how it goes" preview, not subject to hand mode.
+// disturb the player's actual place, held notes, or coloring. It follows the
+// hand mode: practising one hand, the preview plays that hand only, through
+// the same staff choice (targetStaffForHand) as the practice filter, so a
+// score with no unambiguous pair of hands still plays everything.
 //
 // The start is always passed explicitly. Called without one, getIterator()
 // starts at Sheet.SelectionStart, which a section or loop crop rewrites to the
 // first drawn measure -- so the preview silently followed whatever crop
 // happened to be on screen. `range` (null = whole piece) is the only thing
 // that decides what is played.
-export function extractTimedNotes(osmd: OpenSheetMusicDisplay, range: PlaybackRange | null = null): TimedNote[] {
+export function extractTimedNotes(
+  osmd: OpenSheetMusicDisplay,
+  range: PlaybackRange | null = null,
+  handMode: HandMode = 'both',
+): TimedNote[] {
   const sheet = osmd.Sheet
   if (!sheet || sheet.SourceMeasures.length === 0) {
     return []
@@ -85,6 +92,7 @@ export function extractTimedNotes(osmd: OpenSheetMusicDisplay, range: PlaybackRa
   const startIndex = range ? Math.min(Math.max(range.startMeasure - 1, 0), lastIndex) : 0
   const endIndex = range ? Math.min(Math.max(range.endMeasure - 1, startIndex), lastIndex) : lastIndex
   const instrument = playableInstrument(osmd)
+  const targetStaff = targetStaffForHand(osmd, handMode)
   const iterator = sheet.MusicPartManager.getIterator(sheet.SourceMeasures[startIndex].AbsoluteTimestamp.clone())
   const steps: RawTimelineStep[] = []
   while (!iterator.EndReached && iterator.CurrentMeasureIndex <= endIndex) {
@@ -96,6 +104,9 @@ export function extractTimedNotes(osmd: OpenSheetMusicDisplay, range: PlaybackRa
           continue
         }
         if (instrument && note.ParentStaff?.ParentInstrument !== instrument) {
+          continue
+        }
+        if (targetStaff && note.ParentStaff !== targetStaff) {
           continue
         }
         pitches.add(noteToMidi(note))
