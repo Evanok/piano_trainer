@@ -6,6 +6,16 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Sudden death waits for Retry, chords must be struck together, tablet scroll (2026-11-08)
+
+- Sudden death no longer jumps back to the start by itself: practice freezes on the missed note (expected note
+  still highlighted, wrong key red) and a card shows expected/played, the run and the best, with a Retry button
+  (or Enter/Space). The purple "Wrong note in measure..." message is gone.
+- Chord tolerance 2000ms -> 300ms: notes written together must be played together, not one then the other a
+  second later. How long a wrong key stays red (2s) is now its own constant.
+- The practice screen uses `h-dvh` instead of `h-screen`: on a tablet or phone, `100vh` ignores the address bar,
+  so the page scrolled and the combo at the top and the keyboard at the bottom were never both in view.
+
 ## Livelier combo counter (2026-11-08)
 
 - Every 10, the counter hops to another of five slots along the top row of the score (left, centre left, centre,
@@ -19,6 +29,8 @@ Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
 - Under `npm run dev`, the practice screen takes `o` (play the expected notes, the whole chord) and `k` (play a
   wrong note), through the same handler as a MIDI note. Dev only, absent from the production build.
+- The dev-only DEBUG panel (expected/held notes and the last ten notes received) is gone: unused, and its
+  growing log pushed the score down as soon as anything was played.
 
 ## Combo counter over the score (2026-11-08)
 

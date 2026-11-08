@@ -16,6 +16,7 @@ import { ComboOverlay, type ComboBreak } from '../components/ComboOverlay'
 import { LoopRangeBar } from '../components/LoopRangeBar'
 import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
+import { SuddenDeathCard, type SuddenDeathMiss } from '../components/SuddenDeathCard'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
 import { effectiveHandMode, extractExpectedEvents } from '../engine/ScoreParser'
@@ -42,6 +43,12 @@ import type {
 import type { ExerciseSessionStats, PracticeSessionRecord, SessionSource, SessionStats } from '../types/session'
 
 const MAX_EXERCISE_STAT_ROWS = 3
+/**
+ * How long a wrong key stays red on the keyboard. Its own constant, not the
+ * chord tolerance: the tolerance is a few hundred milliseconds, far too short
+ * to see which key was hit.
+ */
+const WRONG_NOTE_DISPLAY_MS = 2000
 
 /**
  * How often the in-progress session is rewritten to the log. A session is
@@ -160,6 +167,15 @@ export function Practice({
   // Set only by a wrong note that ends a run, never by a jump or a hand switch
   // (those reset the combo too, but nothing was broken).
   const [comboBreak, setComboBreak] = useState<ComboBreak | null>(null)
+  // A sudden-death run that just ended. While set, practice is frozen on the
+  // missed event (notes are ignored) until the player retries, so the expected
+  // note can be read off the score and the keyboard first.
+  const [suddenDeathMiss, setSuddenDeathMiss] = useState<SuddenDeathMiss | null>(null)
+  const suddenDeathMissRef = useRef<SuddenDeathMiss | null>(null)
+  const setMiss = (miss: SuddenDeathMiss | null) => {
+    suddenDeathMissRef.current = miss
+    setSuddenDeathMiss(miss)
+  }
   const [correctNoteCount, setCorrectNoteCount] = useState(0)
   const [totalEvents, setTotalEvents] = useState(0)
   const [currentMeasure, setCurrentMeasure] = useState(1)
@@ -179,9 +195,6 @@ export function Practice({
     hand?: HandMode
   }>({})
   const [wrongNoteFeedback, setWrongNoteFeedback] = useState<string | null>(null)
-  const [debugLog, setDebugLog] = useState<string[]>([])
-  const [debugExpected, setDebugExpected] = useState('')
-  const [debugHeld, setDebugHeld] = useState('')
   const [measureInputValue, setMeasureInputValue] = useState('')
   const [showKeyboard, setShowKeyboard] = useState(false)
   const [mobileKeyboardVisible, setMobileKeyboardVisible] = useState(true)
@@ -445,24 +458,24 @@ export function Practice({
     saveSession(buildSessionRecord(completed))
   }
 
-  // A wrong keypress within the chord tolerance window is reported but
-  // doesn't erase already-held correct notes (see WaitEngine.noteOn) -- the
-  // wrong key itself is shown on the virtual keyboard until this same window
-  // elapses with no further input, at which point held progress actually
-  // expires too (not just visually) and everything settles back to neutral.
-  const scheduleDecay = () => {
+  // Settles the display back to neutral after `delayMs` with no further
+  // input: a partly played chord expires once the chord tolerance has passed
+  // (not just visually: the engine drops the held notes too), and a wrong key
+  // stops being red after WRONG_NOTE_DISPLAY_MS. A wrong keypress within the
+  // chord tolerance window is reported but doesn't erase already-held correct
+  // notes (see WaitEngine.noteOn).
+  const scheduleDecay = (delayMs: number) => {
     clearDecayTimer()
     decayTimeoutRef.current = setTimeout(() => {
       const engine = waitEngineRef.current
       if (engine) {
         engine.expireStaleHold(performance.now())
         scoreRef.current?.syncNotes(engine.currentHeldPitches)
-        setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
         setHeldPitches(engine.currentHeldPitches)
         setWrongPitches([])
       }
       decayTimeoutRef.current = null
-    }, DEFAULT_CHORD_TOLERANCE_MS)
+    }, delayMs)
   }
 
   useEffect(() => {
@@ -535,6 +548,9 @@ export function Practice({
     )
     previousIndexRef.current = engine.state.currentIndex
     currentEventErredRef.current = false
+    // Any move of the cursor (retry, back to start, a jump, a mode or hand
+    // switch) is a way out of a frozen sudden-death miss.
+    setMiss(null)
     // Only the in-progress streak resets on a jump -- the session's best
     // combo (maxComboRef) is a record, not live progress, so it survives.
     comboRef.current = 0
@@ -542,8 +558,6 @@ export function Practice({
     setEngineState(engine.state)
     setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
     setWrongNoteFeedback(null)
-    setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
-    setDebugHeld('')
     setExpectedPitches(engine.currentExpectedPitches)
     setExpectedHandPitches(handPitchesOf(engine.currentEvent))
     setHeldPitches([])
@@ -601,7 +615,7 @@ export function Practice({
     const handleNoteEvent = (event: MidiNoteEvent) => {
       // A note landing between a switch and its work would be judged against
       // the event list the switch is about to replace.
-      if (event.type !== 'noteon' || busyRef.current) {
+      if (event.type !== 'noteon' || busyRef.current || suddenDeathMissRef.current !== null) {
         return
       }
       // Page free is a plain read-along viewer with no wait-gating and no
@@ -623,10 +637,6 @@ export function Practice({
       const expectedPitchesBeforeNote = engine.currentExpectedPitches
       const status = engine.noteOn(event.pitch, event.timestamp)
 
-      setDebugLog((log) =>
-        [...log, `received ${midiToNoteName(event.pitch)} (${event.pitch}) -> ${status}`].slice(-10),
-      )
-
       const activeSection = activeBoundsRef.current
 
       if (status === 'error') {
@@ -641,24 +651,26 @@ export function Practice({
         }
         currentEventErredRef.current = true
         recordNoteError(expectedPitchesBeforeNote, event.pitch)
-        // Sudden death: any wrong note sends the cursor back to the very first
-        // note of the piece. Done before the wrong key is shown below, since
-        // the jump clears the keyboard's colours and this one must survive it.
-        // A miss on the first note has nowhere to go back to.
-        if (practiceModeRef.current === 'suddenDeath' && indexBeforeNote > 0) {
-          const measure = scoreRef.current?.getCurrentMeasure() ?? 1
-          goToEventIndex(0)
-          showSectionMessage(
-            `Wrong note in measure ${measure} after ${brokenRun} clean in a row -- back to the start` +
-              ` (best run: ${maxComboRef.current})`,
-          )
-        } else {
-          scoreRef.current?.syncNotes(engine.currentHeldPitches)
-        }
+        scoreRef.current?.syncNotes(engine.currentHeldPitches)
         setWrongPitches((pitches) => [...pitches, event.pitch])
-        scheduleDecay()
-        const expectedNames = expectedPitchesBeforeNote.map(midiToNoteName).join(', ')
-        setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
+        // Sudden death: the run is over, but nothing moves yet. Practice
+        // freezes on the missed event, the wrong key stays red (no decay) and
+        // the card offers a retry from the first note. A miss on the very
+        // first note has nothing to start over from, so it is a plain error.
+        if (practiceModeRef.current === 'suddenDeath' && indexBeforeNote > 0) {
+          clearDecayTimer()
+          setMiss({
+            measure: scoreRef.current?.getCurrentMeasure() ?? 1,
+            expected: expectedPitchesBeforeNote.map(midiToNoteName).join(' + '),
+            played: midiToNoteName(event.pitch),
+            run: brokenRun,
+          })
+        } else {
+          scheduleDecay(WRONG_NOTE_DISPLAY_MS)
+          // The card says the same thing on a sudden-death miss, so only here.
+          const expectedNames = expectedPitchesBeforeNote.map(midiToNoteName).join(', ')
+          setWrongNoteFeedback(`Expected ${expectedNames} -- you played ${midiToNoteName(event.pitch)}`)
+        }
       } else {
         setWrongNoteFeedback(null)
         // Every correct keypress counts, whether it's a single note, one hit
@@ -691,12 +703,11 @@ export function Practice({
           }
         } else {
           scoreRef.current?.syncNotes(engine.currentHeldPitches)
-          scheduleDecay()
+          // A partly played chord: expire it once the tolerance has passed.
+          scheduleDecay(DEFAULT_CHORD_TOLERANCE_MS + 20)
         }
       }
       setEngineState(engine.state)
-      setDebugExpected(engine.currentExpectedPitches.map(midiToNoteName).join(', '))
-      setDebugHeld(engine.currentHeldPitches.map(midiToNoteName).join(', '))
       setExpectedPitches(engine.currentExpectedPitches)
       setExpectedHandPitches(handPitchesOf(engine.currentEvent))
       setHeldPitches(engine.currentHeldPitches)
@@ -705,8 +716,9 @@ export function Practice({
     if (!import.meta.env.DEV) {
       return unsubscribe
     }
-    // Development only, compiled away like the debug panel: plays without a
-    // MIDI keyboard by feeding the same handler a real note would reach.
+    // Development only (import.meta.env.DEV, compiled away in production):
+    // plays without a MIDI keyboard by feeding the same handler a real note
+    // would reach.
     // `o` plays every expected note not already held (a whole chord at once,
     // within the chord tolerance), `k` plays one note that is not expected.
     const handleDebugKey = (keyEvent: KeyboardEvent) => {
@@ -767,6 +779,7 @@ export function Practice({
     waitEngineRef.current = new WaitEngine(newEvents)
     previousIndexRef.current = 0
     currentEventErredRef.current = false
+    setMiss(null)
     furthestIndexRef.current = 0
     eventsWithErrorsRef.current = new Set()
     errorCountRef.current = 0
@@ -784,9 +797,6 @@ export function Practice({
     // A remount starts over, but nothing else resets the header's measure, so
     // it kept showing wherever the previous layout had been.
     setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
-    setDebugExpected(waitEngineRef.current.currentExpectedPitches.map(midiToNoteName).join(', '))
-    setDebugHeld('')
-    setDebugLog([])
     // Page free never highlights anything -- see isFreePageMode.
     setExpectedPitches(practiceMode === 'page' ? [] : waitEngineRef.current.currentExpectedPitches)
     setExpectedHandPitches(practiceMode === 'page' ? NO_HAND_PITCHES : handPitchesOf(waitEngineRef.current.currentEvent))
@@ -812,6 +822,33 @@ export function Practice({
     setZoomValue(value)
     scoreRef.current?.setZoom(value)
   }
+
+  // Sudden death's way out of a miss: the whole piece again from its first
+  // note. No overlay: with nothing cropped, the jump renders nothing.
+  const handleRetry = () => {
+    goToEventIndex(0)
+  }
+
+  // Enter or Space retries too, so a desktop player need not reach for the
+  // mouse. Only while a miss is shown, and never while typing in a field.
+  useEffect(() => {
+    if (suddenDeathMiss === null) {
+      return
+    }
+    const handleKey = (keyEvent: KeyboardEvent) => {
+      const target = keyEvent.target as HTMLElement | null
+      if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) {
+        return
+      }
+      if (keyEvent.key === 'Enter' || keyEvent.key === ' ') {
+        keyEvent.preventDefault()
+        goToEventIndex(0)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suddenDeathMiss])
 
   // In Scroll loop this is "back to the top of the loop", which is the one
   // control that mode needs constantly; everywhere else it is the top of the
@@ -1076,13 +1113,16 @@ export function Practice({
 
   // Mobile gets a single compact icon-button header (name, home, back to
   // start) with every other row -- HUD, the desktop
-  // controls, the training panel, banners, the debug panel -- omitted
+  // controls, the training panel, banners -- omitted
   // entirely so the score gets the whole rest of a landscape phone screen.
-  // Gamification stats still update underneath, just without a home for
-  // showing them on this screen yet.
+  // The combo is drawn over the score itself (ComboOverlay).
   if (isMobile) {
     return (
-      <div className="flex h-screen w-full flex-col">
+      // h-dvh, not h-screen: 100vh is the viewport with the browser's address
+      // bar hidden, so while it shows, a phone or tablet scrolled the screen by
+      // its height and the score's top (the combo) and the keyboard at the
+      // bottom could not both be in view.
+      <div className="flex h-dvh w-full flex-col">
         <div className="flex h-12 shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-2">
           <button
             type="button"
@@ -1233,6 +1273,9 @@ export function Practice({
           {!isFreePageMode && (
             <ComboOverlay compact combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />
           )}
+          {suddenDeathMiss && (
+            <SuddenDeathCard compact miss={suddenDeathMiss} best={bestCombo} onRetry={handleRetry} />
+          )}
           {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
           {/* Transient messages (loop restarts, long-press jumps), floated
               over the score rather than given a row of its own: a landscape phone has no vertical
@@ -1266,7 +1309,8 @@ export function Practice({
   }
 
   return (
-    <div className="mx-auto flex h-screen w-full max-w-[1600px] flex-col gap-4 px-6 py-6">
+    // h-dvh for the same reason as the mobile layout: a tablet gets this one.
+    <div className="mx-auto flex h-dvh w-full max-w-[1600px] flex-col gap-4 px-6 py-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="min-w-0 flex-1 truncate text-xl font-semibold text-gray-900">{scoreFile.name}</h1>
         <div className="flex shrink-0 items-center gap-3">
@@ -1419,18 +1463,6 @@ export function Practice({
 
       {wrongNoteFeedback && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{wrongNoteFeedback}</p>}
 
-      {/* Development only: `import.meta.env.DEV` is true under `npm run dev`
-          (and so under `deploy.sh dev start`) and compiled away by the
-          production build, so the panel stays one keystroke from a real
-          session while nobody visiting the deployed app ever sees it. */}
-      {import.meta.env.DEV && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 font-mono text-xs text-amber-900">
-          <p>DEBUG -- expected: [{debugExpected}] -- held: [{debugHeld}]</p>
-          <p className="mt-1">Keys: o = play the expected notes, k = play a wrong note</p>
-          <p className="mt-1 whitespace-pre-wrap">{debugLog.join('\n')}</p>
-        </div>
-      )}
-
       {isLoopMode && totalMeasures > 0 && (
         <LoopRangeBar
           totalMeasures={totalMeasures}
@@ -1451,6 +1483,7 @@ export function Practice({
           onError={handleLoadError}
         />
         {!isFreePageMode && <ComboOverlay combo={currentCombo} best={bestCombo} comboBreak={comboBreak} />}
+        {suddenDeathMiss && <SuddenDeathCard miss={suddenDeathMiss} best={bestCombo} onRetry={handleRetry} />}
         {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
       </div>
 
