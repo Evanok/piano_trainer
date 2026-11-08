@@ -21,12 +21,10 @@ export type HandMode = 'right' | 'left' | 'both'
  *   range again, forever, error or not -- the way a hard passage actually gets
  *   worked. With its default range (the whole piece) it behaves exactly like
  *   `scroll`, ending in the End screen rather than looping.
- * - `sectionFree`: section-by-section, wait-gated, but never rewinds on error --
- *   always advances once the section's last note is played.
- * - `sectionTraining`: section-by-section, rewinds to the start of the same
- *   section if it was completed with any error; a clean pass advances it.
+ * Sessions recorded before 2026-11-08 can also carry `sectionFree` or
+ * `sectionTraining`, two section-by-section modes that were removed.
  */
-export type PracticeMode = 'page' | 'scroll' | 'scrollLoop' | 'sectionFree' | 'sectionTraining'
+export type PracticeMode = 'page' | 'scroll' | 'scrollLoop'
 
 export interface PracticeBackingTrack {
   enabled: boolean

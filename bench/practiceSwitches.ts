@@ -62,13 +62,11 @@ interface Step {
 /**
  * Every transition the practice screen handles differently, in an order that
  * reaches each one from a realistic previous state: the page/scroll remount,
- * entering and leaving the section crop, loop, and the hand switch in each of
- * the three layouts it behaves differently in (page, scroll, cropped section).
+ * loop, and the hand switch in each layout (page, scroll, cropped loop).
  */
 const STEPS: Step[] = [
   { label: 'mode page -> scroll', control: 'mode', value: 'scroll' },
-  { label: 'mode scroll -> section training', control: 'mode', value: 'sectionTraining' },
-  { label: 'mode section training -> loop', control: 'mode', value: 'scrollLoop' },
+  { label: 'mode scroll -> loop', control: 'mode', value: 'scrollLoop' },
   { label: 'mode loop -> page', control: 'mode', value: 'page' },
   { label: 'hand both -> right (page)', control: 'hand', value: 'right' },
   { label: 'hand right -> left (page)', control: 'hand', value: 'left' },
@@ -76,10 +74,10 @@ const STEPS: Step[] = [
   { label: 'mode page -> scroll (2)', control: 'mode', value: 'scroll' },
   { label: 'hand both -> right (scroll)', control: 'hand', value: 'right' },
   { label: 'hand right -> both (scroll)', control: 'hand', value: 'both' },
-  { label: 'mode scroll -> section free', control: 'mode', value: 'sectionFree' },
-  { label: 'hand both -> left (section)', control: 'hand', value: 'left' },
-  { label: 'hand left -> both (section)', control: 'hand', value: 'both' },
-  { label: 'mode section free -> page', control: 'mode', value: 'page' },
+  { label: 'mode scroll -> loop (2)', control: 'mode', value: 'scrollLoop' },
+  { label: 'hand both -> left (loop)', control: 'hand', value: 'left' },
+  { label: 'hand left -> both (loop)', control: 'hand', value: 'both' },
+  { label: 'mode loop -> page (2)', control: 'mode', value: 'page' },
 ]
 
 interface Measurement {
@@ -102,7 +100,7 @@ interface HotFunction {
 
 const SELECT_BY_CONTROL: Record<Control, string> = {
   // Matched by their options, which both the desktop and the mobile header share.
-  mode: 'select:has(option[value="sectionFree"])',
+  mode: 'select:has(option[value="scrollLoop"])',
   hand: 'select:has(option[value="left"])',
 }
 

@@ -6,6 +6,14 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Section modes removed (2026-11-08)
+
+- "Section free" and "Section training" are gone: in practice only Page free, Scroll loop and a little Scroll
+  were used, and the loop covers drilling a passage with a range the player picks. Removed with them:
+  `computeSections`, `extractNaturalBreakMeasures`, the section picker, prev/next and measures-per-section
+  controls. `sectionForMeasureRange` and the crop machinery stay, the loop runs on them. Old session records
+  keep their mode labels in Stats.
+
 ## Catalog "last played" up to date after practice (2026-11-08)
 
 - The catalog's progress and "last played" order come from the server's `stats.json`, but a session is only
