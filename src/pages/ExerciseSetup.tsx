@@ -12,6 +12,7 @@ import { midiToNoteName } from '../engine/noteNames'
 import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
 import { CHORD_ANSWER_STEPS } from '../types/chord'
+import { INTERVAL_ANSWER_STEPS } from '../types/interval'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type {
@@ -23,6 +24,14 @@ import type {
   ChordQuizSettings,
   ChordStackMode,
 } from '../types/chord'
+import type {
+  IntervalAccidentalMode,
+  IntervalAnswerStep,
+  IntervalClefMode,
+  IntervalLayout,
+  IntervalMaxNumber,
+  IntervalQuizSettings,
+} from '../types/interval'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
   NoteSequenceDirection,
@@ -60,7 +69,7 @@ const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
  * build a MusicXML file and hand it to Practice, while a reading quiz has no
  * MIDI, no cursor and no WaitEngine, and goes to its own screen.
  */
-export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords'
+export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords' | 'intervals'
 
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
@@ -68,6 +77,7 @@ const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'reading', label: 'Reading' },
   { kind: 'sequence', label: 'Note order' },
   { kind: 'chords', label: 'Chords' },
+  { kind: 'intervals', label: 'Intervals' },
 ]
 
 const READING_QUESTION_COUNTS = [10, 20, 30, 40]
@@ -82,6 +92,11 @@ const CHORD_STEP_CHOICES: { step: ChordAnswerStep; label: string }[] = [
   { step: 'root', label: 'Which chord (do, re, mi...)' },
   { step: 'quality', label: 'Quality (major, minor, dim)' },
   { step: 'play', label: 'Play it on the piano' },
+]
+
+const INTERVAL_STEP_CHOICES: { step: IntervalAnswerStep; label: string }[] = [
+  { step: 'number', label: 'Number (3rd, 5th...)' },
+  { step: 'quality', label: 'Quality (major, minor, perfect...)' },
 ]
 
 const SELECT_CLASS =
@@ -102,6 +117,7 @@ export interface ExerciseSetupDraft {
   reading: ReadingQuizSettings
   sequence: NoteSequenceSettings
   chords: ChordQuizSettings
+  intervals: IntervalQuizSettings
 }
 
 interface ExerciseSetupProps {
@@ -114,6 +130,7 @@ interface ExerciseSetupProps {
   initialReadingSettings: ReadingQuizSettings
   initialSequenceSettings: NoteSequenceSettings
   initialChordSettings: ChordQuizSettings
+  initialIntervalSettings: IntervalQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
   initialKeyboardAssistMode: KeyboardAssistMode
@@ -126,6 +143,7 @@ interface ExerciseSetupProps {
   onReadingReady: (settings: ReadingQuizSettings) => void
   onSequenceReady: (settings: NoteSequenceSettings) => void
   onChordReady: (settings: ChordQuizSettings) => void
+  onIntervalReady: (settings: IntervalQuizSettings) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -155,6 +173,7 @@ export function ExerciseSetup({
   initialReadingSettings,
   initialSequenceSettings,
   initialChordSettings,
+  initialIntervalSettings,
   initialSettings,
   initialHanonSettings,
   initialKeyboardAssistMode,
@@ -163,6 +182,7 @@ export function ExerciseSetup({
   onReadingReady,
   onSequenceReady,
   onChordReady,
+  onIntervalReady,
   onTabChange,
   onSettingsChange,
   onBack,
@@ -183,6 +203,22 @@ export function ExerciseSetup({
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
+  const [intervalSettings, setIntervalSettings] = useState<IntervalQuizSettings>(initialIntervalSettings)
+  /** Same rule as the chord steps: the last box cannot be unchecked, the order is fixed. */
+  const toggleIntervalStep = (step: IntervalAnswerStep) => {
+    setIntervalSettings((current) => {
+      const wanted = new Set(current.answerSteps)
+      if (wanted.has(step)) {
+        if (wanted.size === 1) {
+          return current
+        }
+        wanted.delete(step)
+      } else {
+        wanted.add(step)
+      }
+      return { ...current, answerSteps: INTERVAL_ANSWER_STEPS.filter((entry) => wanted.has(entry)) }
+    })
+  }
   const usesCatalogChords = chordSettings.material === 'catalog'
   // Fetched here only to say how many chords fit the settings and to block a
   // start with none; the quiz screen fetches its own copy.
@@ -259,6 +295,7 @@ export function ExerciseSetup({
     reading: readingSettings,
     sequence: sequenceSettings,
     chords: chordSettings,
+    intervals: intervalSettings,
   })
   useEffect(() => {
     onSettingsChange(JSON.parse(draftKey) as ExerciseSetupDraft)
@@ -310,7 +347,7 @@ export function ExerciseSetup({
           <StreakBadges streak={streak} className="justify-center" />
         </header>
 
-        <div className="flex w-full max-w-3xl gap-2 self-center rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
+        <div className="flex w-full max-w-3xl flex-wrap gap-2 self-center rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
           {EXERCISE_TABS.map((item) => (
             <button
               key={item.kind}
@@ -738,6 +775,145 @@ export function ExerciseSetup({
 
             <button type="button" onClick={() => onReadingReady(readingSettings)} className={`self-start ${PRIMARY_BUTTON}`}>
               Start reading quiz
+            </button>
+          </section>
+        ) : tab === 'intervals' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Interval quiz</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <fieldset className="flex flex-col gap-1 text-sm text-gray-700 sm:col-span-2">
+                <legend className="mb-1">Each interval asks for</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {INTERVAL_STEP_CHOICES.map((choice) => (
+                    <label key={choice.step} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={intervalSettings.answerSteps.includes(choice.step)}
+                        onChange={() => toggleIntervalStep(choice.step)}
+                        className="h-4 w-4"
+                      />
+                      <span>{choice.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <span className="text-xs text-gray-500">
+                  Asked one at a time, number first: the quality can only be measured once the number is known.
+                </span>
+              </fieldset>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes drawn
+                <select
+                  value={intervalSettings.layout}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({ ...current, layout: event.target.value as IntervalLayout }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="harmonic">Stacked (played together)</option>
+                  <option value="melodic">In a row (one after the other)</option>
+                  <option value="mixed">Both</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Widest interval
+                <select
+                  value={intervalSettings.maxNumber}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      maxNumber: Number(event.target.value) as IntervalMaxNumber,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value={5}>Up to a fifth</option>
+                  <option value={8}>Up to an octave</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Accidentals
+                <select
+                  value={intervalSettings.accidentalMode}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      accidentalMode: event.target.value as IntervalAccidentalMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="none">None (white keys only)</option>
+                  <option value="all">Sharps and flats</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {intervalSettings.accidentalMode === 'all'
+                    ? 'About half the intervals carry a sign: the quality has to be measured'
+                    : 'Every quality still comes up: fa to si is the augmented 4th'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Clef
+                <select
+                  value={intervalSettings.clefMode}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      clefMode: event.target.value as IntervalClefMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="treble">Treble</option>
+                  <option value="bass">Bass</option>
+                  <option value="both">Both (grand staff)</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Intervals per round
+                <select
+                  value={intervalSettings.questionCount}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      questionCount: Number(event.target.value),
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Two notes on the staff: say how far apart they are. <strong>The number</strong> is counted in
+              letters, both ends included: do to mi is do re mi, a 3rd. Line to line or space to space is always
+              odd, line to space always even. <strong>The quality</strong> is counted in semitones and compared with
+              the major scale on the lower note: a 3rd of 4 semitones is major, 3 is minor. 4ths, 5ths and octaves
+              are perfect instead of major or minor. One semitone wider than major or perfect is augmented, one
+              narrower than minor or perfect is diminished. Among the white keys, mi to fa and si to do are the
+              only semitones.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => onIntervalReady(intervalSettings)}
+              className={`self-start ${PRIMARY_BUTTON}`}
+            >
+              Start interval quiz
             </button>
           </section>
         ) : tab === 'chords' ? (

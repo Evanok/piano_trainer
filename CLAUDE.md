@@ -561,9 +561,40 @@ time in `activityOf`.
   was actually made. Its rows are built from the generator's
   own table so the lesson cannot drift from what is asked.
 
-**What the three screen drills share, and why each piece moved there**:
-`NamingQuizEngine` (all the scoring -- combo, first-try accuracy, response
-times, confusions) with `ReadingQuizEngine` adding only `answerPitch` and
+### Interval drill (`engine/intervalQuiz.ts`, `engine/IntervalQuizEngine.ts`, `pages/IntervalQuiz.tsx`)
+
+The fourth screen drill, built like the chord drill without its played step:
+one MusicXML per round, one interval per measure, `ReadingStaff` cropping to
+the current one. A question asks up to two steps (`IntervalAnswerStep`), the
+**number** (letters counted inclusively, pure staff geometry) then the
+**quality** (semitones against the major/perfect reference of that number),
+in that order because the quality can only be measured once the number is
+known.
+
+- **The quality is computed, never stored** (`intervalQuality` from the two
+  spelled notes), and the generator only keeps what pieces actually write
+  (`ALLOWED_QUALITIES`: no augmented third, no diminished octave). Naturals
+  alone already give every common quality (fa-si augmented 4th, si-fa
+  diminished 5th); `accidentalMode: 'all'` alters one of the two notes, never
+  into mi♯/si♯/fa♭/do♭, which is the chord drill's refusal for the same reason.
+- **The five quality buttons are always all shown**, whatever the number, since
+  a subset would tell the player what is coming.
+- **A missed number reveals only the counted letters** ("fa sol la si"), without
+  signs; the full name, the semitones and the two keys on a `VirtualKeyboard`
+  appear only once the quality is answered or missed.
+- **The page is pinned to the screen height (`h-dvh`) and the staff sits out of
+  the flow** (`absolute inset-0`): `ReadingStaff` sizes its SVG in pixels from
+  its container, so in the flow it held the card at its first size and the
+  reveal keyboard pushed the answer buttons off a landscape phone.
+- `IntervalQuizEngine` builds on `QuizScoringEngine`, the part of
+  `NamingQuizEngine` that is not answering by note name: an interval question
+  has no note name to carry. Its session kind is `interval`, reported as
+  reading time by `activityOf`.
+
+**What the screen drills share, and why each piece moved there**:
+`QuizScoringEngine` (all the scoring -- combo, first-try accuracy, response
+times, confusions), `NamingQuizEngine` on top of it (answering by note name),
+`IntervalQuizEngine` directly on it (number and quality), with `ReadingQuizEngine` adding only `answerPitch` and
 `ChordQuizEngine` adding its step machine (`answerQuality`, `playNote`, and
 `judge`'s `advance` for a question that takes several answers); `useQuizSession` (record on open, heartbeat,
 record on unmount -- the cadence is what matters and it is easy to get subtly
@@ -571,7 +602,8 @@ wrong, since a phone closes a tab with no cleanup); `NoteNameButtons` (the seven
 buttons *and* the number-row shortcut, which must answer the button at that
 position rather than a fixed note, or a shuffled order hands the counting back
 -- `ChordQualityButtons` is its three-button sibling, deliberately never
-shuffled, since three qualities carry no counting shortcut to remove);
+shuffled, since three qualities carry no counting shortcut to remove, and
+`ChoiceButtons` the generic row the interval drill uses for numbers and qualities);
 and `RoundSummary`.
 
 ### Gamification (`ScoreHud.tsx`, `engine/grade.ts`, `engine/streak.ts`)
@@ -608,7 +640,7 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
 - **Practice time is reported split three ways, never merged** (`timeByActivity`,
   rendered as "Where the time goes"): scores, keyboard exercises, and the screen
   drills. The activity is `activityOf(source)`, **not** `source.kind` directly:
-  there are five session kinds and only three activities, since the note-order
+  there are six session kinds and only three activities, since the note-order
   drill counts as reading time -- and a chord round counts as reading only when
   it did *not* ask for the chord to be played, since that step happens at a real
   keyboard (so there the settings decide, not the kind). The split exists to keep time at the keyboard

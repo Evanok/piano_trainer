@@ -464,8 +464,8 @@ export type ActivityKind = 'score' | 'exercise' | 'reading'
 /**
  * Which activity a session's time counts as.
  *
- * Not simply `source.kind`: there are five kinds of session and only three
- * activities, because the screen drills (note order, chords) are not each their
+ * Not simply `source.kind`: there are six kinds of session and only three
+ * activities, because the screen drills (note order, chords, intervals) are not each their
  * own kind of practice. The split exists to keep time at the keyboard apart
  * from time on a phone with no piano in reach, and every screen drill is the
  * same answer to that question. A row per drill would
@@ -484,7 +484,7 @@ export function activityOf(source: PracticeSessionRecord['source']): ActivityKin
     // carries the old settings shape, and the stats screen must still read it.
     return source.settings.answerSteps?.includes('play') ? 'exercise' : 'reading'
   }
-  return source.kind === 'sequence' ? 'reading' : source.kind
+  return source.kind === 'sequence' || source.kind === 'interval' ? 'reading' : source.kind
 }
 
 export interface ActivityTime {

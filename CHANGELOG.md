@@ -6,6 +6,15 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Interval quiz (2026-11-09)
+
+- New "Intervals" tab among the screen drills: two notes on a staff, named in up to two steps, the number
+  (2nd to octave, counted in letters) then the quality (diminished, minor, perfect, major, augmented, counted in
+  semitones). Stacked or in a row, naturals or with one sharp or flat, treble, bass or grand staff, up to a
+  fifth or an octave. A missed number shows the letters counted ("4th: fa sol la si") and nothing that would
+  answer the quality; a missed quality shows the full name, the semitones and the two keys on a keyboard.
+  Recorded as its own session kind (`interval`), counted as theory time.
+
 ## Play against the piece's combo record (2026-11-08)
 
 - On a real score, the combo counter's "best" is now the piece's record across every earlier session (any

@@ -1,4 +1,5 @@
 import type { ChordQuizSettings } from './chord.ts'
+import type { IntervalQuizSettings } from './interval.ts'
 import type { HandMode, PracticeMode } from './practice.ts'
 import type { ReadingQuizSettings } from './reading.ts'
 import type { NoteSequenceSettings } from './sequence.ts'
@@ -100,6 +101,15 @@ export type SessionSource =
       kind: 'sequence'
       title: string
       settings: NoteSequenceSettings
+    }
+  | {
+      /**
+       * The interval drill: two notes on a staff, named by number and
+       * quality. Keyboard-free, so its time is reading time (`activityOf`).
+       */
+      kind: 'interval'
+      title: string
+      settings: IntervalQuizSettings
     }
 
 /**

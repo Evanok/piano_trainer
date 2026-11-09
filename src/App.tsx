@@ -6,6 +6,7 @@ import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
 import { ChordQuiz } from './pages/ChordQuiz'
+import { IntervalQuiz } from './pages/IntervalQuiz'
 import { NoteSequenceQuiz } from './pages/NoteSequenceQuiz'
 import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
@@ -23,6 +24,8 @@ import type {
 import { exerciseSessionTitle } from './engine/sessionLog'
 import { loadPreference, savePreference } from './engine/preferencesStore'
 import type { ChordQuizSettings } from './types/chord'
+import type { IntervalQuizSettings } from './types/interval'
+import { DEFAULT_INTERVAL_SETTINGS } from './engine/intervalQuiz'
 import type { ReadingQuizSettings } from './types/reading'
 import type { NoteSequenceSettings } from './types/sequence'
 import type { SessionSource, SessionStats } from './types/session'
@@ -43,6 +46,7 @@ type Screen =
   | 'reading-quiz'
   | 'sequence-quiz'
   | 'chord-quiz'
+  | 'interval-quiz'
   | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
@@ -195,6 +199,9 @@ function App() {
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(() =>
     loadPreference('chords', DEFAULT_CHORD_SETTINGS),
   )
+  const [intervalSettings, setIntervalSettings] = useState<IntervalQuizSettings>(() =>
+    loadPreference('intervals', DEFAULT_INTERVAL_SETTINGS),
+  )
 
   useEffect(() => savePreference('catalog-browse', catalogBrowseState), [catalogBrowseState])
   useEffect(() => savePreference('setup-tab', setupTab), [setupTab])
@@ -211,6 +218,7 @@ function App() {
   useEffect(() => savePreference('reading', readingSettings), [readingSettings])
   useEffect(() => savePreference('sequence', sequenceSettings), [sequenceSettings])
   useEffect(() => savePreference('chords', chordSettings), [chordSettings])
+  useEffect(() => savePreference('intervals', intervalSettings), [intervalSettings])
 
   const handleExerciseSetupChange = useCallback((draft: ExerciseSetupDraft) => {
     setExerciseSettings(draft.training)
@@ -220,6 +228,7 @@ function App() {
     setReadingSettings(draft.reading)
     setSequenceSettings(draft.sequence)
     setChordSettings(draft.chords)
+    setIntervalSettings(draft.intervals)
   }, [])
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
@@ -444,6 +453,11 @@ function App() {
     setScreen('chord-quiz')
   }, [])
 
+  const startIntervalQuiz = useCallback((settings: IntervalQuizSettings) => {
+    setIntervalSettings(settings)
+    setScreen('interval-quiz')
+  }, [])
+
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
@@ -480,6 +494,8 @@ function App() {
         onSequenceReady={startNoteSequenceQuiz}
         initialChordSettings={chordSettings}
         onChordReady={startChordQuiz}
+        initialIntervalSettings={intervalSettings}
+        onIntervalReady={startIntervalQuiz}
         onTabChange={setSetupTab}
         onSettingsChange={handleExerciseSetupChange}
         onBack={handleBackToHome}
@@ -493,6 +509,10 @@ function App() {
 
   if (screen === 'sequence-quiz') {
     return <NoteSequenceQuiz settings={sequenceSettings} onBack={() => setScreen('exercise-setup')} />
+  }
+
+  if (screen === 'interval-quiz') {
+    return <IntervalQuiz settings={intervalSettings} onBack={() => setScreen('exercise-setup')} />
   }
 
   if (screen === 'chord-quiz') {

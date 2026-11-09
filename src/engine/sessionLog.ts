@@ -1,5 +1,6 @@
 import type { ChordAnswerStep, ChordQuizSettings } from '../types/chord.ts'
 import type { PracticeSessionRecord } from '../types/session.ts'
+import type { IntervalAnswerStep, IntervalQuizSettings } from '../types/interval.ts'
 import type { ReadingQuizSettings } from '../types/reading.ts'
 import type { NoteSequenceSettings } from '../types/sequence.ts'
 import type { ExerciseRequest } from '../types/training.ts'
@@ -221,6 +222,27 @@ export function chordSessionTitle(settings: ChordQuizSettings, keyLabel: string 
         ? 'bass clef'
         : 'treble clef'
   return `Chords - ${asked}, ${accidentals}, ${stack}, ${clef}`
+}
+
+const INTERVAL_STEP_LABELS: Record<IntervalAnswerStep, string> = {
+  number: 'number',
+  quality: 'quality',
+}
+
+/** "Intervals - number + quality, stacked, naturals, up to an octave, treble clef". */
+export function intervalSessionTitle(settings: IntervalQuizSettings): string {
+  const asked = settings.answerSteps.map((step) => INTERVAL_STEP_LABELS[step]).join(' + ')
+  const layout =
+    settings.layout === 'mixed' ? 'stacked and in a row' : settings.layout === 'melodic' ? 'in a row' : 'stacked'
+  const accidentals = settings.accidentalMode === 'all' ? 'with accidentals' : 'naturals'
+  const range = settings.maxNumber === 5 ? 'up to a fifth' : 'up to an octave'
+  const clef =
+    settings.clefMode === 'both'
+      ? 'both clefs'
+      : settings.clefMode === 'bass'
+        ? 'bass clef'
+        : 'treble clef'
+  return `Intervals - ${asked}, ${layout}, ${accidentals}, ${range}, ${clef}`
 }
 
 export function readingSessionTitle(settings: ReadingQuizSettings): string {
