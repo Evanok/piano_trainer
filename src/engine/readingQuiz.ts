@@ -163,7 +163,8 @@ const STAFF_BOUNDS = {
  */
 export const MIN_QUESTION_DISTANCE = 3
 
-function boundsFor(clef: 'treble' | 'bass', ledgerLevel: number): { low: number; high: number } {
+/** The diatonic window of one clef: its staff plus `ledgerLevel` ledger lines either side. */
+export function boundsFor(clef: 'treble' | 'bass', ledgerLevel: number): { low: number; high: number } {
   const base = STAFF_BOUNDS[clef]
   return { low: base.low - 2 * ledgerLevel, high: base.high + 2 * ledgerLevel }
 }

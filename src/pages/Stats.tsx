@@ -69,6 +69,12 @@ function activityLabel(session: PracticeSessionRecord): string {
   if (session.source.kind === 'chord') {
     return 'Chords'
   }
+  if (session.source.kind === 'interval') {
+    return 'Intervals'
+  }
+  if (session.source.kind === 'rhythm') {
+    return 'Rhythm'
+  }
   return session.practiceMode ? (PRACTICE_MODE_LABELS[session.practiceMode] ?? session.practiceMode) : '-'
 }
 

@@ -6,6 +6,42 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Rhythm quiz (2026-11-10)
+
+- New "Rhythm" tab among the screen drills: one measure of 4/4 with one note in orange, placed in two steps,
+  the beat (1 to 4) then where inside it (on the beat, "e", "&", "a"). Three levels: quarters and eighths, with
+  sixteenths, then rests and syncopations. The first note of a measure is never asked and off-beat notes come up
+  twice as often. A missed beat shows only the beat; a missed subdivision counts the whole measure out under the
+  staff ("1 e & a 2 e & a...") with each note and rest start marked. Every answered question, right or wrong,
+  then stays on screen with that count until "Next" (or Enter), so the other notes of the measure are revised
+  too; the next question is timed from "Next". Recorded as its own session kind
+  (`rhythm`), counted as theory time.
+
+## Polyrhythm drill (2026-11-10)
+
+- New "Polyrhythms" tab among the keyboard drills: every beat split 3 against 2, 2 against 3, 3 against 4 or
+  4 against 3 between the hands (eighth-note triplets against eighths or sixteenths). One note per hand, so only
+  the rhythm is left to think about, or broken chords rocking up and down over I IV V I. Played in Wait Mode,
+  which walks the composite rhythm note by note (together, right, left, right for 3 against 2); the setup
+  screen spells that order out for the chosen ratio.
+
+## Ostinato drill (2026-11-09)
+
+- New "Ostinato" tab among the keyboard drills, for hands playing two different rhythms: the left hand repeats
+  a figure (fifths in quarters, Alberti bass, boogie-woogie straight or long-short) over its own progression,
+  while the right hand plays a generated melody whose rhythm is the difficulty: long notes held over the
+  moving bass, quarters and eighths, or dotted, off-beat and syncopated cells. Major keys up to three signs, or
+  random. Played in the usual Wait Mode, so each melody note's place against the bass can be worked out.
+
+## Interval quiz (2026-11-09)
+
+- New "Intervals" tab among the screen drills: two notes on a staff, named in up to two steps, the number
+  (2nd to octave, counted in letters) then the quality (diminished, minor, perfect, major, augmented, counted in
+  semitones). Stacked or in a row, naturals or with one sharp or flat, treble, bass or grand staff, up to a
+  fifth or an octave. A missed number shows the letters counted ("4th: fa sol la si") and nothing that would
+  answer the quality; a missed quality shows the full name, the semitones and the two keys on a keyboard.
+  Recorded as its own session kind (`interval`), counted as theory time.
+
 ## Play against the piece's combo record (2026-11-08)
 
 - On a real score, the combo counter's "best" is now the piece's record across every earlier session (any

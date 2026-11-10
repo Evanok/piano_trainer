@@ -16,10 +16,14 @@ export type PreferenceKey =
   | 'setup-tab'
   | 'exercise-training'
   | 'exercise-hanon'
+  | 'exercise-ostinato'
+  | 'exercise-polyrhythm'
   | 'exercise-options'
   | 'reading'
   | 'sequence'
   | 'chords'
+  | 'intervals'
+  | 'rhythm'
   | 'daily-goal'
 
 /**

@@ -1,6 +1,8 @@
 import type { ChordQuizSettings } from './chord.ts'
+import type { IntervalQuizSettings } from './interval.ts'
 import type { HandMode, PracticeMode } from './practice.ts'
 import type { ReadingQuizSettings } from './reading.ts'
+import type { RhythmQuizSettings } from './rhythm.ts'
 import type { NoteSequenceSettings } from './sequence.ts'
 import type { ExerciseRequest } from './training.ts'
 
@@ -100,6 +102,24 @@ export type SessionSource =
       kind: 'sequence'
       title: string
       settings: NoteSequenceSettings
+    }
+  | {
+      /**
+       * The interval drill: two notes on a staff, named by number and
+       * quality. Keyboard-free, so its time is reading time (`activityOf`).
+       */
+      kind: 'interval'
+      title: string
+      settings: IntervalQuizSettings
+    }
+  | {
+      /**
+       * The rhythm drill: where one note of a measure falls, beat then
+       * subdivision. Keyboard-free, so its time is reading time (`activityOf`).
+       */
+      kind: 'rhythm'
+      title: string
+      settings: RhythmQuizSettings
     }
 
 /**

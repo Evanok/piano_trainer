@@ -41,7 +41,14 @@ export interface NamedQuestion {
   step: string
 }
 
-export class NamingQuizEngine<Q extends NamedQuestion> {
+/**
+ * Everything a round scores, whatever answers its questions: combo, first-try
+ * accuracy, response times, confusions. `NamingQuizEngine` adds answering by a
+ * note name on top; the interval drill answers with a number and a quality
+ * instead, so it builds on this directly rather than carrying a note name its
+ * questions do not have.
+ */
+export class QuizScoringEngine<Q> {
   protected readonly questions: Q[]
   private index = 0
   private answeredCount = 0
@@ -77,27 +84,6 @@ export class NamingQuizEngine<Q extends NamedQuestion> {
 
   get currentQuestion(): Q | null {
     return this.questions[this.index] ?? null
-  }
-
-  /**
-   * `step` is a letter name (C..B), not a latin one: the UI translates for
-   * display, the engine stays in the app's own vocabulary. The octave is not
-   * judged here, since naming a note says nothing about which one was meant.
-   *
-   * A wrong answer does not advance -- the same question stays on screen until
-   * it is answered, so the answer is actually learned rather than skipped past.
-   */
-  answer(step: string, now = Date.now()): QuizAnswerResult {
-    const question = this.currentQuestion
-    if (!question) {
-      return 'done'
-    }
-    return this.judge(
-      step.toUpperCase() === question.step,
-      latinNameOf(question.step),
-      latinNameOf(step),
-      now,
-    )
   }
 
   /**
@@ -171,6 +157,15 @@ export class NamingQuizEngine<Q extends NamedQuestion> {
     this.questionShownAt = null
   }
 
+  /**
+   * Start timing the current question from now. For a drill that holds the
+   * screen on an answered question (a review the player dismisses), so the
+   * time spent reading that review does not land in the next answer's time.
+   */
+  protected restartResponseClock(now: number): void {
+    this.questionShownAt = now
+  }
+
   /** Percentage of questions answered right on the first attempt. */
   get successPercent(): number {
     if (this.answeredCount === 0) {
@@ -200,5 +195,28 @@ export class NamingQuizEngine<Q extends NamedQuestion> {
         })
         .sort((a, b) => b.count - a.count),
     }
+  }
+}
+
+export class NamingQuizEngine<Q extends NamedQuestion> extends QuizScoringEngine<Q> {
+  /**
+   * `step` is a letter name (C..B), not a latin one: the UI translates for
+   * display, the engine stays in the app's own vocabulary. The octave is not
+   * judged here, since naming a note says nothing about which one was meant.
+   *
+   * A wrong answer does not advance -- the same question stays on screen until
+   * it is answered, so the answer is actually learned rather than skipped past.
+   */
+  answer(step: string, now = Date.now()): QuizAnswerResult {
+    const question = this.currentQuestion
+    if (!question) {
+      return 'done'
+    }
+    return this.judge(
+      step.toUpperCase() === question.step,
+      latinNameOf(question.step),
+      latinNameOf(step),
+      now,
+    )
   }
 }

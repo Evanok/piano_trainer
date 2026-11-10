@@ -6,11 +6,17 @@ import { ScoreLibrary } from './pages/ScoreLibrary'
 import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
 import { ChordQuiz } from './pages/ChordQuiz'
+import { IntervalQuiz } from './pages/IntervalQuiz'
+import { RhythmQuiz } from './pages/RhythmQuiz'
+import { DEFAULT_RHYTHM_SETTINGS } from './engine/rhythmQuiz'
+import type { RhythmQuizSettings } from './types/rhythm'
 import { NoteSequenceQuiz } from './pages/NoteSequenceQuiz'
 import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { createHanonExercise } from './engine/hanonGenerator'
+import { createOstinatoExercise } from './engine/ostinatoGenerator'
+import { createPolyrhythmExercise } from './engine/polyrhythmGenerator'
 import { adoptGuestLinkToken, clearToken, fetchAuthStatus, isGuest, subscribeAuthRequired } from './api/auth'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
@@ -23,6 +29,8 @@ import type {
 import { exerciseSessionTitle } from './engine/sessionLog'
 import { loadPreference, savePreference } from './engine/preferencesStore'
 import type { ChordQuizSettings } from './types/chord'
+import type { IntervalQuizSettings } from './types/interval'
+import { DEFAULT_INTERVAL_SETTINGS } from './engine/intervalQuiz'
 import type { ReadingQuizSettings } from './types/reading'
 import type { NoteSequenceSettings } from './types/sequence'
 import type { SessionSource, SessionStats } from './types/session'
@@ -31,6 +39,8 @@ import type {
   ExerciseKind,
   ExerciseRequest,
   HanonSettings,
+  OstinatoSettings,
+  PolyrhythmSettings,
   TrainingExerciseSettings,
 } from './types/training'
 
@@ -43,6 +53,8 @@ type Screen =
   | 'reading-quiz'
   | 'sequence-quiz'
   | 'chord-quiz'
+  | 'interval-quiz'
+  | 'rhythm-quiz'
   | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
@@ -99,6 +111,22 @@ const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
   questionCount: 20,
   // Replaced by a fresh one per round in ChordQuiz, same as the other drills.
   seed: 'chords',
+}
+
+const DEFAULT_POLYRHYTHM_SETTINGS: PolyrhythmSettings = {
+  ratio: '3:2',
+  pitches: 'single',
+  key: 'C',
+  measureCount: 8,
+}
+
+const DEFAULT_OSTINATO_SETTINGS: OstinatoSettings = {
+  // Alberti under long right-hand notes: the first rung of independence, one
+  // hand holding while the other keeps moving.
+  pattern: 'alberti',
+  melodyRhythm: 'easy',
+  key: 'C',
+  measureCount: 8,
 }
 
 const DEFAULT_HANON_SETTINGS: HanonSettings = {
@@ -179,6 +207,12 @@ function App() {
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(() =>
     loadPreference('exercise-hanon', DEFAULT_HANON_SETTINGS),
   )
+  const [ostinatoSettings, setOstinatoSettings] = useState<OstinatoSettings>(() =>
+    loadPreference('exercise-ostinato', DEFAULT_OSTINATO_SETTINGS),
+  )
+  const [polyrhythmSettings, setPolyrhythmSettings] = useState<PolyrhythmSettings>(() =>
+    loadPreference('exercise-polyrhythm', DEFAULT_POLYRHYTHM_SETTINGS),
+  )
   const [initialExerciseOptions] = useState(() => loadPreference('exercise-options', DEFAULT_EXERCISE_OPTIONS))
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>(
     initialExerciseOptions.keyboardAssistMode,
@@ -195,11 +229,19 @@ function App() {
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(() =>
     loadPreference('chords', DEFAULT_CHORD_SETTINGS),
   )
+  const [intervalSettings, setIntervalSettings] = useState<IntervalQuizSettings>(() =>
+    loadPreference('intervals', DEFAULT_INTERVAL_SETTINGS),
+  )
+  const [rhythmSettings, setRhythmSettings] = useState<RhythmQuizSettings>(() =>
+    loadPreference('rhythm', DEFAULT_RHYTHM_SETTINGS),
+  )
 
   useEffect(() => savePreference('catalog-browse', catalogBrowseState), [catalogBrowseState])
   useEffect(() => savePreference('setup-tab', setupTab), [setupTab])
   useEffect(() => savePreference('exercise-training', exerciseSettings), [exerciseSettings])
   useEffect(() => savePreference('exercise-hanon', hanonSettings), [hanonSettings])
+  useEffect(() => savePreference('exercise-ostinato', ostinatoSettings), [ostinatoSettings])
+  useEffect(() => savePreference('exercise-polyrhythm', polyrhythmSettings), [polyrhythmSettings])
   useEffect(
     () =>
       savePreference<ExerciseOptions>('exercise-options', {
@@ -211,15 +253,21 @@ function App() {
   useEffect(() => savePreference('reading', readingSettings), [readingSettings])
   useEffect(() => savePreference('sequence', sequenceSettings), [sequenceSettings])
   useEffect(() => savePreference('chords', chordSettings), [chordSettings])
+  useEffect(() => savePreference('intervals', intervalSettings), [intervalSettings])
+  useEffect(() => savePreference('rhythm', rhythmSettings), [rhythmSettings])
 
   const handleExerciseSetupChange = useCallback((draft: ExerciseSetupDraft) => {
     setExerciseSettings(draft.training)
     setHanonSettings(draft.hanon)
+    setOstinatoSettings(draft.ostinato)
+    setPolyrhythmSettings(draft.polyrhythm)
     setExerciseKeyboardAssistMode(draft.keyboardAssistMode)
     setExerciseBackingTrackEnabled(draft.backingTrackEnabled)
     setReadingSettings(draft.reading)
     setSequenceSettings(draft.sequence)
     setChordSettings(draft.chords)
+    setIntervalSettings(draft.intervals)
+    setRhythmSettings(draft.rhythm)
   }, [])
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
@@ -345,7 +393,11 @@ function App() {
       const exercise =
         request.kind === 'hanon'
           ? createHanonExercise(request.settings)
-          : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
+          : request.kind === 'ostinato'
+            ? createOstinatoExercise(request.settings, String(Date.now()))
+            : request.kind === 'polyrhythm'
+              ? createPolyrhythmExercise(request.settings, String(Date.now()))
+              : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
       const backingTrack = backingTrackEnabled
         ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
         : null
@@ -353,6 +405,10 @@ function App() {
       setExerciseKind(request.kind)
       if (request.kind === 'hanon') {
         setHanonSettings(request.settings)
+      } else if (request.kind === 'ostinato') {
+        setOstinatoSettings(request.settings)
+      } else if (request.kind === 'polyrhythm') {
+        setPolyrhythmSettings(request.settings)
       } else {
         setExerciseSettings(request.settings)
       }
@@ -418,7 +474,11 @@ function App() {
     const request: ExerciseRequest =
       exerciseKind === 'hanon'
         ? { kind: 'hanon', settings: { ...hanonSettings, exerciseNumber: Math.min(hanonSettings.exerciseNumber + 1, 20) } }
-        : { kind: 'generated', settings: exerciseSettings }
+        : exerciseKind === 'ostinato'
+          ? { kind: 'ostinato', settings: ostinatoSettings }
+          : exerciseKind === 'polyrhythm'
+            ? { kind: 'polyrhythm', settings: polyrhythmSettings }
+            : { kind: 'generated', settings: exerciseSettings }
     startExercise(request, exerciseKeyboardAssistMode, exerciseBackingTrackEnabled)
   }, [
     exerciseBackingTrackEnabled,
@@ -426,6 +486,8 @@ function App() {
     exerciseKind,
     exerciseSettings,
     hanonSettings,
+    ostinatoSettings,
+    polyrhythmSettings,
     startExercise,
   ])
 
@@ -442,6 +504,16 @@ function App() {
   const startChordQuiz = useCallback((settings: ChordQuizSettings) => {
     setChordSettings(settings)
     setScreen('chord-quiz')
+  }, [])
+
+  const startIntervalQuiz = useCallback((settings: IntervalQuizSettings) => {
+    setIntervalSettings(settings)
+    setScreen('interval-quiz')
+  }, [])
+
+  const startRhythmQuiz = useCallback((settings: RhythmQuizSettings) => {
+    setRhythmSettings(settings)
+    setScreen('rhythm-quiz')
   }, [])
 
   const handleChangeExerciseSettings = useCallback(() => {
@@ -471,6 +543,8 @@ function App() {
         initialTab={setupTab}
         initialSettings={exerciseSettings}
         initialHanonSettings={hanonSettings}
+        initialOstinatoSettings={ostinatoSettings}
+        initialPolyrhythmSettings={polyrhythmSettings}
         initialKeyboardAssistMode={exerciseKeyboardAssistMode}
         initialBackingTrackEnabled={exerciseBackingTrackEnabled}
         onExerciseReady={startExercise}
@@ -480,6 +554,10 @@ function App() {
         onSequenceReady={startNoteSequenceQuiz}
         initialChordSettings={chordSettings}
         onChordReady={startChordQuiz}
+        initialIntervalSettings={intervalSettings}
+        onIntervalReady={startIntervalQuiz}
+        initialRhythmSettings={rhythmSettings}
+        onRhythmReady={startRhythmQuiz}
         onTabChange={setSetupTab}
         onSettingsChange={handleExerciseSetupChange}
         onBack={handleBackToHome}
@@ -493,6 +571,14 @@ function App() {
 
   if (screen === 'sequence-quiz') {
     return <NoteSequenceQuiz settings={sequenceSettings} onBack={() => setScreen('exercise-setup')} />
+  }
+
+  if (screen === 'rhythm-quiz') {
+    return <RhythmQuiz settings={rhythmSettings} onBack={() => setScreen('exercise-setup')} />
+  }
+
+  if (screen === 'interval-quiz') {
+    return <IntervalQuiz settings={intervalSettings} onBack={() => setScreen('exercise-setup')} />
   }
 
   if (screen === 'chord-quiz') {

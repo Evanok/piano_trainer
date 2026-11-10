@@ -95,9 +95,9 @@ The app deliberately avoids a router for now: `App.tsx` owns the screen enum and
 
 `createTrainingExerciseFile()` returns an in-memory `.musicxml` `File`; generated exercises are not uploaded to or listed in the catalog. Exercise generation supports `contentMode: 'notes' | 'triads' | 'mixed'`. Single-hand exercises apply that mode to the active hand; two-hand exercises keep a right-hand melody and apply the mode to the left-hand accompaniment. Triads are emitted as MusicXML chord notes with `<chord/>`, which the existing OSMD extraction and `WaitEngine` chord path consume as one expected event.
 
-`ExerciseKind` (`'generated' | 'hanon'`) picks which generator builds the exercise, and is a **tab inside `ExerciseSetup`, not a `Home` tile and not a third `PracticeSourceKind`**. Home stays an intent menu ("I want to do an exercise"); which drill is a setting. And everything downstream of `Practice` -- hidden virtual keyboard, key-signature badge, "Next exercise", the session log -- wants the same answers for a Hanon drill as for a generated one, so both stay `'generated-training'`. Adding more drill types (scales, arpeggios, cadences) means another tab plus another generator, nothing else. `ExerciseRequest` is the discriminated payload `ExerciseSetup` hands to `App.startExercise`, so each kind carries only its own settings type. Keyboard help and backing track are shared across kinds and live below the per-kind panel.
+`ExerciseKind` (`'generated' | 'hanon' | 'ostinato' | 'polyrhythm'`) picks which generator builds the exercise, and is a **tab inside `ExerciseSetup`, not a `Home` tile and not a third `PracticeSourceKind`**. Home stays an intent menu ("I want to do an exercise"); which drill is a setting. And everything downstream of `Practice` -- hidden virtual keyboard, key-signature badge, "Next exercise", the session log -- wants the same answers for a Hanon drill as for a generated one, so both stay `'generated-training'`. Adding more drill types (scales, arpeggios, cadences) means another tab plus another generator, nothing else. `ExerciseRequest` is the discriminated payload `ExerciseSetup` hands to `App.startExercise`, so each kind carries only its own settings type. Keyboard help and backing track are shared across kinds and live below the per-kind panel.
 
-### Exercise generators (`engine/musicKeys.ts`, `engine/trainingGenerator.ts`, `engine/hanonGenerator.ts`)
+### Exercise generators (`engine/musicKeys.ts`, `engine/trainingGenerator.ts`, `engine/hanonGenerator.ts`, `engine/ostinatoGenerator.ts`, `engine/polyrhythmGenerator.ts`)
 
 `musicKeys.ts` holds the one key table (`KEYS`, `TRAINING_KEY_NAMES`, `RANDOM_KEY`), diatonic/chromatic pitch spelling, and the shared MusicXML primitives (`asMusicXmlPitch`, `xmlEscape`, `createMusicXmlFile`, `accidentalsLabel`). Every generator imports from it; there must not be a second key table.
 
@@ -110,6 +110,18 @@ Four things worth knowing before touching it:
 - **A measure whose durations do not add up does not throw in OSMD**, it just renders wrong, so `hanonGenerator.test.ts` sums `<duration>` per voice per measure for all 20 exercises rather than leaving it to be spotted by eye.
 
 The pattern table was derived from the exercises' own note content and cross-checked note-for-note against two independent public sources that agree exactly (`bluekeyes/hanon`'s `exercises.json` for 1-6, and reference MIDI renderings of 1-20 in `yogibooboo/Hanon_Test`). Hanon died in 1900, so the music is public domain everywhere; note that an IMSLP/MuseScore *typeset* of it carries whatever licence its contributor chose, which is a reason to generate rather than commit someone's engraving.
+
+**Ostinato** (`ostinatoGenerator.ts`) is the hand-independence drill: the left hand repeats one figure over a chord progression while the right hand plays a generated melody. It is played in the ordinary Wait Mode on purpose, since the cursor stops on every position where either hand strikes, so it teaches where each melody note falls against the bass, which is what a two-rhythm passage needs worked out slowly first. Things worth knowing:
+- **Each figure brings its own progression** (`OSTINATO_PATTERNS`): boogie over a twelve-bar blues, Alberti over I-IV-V-I, fifths over I-V-vi-IV. A free progression setting would mostly produce combinations nobody plays.
+- **A figure note is a letter offset from the root, plus semitones only where it leaves the key** (`FigureNote`): the boogie's flat seventh is the seventh letter above the root moved to ten semitones, so it is spelled B♭ over C, E♭ over F, F natural over G, in every key. Signs are printed per staff and per measure against what the signature or an earlier sign already says (`staffXml`).
+- **Each chord's bass octave is chosen so the whole figure fits E2 to E4** (`rootIndex`), nearest the tonic among the placements that fit. A fixed "V goes below" rule put the root on D2 in G major and the fifths figure on G4 in D major.
+- **The melody's rhythm is the difficulty ladder** (`OstinatoMelodyRhythm`): long notes held over the moving bass, then quarters and eighths, then dotted, off-beat and syncopated cells. Two-beat cells only start on beats 1 or 3, so no note needs a tie, and beams are written per beat (OSMD does not beam on its own). `ostinatoGenerator.test.ts` sums every measure of both staves.
+- It always writes both hands: learning the left hand alone is the practice screen's hand picker, not a generator setting. Like a generated drill it re-rolls on every start (melody and, with `random`, the key).
+
+**Polyrhythm** (`polyrhythmGenerator.ts`) splits every beat N against M between the hands (`PolyrhythmRatio`: 3:2, 2:3, 3:4, 4:3, written right:left), on one repeated note per hand or on broken chords over I IV V I. Things worth knowing:
+- **Wait Mode is the method, not a limitation**: the cursor stops on every note of either hand in time order, so it walks the composite rhythm (`compositeOrder`, which the setup screen prints), the way a polyrhythm is learnt before it is played in tempo. A playthrough stops exactly 4 times per beat for 3:2 and 6 for 3:4, verified in the browser, so OSMD orders tuplet onsets correctly.
+- **`<divisions>12</divisions>`** so an eighth (6), a triplet eighth (4) and a sixteenth (3) are all whole numbers. Triplets carry `<time-modification>` plus a `<tuplet>` start/stop with `bracket="no"` (the beam already groups them); beams are explicit per beat as everywhere else. OSMD only prints the "3" on the first two consecutive triplets of a run (its `TupletNumberLimitConsecutiveRepetitions` default), which is standard engraving.
+- **Nothing is random but the key**: the ratio is the difficulty, and every note is a diatonic triad tone, so no accidental is ever printed. It reuses the ostinato's `pitchAtDegree`, `bassTonicMidi` and `resolveKey`, with each hand's chord root placed in its own window (treble C4 to A5, bass E2 to E4).
 
 ### API password gate (`server/auth.ts`, `src/api/auth.ts`, `pages/Login.tsx`)
 
@@ -229,7 +241,7 @@ situation. It is a **tab in `ExerciseSetup`** (which drill to do is a setting,
 like Hanon) but **not an `ExerciseKind`**: the other two tabs build a MusicXML
 file for `Practice`, while this one has no cursor, no `WaitEngine` and no MIDI,
 and goes to its own screen (`SetupTab = ExerciseKind | 'reading' | 'sequence' |
-'chords'`, the last three being the screen drills). `App` owns
+'chords' | 'intervals' | 'rhythm'`, the last five being the screen drills). `App` owns
 that tab (`setupTab`, lifted through `onTabChange` as soon as it changes, not
 only when a drill starts) because `ExerciseSetup` is remounted on every visit:
 seeding it from `ExerciseKind`, which cannot hold `'reading'`, sent every return
@@ -561,9 +573,52 @@ time in `activityOf`.
   was actually made. Its rows are built from the generator's
   own table so the lesson cannot drift from what is asked.
 
-**What the three screen drills share, and why each piece moved there**:
-`NamingQuizEngine` (all the scoring -- combo, first-try accuracy, response
-times, confusions) with `ReadingQuizEngine` adding only `answerPitch` and
+### Interval drill (`engine/intervalQuiz.ts`, `engine/IntervalQuizEngine.ts`, `pages/IntervalQuiz.tsx`)
+
+The fourth screen drill, built like the chord drill without its played step:
+one MusicXML per round, one interval per measure, `ReadingStaff` cropping to
+the current one. A question asks up to two steps (`IntervalAnswerStep`), the
+**number** (letters counted inclusively, pure staff geometry) then the
+**quality** (semitones against the major/perfect reference of that number),
+in that order because the quality can only be measured once the number is
+known.
+
+- **The quality is computed, never stored** (`intervalQuality` from the two
+  spelled notes), and the generator only keeps what pieces actually write
+  (`ALLOWED_QUALITIES`: no augmented third, no diminished octave). Naturals
+  alone already give every common quality (fa-si augmented 4th, si-fa
+  diminished 5th); `accidentalMode: 'all'` alters one of the two notes, never
+  into mi♯/si♯/fa♭/do♭, which is the chord drill's refusal for the same reason.
+- **The five quality buttons are always all shown**, whatever the number, since
+  a subset would tell the player what is coming.
+- **A missed number reveals only the counted letters** ("fa sol la si"), without
+  signs; the full name, the semitones and the two keys on a `VirtualKeyboard`
+  appear only once the quality is answered or missed.
+- **The page is pinned to the screen height (`h-dvh`) and the staff sits out of
+  the flow** (`absolute inset-0`): `ReadingStaff` sizes its SVG in pixels from
+  its container, so in the flow it held the card at its first size and the
+  reveal keyboard pushed the answer buttons off a landscape phone.
+- `IntervalQuizEngine` builds on `QuizScoringEngine`, the part of
+  `NamingQuizEngine` that is not answering by note name: an interval question
+  has no note name to carry. Its session kind is `interval`, reported as
+  reading time by `activityOf`.
+
+### Rhythm drill (`engine/rhythmQuiz.ts`, `engine/RhythmQuizEngine.ts`, `pages/RhythmQuiz.tsx`)
+
+The fifth screen drill, built like the interval drill: one measure of 4/4 per question, `ReadingStaff` cropping to it, two steps (`RhythmAnswerStep`): the **beat** (1 to 4), then the **subdivision** (`'beat' | 'e' | 'and' | 'a'`, only on-beat and "&" at the `eighths` level).
+
+- **The target is coloured in the MusicXML itself** (`<notehead color>` plus the note's `color` attribute, `RHYTHM_TARGET_COLOR`), which OSMD reads at load time and also applies to the stem. No SVG post-processing, and it survives the crop's re-renders. Orange, since rose and emerald already mean wrong and right on that screen.
+- **Every note is on B4 with the stem up**: pitch would only be noise, and a fixed stem keeps the beams on one side.
+- **Measures are built from cells** (`CELLS`, sixteenths, negative = rest), two-beat cells only on beats 1 or 3, so nothing needs a tie. Beams are explicit per beat, and the sixteenth level is written as real runs (`begin`/`continue`/`end`) with a hook only for a lone sixteenth, since the ostinato's hook-only rule would break `1 1 2` or `1 1 1 1`.
+- **The first note of a measure is never asked** (it answers itself), off-beat targets weigh double, and the same position is never asked twice in a row.
+- **Only one meter, 4/4**, on purpose: a cropped measure shows no time signature after the first, so a round mixing meters could not be read.
+- **Every answered question is held for review until "Next"** (the `review` state in `RhythmQuiz.tsx`), right or wrong, with the whole measure counted out: placing the other notes is free revision. The engine has already advanced by then, so the screen shows `review` instead of its current question, and `showNextQuestion` restarts the response clock on "Next" (`restartResponseClock` in `QuizScoringEngine`) so reading the review is not timed as the next answer.
+- A missed beat reveals only the beat; once the subdivision is missed, `CountLine` counts the whole measure out ("1 e & a 2 e & a...") with note starts dark, rest starts struck through and the target in orange. Session kind `rhythm`, reading time in `activityOf`.
+
+**What the screen drills share, and why each piece moved there**:
+`QuizScoringEngine` (all the scoring -- combo, first-try accuracy, response
+times, confusions), `NamingQuizEngine` on top of it (answering by note name),
+`IntervalQuizEngine` and `RhythmQuizEngine` directly on it (number and quality, beat and subdivision), with `ReadingQuizEngine` adding only `answerPitch` and
 `ChordQuizEngine` adding its step machine (`answerQuality`, `playNote`, and
 `judge`'s `advance` for a question that takes several answers); `useQuizSession` (record on open, heartbeat,
 record on unmount -- the cadence is what matters and it is easy to get subtly
@@ -571,7 +626,8 @@ wrong, since a phone closes a tab with no cleanup); `NoteNameButtons` (the seven
 buttons *and* the number-row shortcut, which must answer the button at that
 position rather than a fixed note, or a shuffled order hands the counting back
 -- `ChordQualityButtons` is its three-button sibling, deliberately never
-shuffled, since three qualities carry no counting shortcut to remove);
+shuffled, since three qualities carry no counting shortcut to remove, and
+`ChoiceButtons` the generic row the interval drill uses for numbers and qualities);
 and `RoundSummary`.
 
 ### Gamification (`ScoreHud.tsx`, `engine/grade.ts`, `engine/streak.ts`)
@@ -608,7 +664,7 @@ Every practice session is recorded as one `PracticeSessionRecord` -- exercise or
 - **Practice time is reported split three ways, never merged** (`timeByActivity`,
   rendered as "Where the time goes"): scores, keyboard exercises, and the screen
   drills. The activity is `activityOf(source)`, **not** `source.kind` directly:
-  there are five session kinds and only three activities, since the note-order
+  there are six session kinds and only three activities, since the note-order
   drill counts as reading time -- and a chord round counts as reading only when
   it did *not* ask for the chord to be played, since that step happens at a real
   keyboard (so there the settings decide, not the kind). The split exists to keep time at the keyboard

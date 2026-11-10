@@ -7,11 +7,15 @@ import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
 import { hanonMidiRange, isHanonRangePlayable } from '../engine/hanonGenerator'
+import { OSTINATO_PATTERN_ORDER, OSTINATO_PATTERNS } from '../engine/ostinatoGenerator'
+import { compositeOrder, POLYRHYTHM_RATIO_ORDER, POLYRHYTHM_RATIOS } from '../engine/polyrhythmGenerator'
 import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
 import { midiToNoteName } from '../engine/noteNames'
 import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
 import { CHORD_ANSWER_STEPS } from '../types/chord'
+import { INTERVAL_ANSWER_STEPS } from '../types/interval'
+import type { RhythmLevel, RhythmQuizSettings } from '../types/rhythm'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type {
@@ -23,6 +27,14 @@ import type {
   ChordQuizSettings,
   ChordStackMode,
 } from '../types/chord'
+import type {
+  IntervalAccidentalMode,
+  IntervalAnswerStep,
+  IntervalClefMode,
+  IntervalLayout,
+  IntervalMaxNumber,
+  IntervalQuizSettings,
+} from '../types/interval'
 import type { KeyboardAssistMode } from '../types/practice'
 import type {
   NoteSequenceDirection,
@@ -41,6 +53,12 @@ import type {
   ExerciseRequest,
   HanonLength,
   HanonSettings,
+  OstinatoMelodyRhythm,
+  OstinatoPattern,
+  OstinatoSettings,
+  PolyrhythmPitches,
+  PolyrhythmRatio,
+  PolyrhythmSettings,
   TrainingAccidentalMode,
   TrainingDifficulty,
   TrainingExerciseContentMode,
@@ -60,14 +78,18 @@ const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
  * build a MusicXML file and hand it to Practice, while a reading quiz has no
  * MIDI, no cursor and no WaitEngine, and goes to its own screen.
  */
-export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords'
+export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords' | 'intervals' | 'rhythm'
 
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
   { kind: 'hanon', label: 'Hanon' },
+  { kind: 'ostinato', label: 'Ostinato' },
+  { kind: 'polyrhythm', label: 'Polyrhythms' },
   { kind: 'reading', label: 'Reading' },
   { kind: 'sequence', label: 'Note order' },
   { kind: 'chords', label: 'Chords' },
+  { kind: 'intervals', label: 'Intervals' },
+  { kind: 'rhythm', label: 'Rhythm' },
 ]
 
 const READING_QUESTION_COUNTS = [10, 20, 30, 40]
@@ -84,6 +106,11 @@ const CHORD_STEP_CHOICES: { step: ChordAnswerStep; label: string }[] = [
   { step: 'play', label: 'Play it on the piano' },
 ]
 
+const INTERVAL_STEP_CHOICES: { step: IntervalAnswerStep; label: string }[] = [
+  { step: 'number', label: 'Number (3rd, 5th...)' },
+  { step: 'quality', label: 'Quality (major, minor, perfect...)' },
+]
+
 const SELECT_CLASS =
   'rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-400 focus:outline-none'
 
@@ -97,11 +124,15 @@ function readingNoteLabel(midi: number): string {
 export interface ExerciseSetupDraft {
   training: TrainingExerciseSettings
   hanon: HanonSettings
+  ostinato: OstinatoSettings
+  polyrhythm: PolyrhythmSettings
   keyboardAssistMode: KeyboardAssistMode
   backingTrackEnabled: boolean
   reading: ReadingQuizSettings
   sequence: NoteSequenceSettings
   chords: ChordQuizSettings
+  intervals: IntervalQuizSettings
+  rhythm: RhythmQuizSettings
 }
 
 interface ExerciseSetupProps {
@@ -114,8 +145,12 @@ interface ExerciseSetupProps {
   initialReadingSettings: ReadingQuizSettings
   initialSequenceSettings: NoteSequenceSettings
   initialChordSettings: ChordQuizSettings
+  initialIntervalSettings: IntervalQuizSettings
+  initialRhythmSettings: RhythmQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
+  initialOstinatoSettings: OstinatoSettings
+  initialPolyrhythmSettings: PolyrhythmSettings
   initialKeyboardAssistMode: KeyboardAssistMode
   initialBackingTrackEnabled: boolean
   onExerciseReady: (
@@ -126,6 +161,8 @@ interface ExerciseSetupProps {
   onReadingReady: (settings: ReadingQuizSettings) => void
   onSequenceReady: (settings: NoteSequenceSettings) => void
   onChordReady: (settings: ChordQuizSettings) => void
+  onIntervalReady: (settings: IntervalQuizSettings) => void
+  onRhythmReady: (settings: RhythmQuizSettings) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -155,14 +192,20 @@ export function ExerciseSetup({
   initialReadingSettings,
   initialSequenceSettings,
   initialChordSettings,
+  initialIntervalSettings,
+  initialRhythmSettings,
   initialSettings,
   initialHanonSettings,
+  initialOstinatoSettings,
+  initialPolyrhythmSettings,
   initialKeyboardAssistMode,
   initialBackingTrackEnabled,
   onExerciseReady,
   onReadingReady,
   onSequenceReady,
   onChordReady,
+  onIntervalReady,
+  onRhythmReady,
   onTabChange,
   onSettingsChange,
   onBack,
@@ -171,7 +214,7 @@ export function ExerciseSetup({
   // The two tabs that build a MusicXML file and hand it to Practice. The other
   // two are screen drills with no keyboard, so the MIDI device picker, the
   // keyboard help and the backing track do not belong to them.
-  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon'
+  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon' || tab === 'ostinato' || tab === 'polyrhythm'
   const [tab, setTab] = useState<SetupTab>(initialTab)
   // The only tab that carries a lesson, and so the only one that wants the
   // extra width a desktop has.
@@ -183,6 +226,23 @@ export function ExerciseSetup({
   const [readingSettings, setReadingSettings] = useState<ReadingQuizSettings>(initialReadingSettings)
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
+  const [intervalSettings, setIntervalSettings] = useState<IntervalQuizSettings>(initialIntervalSettings)
+  const [rhythmSettings, setRhythmSettings] = useState<RhythmQuizSettings>(initialRhythmSettings)
+  /** Same rule as the chord steps: the last box cannot be unchecked, the order is fixed. */
+  const toggleIntervalStep = (step: IntervalAnswerStep) => {
+    setIntervalSettings((current) => {
+      const wanted = new Set(current.answerSteps)
+      if (wanted.has(step)) {
+        if (wanted.size === 1) {
+          return current
+        }
+        wanted.delete(step)
+      } else {
+        wanted.add(step)
+      }
+      return { ...current, answerSteps: INTERVAL_ANSWER_STEPS.filter((entry) => wanted.has(entry)) }
+    })
+  }
   const usesCatalogChords = chordSettings.material === 'catalog'
   // Fetched here only to say how many chords fit the settings and to block a
   // start with none; the quiz screen fetches its own copy.
@@ -211,6 +271,8 @@ export function ExerciseSetup({
     })
   }
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
+  const [ostinatoSettings, setOstinatoSettings] = useState<OstinatoSettings>(initialOstinatoSettings)
+  const [polyrhythmSettings, setPolyrhythmSettings] = useState<PolyrhythmSettings>(initialPolyrhythmSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
   const [trainingContentMode, setTrainingContentMode] = useState<TrainingExerciseContentMode>(
@@ -254,11 +316,15 @@ export function ExerciseSetup({
   const draftKey = JSON.stringify({
     training: trainingSettings,
     hanon: hanonSettings,
+    ostinato: ostinatoSettings,
+    polyrhythm: polyrhythmSettings,
     keyboardAssistMode,
     backingTrackEnabled,
     reading: readingSettings,
     sequence: sequenceSettings,
     chords: chordSettings,
+    intervals: intervalSettings,
+    rhythm: rhythmSettings,
   })
   useEffect(() => {
     onSettingsChange(JSON.parse(draftKey) as ExerciseSetupDraft)
@@ -267,6 +333,14 @@ export function ExerciseSetup({
 
   const handleStartTrainingExercise = () => {
     onExerciseReady({ kind: 'generated', settings: trainingSettings }, keyboardAssistMode, backingTrackEnabled)
+  }
+
+  const handleStartOstinatoExercise = () => {
+    onExerciseReady({ kind: 'ostinato', settings: ostinatoSettings }, keyboardAssistMode, backingTrackEnabled)
+  }
+
+  const handleStartPolyrhythmExercise = () => {
+    onExerciseReady({ kind: 'polyrhythm', settings: polyrhythmSettings }, keyboardAssistMode, backingTrackEnabled)
   }
 
   const handleStartHanonExercise = () => {
@@ -310,7 +384,7 @@ export function ExerciseSetup({
           <StreakBadges streak={streak} className="justify-center" />
         </header>
 
-        <div className="flex w-full max-w-3xl gap-2 self-center rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
+        <div className="flex w-full max-w-3xl flex-wrap gap-2 self-center rounded-xl border border-indigo-100 bg-white/70 p-1 shadow-sm">
           {EXERCISE_TABS.map((item) => (
             <button
               key={item.kind}
@@ -615,6 +689,195 @@ export function ExerciseSetup({
               back down. Both hands play it in parallel, an octave apart.
             </p>
           </section>
+        ) : tab === 'ostinato' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Ostinato</h2>
+              <span className="text-xs text-gray-500">Two hands, two rhythms</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Left hand figure
+                <select
+                  value={ostinatoSettings.pattern}
+                  onChange={(event) =>
+                    setOstinatoSettings((current) => ({ ...current, pattern: event.target.value as OstinatoPattern }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {OSTINATO_PATTERN_ORDER.map((pattern) => (
+                    <option key={pattern} value={pattern}>
+                      {OSTINATO_PATTERNS[pattern].label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-500">
+                  {ostinatoSettings.pattern === 'fifths'
+                    ? 'Root, fifth, octave, fifth in quarters, over I V vi IV'
+                    : ostinatoSettings.pattern === 'alberti'
+                      ? 'Root, fifth, third, fifth in eighths, over I IV V I'
+                      : ostinatoSettings.pattern === 'boogie'
+                        ? 'The walking blues bass in even eighths, over a twelve-bar blues'
+                        : 'The same walk in long-short pairs (dotted eighth, sixteenth)'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Right hand melody
+                <select
+                  value={ostinatoSettings.melodyRhythm}
+                  onChange={(event) =>
+                    setOstinatoSettings((current) => ({
+                      ...current,
+                      melodyRhythm: event.target.value as OstinatoMelodyRhythm,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="easy">Long notes (whole, half)</option>
+                  <option value="medium">Quarters and eighths</option>
+                  <option value="hard">Dotted, off-beat, syncopated</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {ostinatoSettings.melodyRhythm === 'easy'
+                    ? 'Hold the right hand while the left keeps moving under it'
+                    : ostinatoSettings.melodyRhythm === 'medium'
+                      ? 'The hands strike together on most beats, apart on some'
+                      : 'The hands rarely strike together: each note has its own place'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Key
+                <select
+                  value={ostinatoSettings.key}
+                  onChange={(event) => setOstinatoSettings((current) => ({ ...current, key: event.target.value }))}
+                  className={SELECT_CLASS}
+                >
+                  <option value={RANDOM_KEY}>Random</option>
+                  {TRAINING_KEY_NAMES.map((keyName) => (
+                    <option key={keyName} value={keyName}>
+                      {keyName} major
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Length
+                <select
+                  value={ostinatoSettings.measureCount}
+                  onChange={(event) =>
+                    setOstinatoSettings((current) => ({ ...current, measureCount: Number(event.target.value) }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value={8}>8 measures</option>
+                  <option value={12}>12 measures</option>
+                  <option value={16}>16 measures</option>
+                  <option value={24}>24 measures</option>
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              The left hand repeats one figure while the right hand plays a melody on top, the classic drill for
+              hands that play two different rhythms. The score waits for every note as usual, so take the time to
+              see where each right-hand note falls against the bass: together with one, or between two. Learn the
+              left hand alone first if needed (hand picker on the practice screen), until it runs without looking.
+            </p>
+          </section>
+        ) : tab === 'polyrhythm' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Polyrhythms</h2>
+              <span className="text-xs text-gray-500">Two hands, two divisions of the beat</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Ratio
+                <select
+                  value={polyrhythmSettings.ratio}
+                  onChange={(event) =>
+                    setPolyrhythmSettings((current) => ({ ...current, ratio: event.target.value as PolyrhythmRatio }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {POLYRHYTHM_RATIO_ORDER.map((ratio) => (
+                    <option key={ratio} value={ratio}>
+                      {POLYRHYTHM_RATIOS[ratio].label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-500">
+                  Each beat: {compositeOrder(polyrhythmSettings.ratio).join(', ')}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes
+                <select
+                  value={polyrhythmSettings.pitches}
+                  onChange={(event) =>
+                    setPolyrhythmSettings((current) => ({
+                      ...current,
+                      pitches: event.target.value as PolyrhythmPitches,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="single">One note per hand</option>
+                  <option value="broken">Broken chords</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {polyrhythmSettings.pitches === 'single'
+                    ? 'Each hand repeats the chord root: nothing to think about but the rhythm'
+                    : 'Both hands rock up and down the chord, over I IV V I'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Key
+                <select
+                  value={polyrhythmSettings.key}
+                  onChange={(event) => setPolyrhythmSettings((current) => ({ ...current, key: event.target.value }))}
+                  className={SELECT_CLASS}
+                >
+                  <option value={RANDOM_KEY}>Random</option>
+                  {TRAINING_KEY_NAMES.map((keyName) => (
+                    <option key={keyName} value={keyName}>
+                      {keyName} major
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Length
+                <select
+                  value={polyrhythmSettings.measureCount}
+                  onChange={(event) =>
+                    setPolyrhythmSettings((current) => ({ ...current, measureCount: Number(event.target.value) }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value={4}>4 measures</option>
+                  <option value={8}>8 measures</option>
+                  <option value={12}>12 measures</option>
+                  <option value={16}>16 measures</option>
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Within every beat one hand plays three even notes while the other plays two (or four). The score waits
+              for each note of either hand in the order they fall, which is the composite rhythm the two hands make
+              together: for 3 against 2, together, right, left, right. Walk it slowly until that order is automatic,
+              then count it aloud, and only then try it in tempo with a metronome.
+            </p>
+          </section>
         ) : tab === 'reading' ? (
           <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
@@ -738,6 +1001,209 @@ export function ExerciseSetup({
 
             <button type="button" onClick={() => onReadingReady(readingSettings)} className={`self-start ${PRIMARY_BUTTON}`}>
               Start reading quiz
+            </button>
+          </section>
+        ) : tab === 'intervals' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Interval quiz</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <fieldset className="flex flex-col gap-1 text-sm text-gray-700 sm:col-span-2">
+                <legend className="mb-1">Each interval asks for</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {INTERVAL_STEP_CHOICES.map((choice) => (
+                    <label key={choice.step} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={intervalSettings.answerSteps.includes(choice.step)}
+                        onChange={() => toggleIntervalStep(choice.step)}
+                        className="h-4 w-4"
+                      />
+                      <span>{choice.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <span className="text-xs text-gray-500">
+                  Asked one at a time, number first: the quality can only be measured once the number is known.
+                </span>
+              </fieldset>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes drawn
+                <select
+                  value={intervalSettings.layout}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({ ...current, layout: event.target.value as IntervalLayout }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="harmonic">Stacked (played together)</option>
+                  <option value="melodic">In a row (one after the other)</option>
+                  <option value="mixed">Both</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Widest interval
+                <select
+                  value={intervalSettings.maxNumber}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      maxNumber: Number(event.target.value) as IntervalMaxNumber,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value={5}>Up to a fifth</option>
+                  <option value={8}>Up to an octave</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Accidentals
+                <select
+                  value={intervalSettings.accidentalMode}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      accidentalMode: event.target.value as IntervalAccidentalMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="none">None (white keys only)</option>
+                  <option value="all">Sharps and flats</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {intervalSettings.accidentalMode === 'all'
+                    ? 'About half the intervals carry a sign: the quality has to be measured'
+                    : 'Every quality still comes up: fa to si is the augmented 4th'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Clef
+                <select
+                  value={intervalSettings.clefMode}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      clefMode: event.target.value as IntervalClefMode,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="treble">Treble</option>
+                  <option value="bass">Bass</option>
+                  <option value="both">Both (grand staff)</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Intervals per round
+                <select
+                  value={intervalSettings.questionCount}
+                  onChange={(event) =>
+                    setIntervalSettings((current) => ({
+                      ...current,
+                      questionCount: Number(event.target.value),
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Two notes on the staff: say how far apart they are. <strong>The number</strong> is counted in
+              letters, both ends included: do to mi is do re mi, a 3rd. Line to line or space to space is always
+              odd, line to space always even. <strong>The quality</strong> is counted in semitones and compared with
+              the major scale on the lower note: a 3rd of 4 semitones is major, 3 is minor. 4ths, 5ths and octaves
+              are perfect instead of major or minor. One semitone wider than major or perfect is augmented, one
+              narrower than minor or perfect is diminished. Among the white keys, mi to fa and si to do are the
+              only semitones.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => onIntervalReady(intervalSettings)}
+              className={`self-start ${PRIMARY_BUTTON}`}
+            >
+              Start interval quiz
+            </button>
+          </section>
+        ) : tab === 'rhythm' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Rhythm quiz</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Rhythms
+                <select
+                  value={rhythmSettings.level}
+                  onChange={(event) =>
+                    setRhythmSettings((current) => ({ ...current, level: event.target.value as RhythmLevel }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="eighths">Quarters and eighths</option>
+                  <option value="sixteenths">With sixteenths</option>
+                  <option value="syncopated">Rests and syncopations</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {rhythmSettings.level === 'eighths'
+                    ? 'A note is on a beat or on its "&"'
+                    : rhythmSettings.level === 'sixteenths'
+                      ? 'Every beat can split in four: 1 e & a'
+                      : 'Rests and held notes hide the beats: they have to be counted'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes per round
+                <select
+                  value={rhythmSettings.questionCount}
+                  onChange={(event) =>
+                    setRhythmSettings((current) => ({ ...current, questionCount: Number(event.target.value) }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              One measure in 4/4 with one note in orange: say where it falls. First <strong>the beat</strong>, 1 to
+              4, then <strong>where inside it</strong>: right on the beat, or on its &quot;e&quot;, &quot;&amp;&quot;
+              or &quot;a&quot;, the way a beat is counted in sixteenths (1 e &amp; a 2 e &amp; a...). Add up the
+              notes and rests before it: a quarter is one beat, an eighth half a beat, a sixteenth a quarter of a
+              beat, and a dot adds half the value. A miss counts the whole measure out under the staff.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => onRhythmReady(rhythmSettings)}
+              className={`self-start ${PRIMARY_BUTTON}`}
+            >
+              Start rhythm quiz
             </button>
           </section>
         ) : tab === 'chords' ? (
@@ -1073,10 +1539,24 @@ export function ExerciseSetup({
 
           <button
             type="button"
-            onClick={tab === 'hanon' ? handleStartHanonExercise : handleStartTrainingExercise}
+            onClick={
+              tab === 'hanon'
+                ? handleStartHanonExercise
+                : tab === 'ostinato'
+                  ? handleStartOstinatoExercise
+                  : tab === 'polyrhythm'
+                    ? handleStartPolyrhythmExercise
+                    : handleStartTrainingExercise
+            }
             className={`self-start ${PRIMARY_BUTTON}`}
           >
-            {tab === 'hanon' ? `Start Hanon No. ${hanonSettings.exerciseNumber}` : 'Start generated training'}
+            {tab === 'hanon'
+              ? `Start Hanon No. ${hanonSettings.exerciseNumber}`
+              : tab === 'ostinato'
+                ? 'Start ostinato'
+                : tab === 'polyrhythm'
+                  ? 'Start polyrhythm'
+                  : 'Start generated training'}
           </button>
         </section>
         )}
