@@ -15,6 +15,7 @@ import { latinNameOf, readingRange } from '../engine/readingQuiz'
 import { getStreakStats } from '../engine/streak'
 import { CHORD_ANSWER_STEPS } from '../types/chord'
 import { INTERVAL_ANSWER_STEPS } from '../types/interval'
+import type { RhythmLevel, RhythmQuizSettings } from '../types/rhythm'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON } from '../theme'
 import type { MidiDeviceInfo } from '../types/midi'
 import type {
@@ -77,7 +78,7 @@ const HANON_OCTAVE_SHIFTS = [-2, -1, 0, 1, 2]
  * build a MusicXML file and hand it to Practice, while a reading quiz has no
  * MIDI, no cursor and no WaitEngine, and goes to its own screen.
  */
-export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords' | 'intervals'
+export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords' | 'intervals' | 'rhythm'
 
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
@@ -88,6 +89,7 @@ const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'sequence', label: 'Note order' },
   { kind: 'chords', label: 'Chords' },
   { kind: 'intervals', label: 'Intervals' },
+  { kind: 'rhythm', label: 'Rhythm' },
 ]
 
 const READING_QUESTION_COUNTS = [10, 20, 30, 40]
@@ -130,6 +132,7 @@ export interface ExerciseSetupDraft {
   sequence: NoteSequenceSettings
   chords: ChordQuizSettings
   intervals: IntervalQuizSettings
+  rhythm: RhythmQuizSettings
 }
 
 interface ExerciseSetupProps {
@@ -143,6 +146,7 @@ interface ExerciseSetupProps {
   initialSequenceSettings: NoteSequenceSettings
   initialChordSettings: ChordQuizSettings
   initialIntervalSettings: IntervalQuizSettings
+  initialRhythmSettings: RhythmQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
   initialOstinatoSettings: OstinatoSettings
@@ -158,6 +162,7 @@ interface ExerciseSetupProps {
   onSequenceReady: (settings: NoteSequenceSettings) => void
   onChordReady: (settings: ChordQuizSettings) => void
   onIntervalReady: (settings: IntervalQuizSettings) => void
+  onRhythmReady: (settings: RhythmQuizSettings) => void
   /**
    * Lifted to App the moment it changes, not only when a drill is started:
    * this screen is remounted from scratch every time it is reached, so
@@ -188,6 +193,7 @@ export function ExerciseSetup({
   initialSequenceSettings,
   initialChordSettings,
   initialIntervalSettings,
+  initialRhythmSettings,
   initialSettings,
   initialHanonSettings,
   initialOstinatoSettings,
@@ -199,6 +205,7 @@ export function ExerciseSetup({
   onSequenceReady,
   onChordReady,
   onIntervalReady,
+  onRhythmReady,
   onTabChange,
   onSettingsChange,
   onBack,
@@ -220,6 +227,7 @@ export function ExerciseSetup({
   const [sequenceSettings, setSequenceSettings] = useState<NoteSequenceSettings>(initialSequenceSettings)
   const [chordSettings, setChordSettings] = useState<ChordQuizSettings>(initialChordSettings)
   const [intervalSettings, setIntervalSettings] = useState<IntervalQuizSettings>(initialIntervalSettings)
+  const [rhythmSettings, setRhythmSettings] = useState<RhythmQuizSettings>(initialRhythmSettings)
   /** Same rule as the chord steps: the last box cannot be unchecked, the order is fixed. */
   const toggleIntervalStep = (step: IntervalAnswerStep) => {
     setIntervalSettings((current) => {
@@ -316,6 +324,7 @@ export function ExerciseSetup({
     sequence: sequenceSettings,
     chords: chordSettings,
     intervals: intervalSettings,
+    rhythm: rhythmSettings,
   })
   useEffect(() => {
     onSettingsChange(JSON.parse(draftKey) as ExerciseSetupDraft)
@@ -1131,6 +1140,70 @@ export function ExerciseSetup({
               className={`self-start ${PRIMARY_BUTTON}`}
             >
               Start interval quiz
+            </button>
+          </section>
+        ) : tab === 'rhythm' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Rhythm quiz</h2>
+              <span className="text-xs text-gray-500">No piano needed</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Rhythms
+                <select
+                  value={rhythmSettings.level}
+                  onChange={(event) =>
+                    setRhythmSettings((current) => ({ ...current, level: event.target.value as RhythmLevel }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="eighths">Quarters and eighths</option>
+                  <option value="sixteenths">With sixteenths</option>
+                  <option value="syncopated">Rests and syncopations</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {rhythmSettings.level === 'eighths'
+                    ? 'A note is on a beat or on its "&"'
+                    : rhythmSettings.level === 'sixteenths'
+                      ? 'Every beat can split in four: 1 e & a'
+                      : 'Rests and held notes hide the beats: they have to be counted'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes per round
+                <select
+                  value={rhythmSettings.questionCount}
+                  onChange={(event) =>
+                    setRhythmSettings((current) => ({ ...current, questionCount: Number(event.target.value) }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {READING_QUESTION_COUNTS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              One measure in 4/4 with one note in orange: say where it falls. First <strong>the beat</strong>, 1 to
+              4, then <strong>where inside it</strong>: right on the beat, or on its &quot;e&quot;, &quot;&amp;&quot;
+              or &quot;a&quot;, the way a beat is counted in sixteenths (1 e &amp; a 2 e &amp; a...). Add up the
+              notes and rests before it: a quarter is one beat, an eighth half a beat, a sixteenth a quarter of a
+              beat, and a dot adds half the value. A miss counts the whole measure out under the staff.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => onRhythmReady(rhythmSettings)}
+              className={`self-start ${PRIMARY_BUTTON}`}
+            >
+              Start rhythm quiz
             </button>
           </section>
         ) : tab === 'chords' ? (

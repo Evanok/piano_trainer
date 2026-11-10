@@ -2,6 +2,7 @@ import type { ChordAnswerStep, ChordQuizSettings } from '../types/chord.ts'
 import type { PracticeSessionRecord } from '../types/session.ts'
 import type { IntervalAnswerStep, IntervalQuizSettings } from '../types/interval.ts'
 import type { ReadingQuizSettings } from '../types/reading.ts'
+import type { RhythmQuizSettings } from '../types/rhythm.ts'
 import type { NoteSequenceSettings } from '../types/sequence.ts'
 import type { ExerciseRequest } from '../types/training.ts'
 
@@ -243,6 +244,17 @@ export function intervalSessionTitle(settings: IntervalQuizSettings): string {
         ? 'bass clef'
         : 'treble clef'
   return `Intervals - ${asked}, ${layout}, ${accidentals}, ${range}, ${clef}`
+}
+
+const RHYTHM_LEVEL_LABELS: Record<string, string> = {
+  eighths: 'quarters and eighths',
+  sixteenths: 'with sixteenths',
+  syncopated: 'rests and syncopations',
+}
+
+/** "Rhythm - with sixteenths". */
+export function rhythmSessionTitle(settings: RhythmQuizSettings): string {
+  return `Rhythm - ${RHYTHM_LEVEL_LABELS[settings.level] ?? settings.level}`
 }
 
 export function readingSessionTitle(settings: ReadingQuizSettings): string {

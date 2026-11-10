@@ -6,6 +6,15 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Rhythm quiz (2026-11-10)
+
+- New "Rhythm" tab among the screen drills: one measure of 4/4 with one note in orange, placed in two steps,
+  the beat (1 to 4) then where inside it (on the beat, "e", "&", "a"). Three levels: quarters and eighths, with
+  sixteenths, then rests and syncopations. The first note of a measure is never asked and off-beat notes come up
+  twice as often. A missed beat shows only the beat; a missed subdivision counts the whole measure out under the
+  staff ("1 e & a 2 e & a...") with each note and rest start marked. Recorded as its own session kind
+  (`rhythm`), counted as theory time.
+
 ## Polyrhythm drill (2026-11-10)
 
 - New "Polyrhythms" tab among the keyboard drills: every beat split 3 against 2, 2 against 3, 3 against 4 or

@@ -7,6 +7,9 @@ import { Stats } from './pages/Stats'
 import { Practice } from './pages/Practice'
 import { ChordQuiz } from './pages/ChordQuiz'
 import { IntervalQuiz } from './pages/IntervalQuiz'
+import { RhythmQuiz } from './pages/RhythmQuiz'
+import { DEFAULT_RHYTHM_SETTINGS } from './engine/rhythmQuiz'
+import type { RhythmQuizSettings } from './types/rhythm'
 import { NoteSequenceQuiz } from './pages/NoteSequenceQuiz'
 import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
@@ -51,6 +54,7 @@ type Screen =
   | 'sequence-quiz'
   | 'chord-quiz'
   | 'interval-quiz'
+  | 'rhythm-quiz'
   | 'end'
 
 const DEFAULT_EXERCISE_SETTINGS: TrainingExerciseSettings = {
@@ -228,6 +232,9 @@ function App() {
   const [intervalSettings, setIntervalSettings] = useState<IntervalQuizSettings>(() =>
     loadPreference('intervals', DEFAULT_INTERVAL_SETTINGS),
   )
+  const [rhythmSettings, setRhythmSettings] = useState<RhythmQuizSettings>(() =>
+    loadPreference('rhythm', DEFAULT_RHYTHM_SETTINGS),
+  )
 
   useEffect(() => savePreference('catalog-browse', catalogBrowseState), [catalogBrowseState])
   useEffect(() => savePreference('setup-tab', setupTab), [setupTab])
@@ -247,6 +254,7 @@ function App() {
   useEffect(() => savePreference('sequence', sequenceSettings), [sequenceSettings])
   useEffect(() => savePreference('chords', chordSettings), [chordSettings])
   useEffect(() => savePreference('intervals', intervalSettings), [intervalSettings])
+  useEffect(() => savePreference('rhythm', rhythmSettings), [rhythmSettings])
 
   const handleExerciseSetupChange = useCallback((draft: ExerciseSetupDraft) => {
     setExerciseSettings(draft.training)
@@ -259,6 +267,7 @@ function App() {
     setSequenceSettings(draft.sequence)
     setChordSettings(draft.chords)
     setIntervalSettings(draft.intervals)
+    setRhythmSettings(draft.rhythm)
   }, [])
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   // Describes what the next practice session is of. Built here rather than in
@@ -502,6 +511,11 @@ function App() {
     setScreen('interval-quiz')
   }, [])
 
+  const startRhythmQuiz = useCallback((settings: RhythmQuizSettings) => {
+    setRhythmSettings(settings)
+    setScreen('rhythm-quiz')
+  }, [])
+
   const handleChangeExerciseSettings = useCallback(() => {
     setScoreFile(null)
     setPracticeBackingTrack(null)
@@ -542,6 +556,8 @@ function App() {
         onChordReady={startChordQuiz}
         initialIntervalSettings={intervalSettings}
         onIntervalReady={startIntervalQuiz}
+        initialRhythmSettings={rhythmSettings}
+        onRhythmReady={startRhythmQuiz}
         onTabChange={setSetupTab}
         onSettingsChange={handleExerciseSetupChange}
         onBack={handleBackToHome}
@@ -555,6 +571,10 @@ function App() {
 
   if (screen === 'sequence-quiz') {
     return <NoteSequenceQuiz settings={sequenceSettings} onBack={() => setScreen('exercise-setup')} />
+  }
+
+  if (screen === 'rhythm-quiz') {
+    return <RhythmQuiz settings={rhythmSettings} onBack={() => setScreen('exercise-setup')} />
   }
 
   if (screen === 'interval-quiz') {

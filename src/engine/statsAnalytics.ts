@@ -484,7 +484,7 @@ export function activityOf(source: PracticeSessionRecord['source']): ActivityKin
     // carries the old settings shape, and the stats screen must still read it.
     return source.settings.answerSteps?.includes('play') ? 'exercise' : 'reading'
   }
-  return source.kind === 'sequence' || source.kind === 'interval' ? 'reading' : source.kind
+  return source.kind === 'sequence' || source.kind === 'interval' || source.kind === 'rhythm' ? 'reading' : source.kind
 }
 
 export interface ActivityTime {

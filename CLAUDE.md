@@ -241,7 +241,7 @@ situation. It is a **tab in `ExerciseSetup`** (which drill to do is a setting,
 like Hanon) but **not an `ExerciseKind`**: the other two tabs build a MusicXML
 file for `Practice`, while this one has no cursor, no `WaitEngine` and no MIDI,
 and goes to its own screen (`SetupTab = ExerciseKind | 'reading' | 'sequence' |
-'chords'`, the last three being the screen drills). `App` owns
+'chords' | 'intervals' | 'rhythm'`, the last five being the screen drills). `App` owns
 that tab (`setupTab`, lifted through `onTabChange` as soon as it changes, not
 only when a drill starts) because `ExerciseSetup` is remounted on every visit:
 seeding it from `ExerciseKind`, which cannot hold `'reading'`, sent every return
@@ -603,10 +603,21 @@ known.
   has no note name to carry. Its session kind is `interval`, reported as
   reading time by `activityOf`.
 
+### Rhythm drill (`engine/rhythmQuiz.ts`, `engine/RhythmQuizEngine.ts`, `pages/RhythmQuiz.tsx`)
+
+The fifth screen drill, built like the interval drill: one measure of 4/4 per question, `ReadingStaff` cropping to it, two steps (`RhythmAnswerStep`): the **beat** (1 to 4), then the **subdivision** (`'beat' | 'e' | 'and' | 'a'`, only on-beat and "&" at the `eighths` level).
+
+- **The target is coloured in the MusicXML itself** (`<notehead color>` plus the note's `color` attribute, `RHYTHM_TARGET_COLOR`), which OSMD reads at load time and also applies to the stem. No SVG post-processing, and it survives the crop's re-renders. Orange, since rose and emerald already mean wrong and right on that screen.
+- **Every note is on B4 with the stem up**: pitch would only be noise, and a fixed stem keeps the beams on one side.
+- **Measures are built from cells** (`CELLS`, sixteenths, negative = rest), two-beat cells only on beats 1 or 3, so nothing needs a tie. Beams are explicit per beat, and the sixteenth level is written as real runs (`begin`/`continue`/`end`) with a hook only for a lone sixteenth, since the ostinato's hook-only rule would break `1 1 2` or `1 1 1 1`.
+- **The first note of a measure is never asked** (it answers itself), off-beat targets weigh double, and the same position is never asked twice in a row.
+- **Only one meter, 4/4**, on purpose: a cropped measure shows no time signature after the first, so a round mixing meters could not be read.
+- A missed beat reveals only the beat; once the subdivision is answered or missed, `CountLine` counts the whole measure out ("1 e & a 2 e & a...") with note starts dark, rest starts struck through and the target in orange. Session kind `rhythm`, reading time in `activityOf`.
+
 **What the screen drills share, and why each piece moved there**:
 `QuizScoringEngine` (all the scoring -- combo, first-try accuracy, response
 times, confusions), `NamingQuizEngine` on top of it (answering by note name),
-`IntervalQuizEngine` directly on it (number and quality), with `ReadingQuizEngine` adding only `answerPitch` and
+`IntervalQuizEngine` and `RhythmQuizEngine` directly on it (number and quality, beat and subdivision), with `ReadingQuizEngine` adding only `answerPitch` and
 `ChordQuizEngine` adding its step machine (`answerQuality`, `playNote`, and
 `judge`'s `advance` for a question that takes several answers); `useQuizSession` (record on open, heartbeat,
 record on unmount -- the cadence is what matters and it is easy to get subtly

@@ -23,6 +23,7 @@ export type PreferenceKey =
   | 'sequence'
   | 'chords'
   | 'intervals'
+  | 'rhythm'
   | 'daily-goal'
 
 /**
