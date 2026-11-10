@@ -6,6 +6,14 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Polyrhythm drill (2026-11-10)
+
+- New "Polyrhythms" tab among the keyboard drills: every beat split 3 against 2, 2 against 3, 3 against 4 or
+  4 against 3 between the hands (eighth-note triplets against eighths or sixteenths). One note per hand, so only
+  the rhythm is left to think about, or broken chords rocking up and down over I IV V I. Played in Wait Mode,
+  which walks the composite rhythm note by note (together, right, left, right for 3 against 2); the setup
+  screen spells that order out for the chosen ratio.
+
 ## Ostinato drill (2026-11-09)
 
 - New "Ostinato" tab among the keyboard drills, for hands playing two different rhythms: the left hand repeats

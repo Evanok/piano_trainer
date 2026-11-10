@@ -275,6 +275,11 @@ const OSTINATO_LABELS: Record<string, string> = {
 
 export function exerciseSessionTitle(request: ExerciseRequest, keyName: string | null): string {
   const key = keyName ?? request.settings.key
+  if (request.kind === 'polyrhythm') {
+    const [right, left] = request.settings.ratio.split(':')
+    const pitches = request.settings.pitches === 'broken' ? 'broken chords' : 'one note per hand'
+    return `Polyrhythm - ${right} against ${left} - ${key} (${pitches})`
+  }
   if (request.kind === 'ostinato') {
     return `Ostinato - ${OSTINATO_LABELS[request.settings.pattern] ?? request.settings.pattern} - ${key} (${request.settings.melodyRhythm} melody)`
   }

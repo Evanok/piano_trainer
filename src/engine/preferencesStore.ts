@@ -17,6 +17,7 @@ export type PreferenceKey =
   | 'exercise-training'
   | 'exercise-hanon'
   | 'exercise-ostinato'
+  | 'exercise-polyrhythm'
   | 'exercise-options'
   | 'reading'
   | 'sequence'

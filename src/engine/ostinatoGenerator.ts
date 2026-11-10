@@ -154,7 +154,7 @@ function sanitize(settings: Partial<OstinatoSettings>): OstinatoSettings {
   }
 }
 
-function resolveKey(name: string, rng: () => number): KeyConfig {
+export function resolveKey(name: string, rng: () => number): KeyConfig {
   const tonic =
     name === RANDOM_KEY ? TRAINING_KEY_NAMES[Math.floor(rng() * TRAINING_KEY_NAMES.length)] : name
   return findKey(tonic, 'major') ?? KEYS[0]
@@ -164,13 +164,13 @@ function resolveKey(name: string, rng: () => number): KeyConfig {
  * The left hand's tonic: the one between G2 and F♯3, so every figure (the boogie
  * climbs a seventh above its root) stays on the bass staff in every key.
  */
-function bassTonicMidi(key: KeyConfig): number {
+export function bassTonicMidi(key: KeyConfig): number {
   const pc = key.scale[0].pc
   return pc <= 6 ? 48 + pc : 36 + pc
 }
 
 /** A scale-degree index from the tonic (any integer) as a spelled pitch above `tonicMidi`. */
-function pitchAtDegree(key: KeyConfig, tonicMidi: number, index: number): Pitch {
+export function pitchAtDegree(key: KeyConfig, tonicMidi: number, index: number): Pitch {
   const degree = ((index % 7) + 7) % 7
   const octaves = Math.floor(index / 7)
   const scalePitch = key.scale[degree]

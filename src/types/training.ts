@@ -30,7 +30,7 @@ export type TrainingExerciseSettings = Omit<TrainingSettings, 'seed'>
  * keyboard, key-signature badge, "Next exercise", exercise history) wants the
  * same answers for a Hanon drill as for a generated one.
  */
-export type ExerciseKind = 'generated' | 'hanon' | 'ostinato'
+export type ExerciseKind = 'generated' | 'hanon' | 'ostinato' | 'polyrhythm'
 
 /** Play the exercise as printed, or stop at the turnaround for a shorter run. */
 export type HanonLength = 'full' | 'ascending'
@@ -71,11 +71,34 @@ export interface OstinatoSettings {
   measureCount: number
 }
 
+/**
+ * Notes per beat in each hand, written right:left. `3:2` puts eighth-note
+ * triplets in the right hand over straight eighths in the left, `3:4` triplets
+ * over sixteenths, and the two others swap the hands.
+ */
+export type PolyrhythmRatio = '3:2' | '2:3' | '3:4' | '4:3'
+
+/**
+ * What the hands play while keeping the rhythm. `single` repeats one note per
+ * hand (the chord's root) so only the rhythm is left to think about; `broken`
+ * arpeggiates the chord in both hands.
+ */
+export type PolyrhythmPitches = 'single' | 'broken'
+
+export interface PolyrhythmSettings {
+  ratio: PolyrhythmRatio
+  pitches: PolyrhythmPitches
+  /** A tonic name from musicKeys.ts's TRAINING_KEY_NAMES, or 'random'. Major keys only. */
+  key: string
+  measureCount: number
+}
+
 /** What `ExerciseSetup` hands back to App: the kind plus that kind's settings. */
 export type ExerciseRequest =
   | { kind: 'generated'; settings: TrainingExerciseSettings }
   | { kind: 'hanon'; settings: HanonSettings }
   | { kind: 'ostinato'; settings: OstinatoSettings }
+  | { kind: 'polyrhythm'; settings: PolyrhythmSettings }
 
 /** What a generator hands back to App for one built exercise. */
 export interface CreatedExercise {

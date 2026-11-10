@@ -8,6 +8,7 @@ import { StreakBadges } from '../components/StreakBadges'
 import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
 import { hanonMidiRange, isHanonRangePlayable } from '../engine/hanonGenerator'
 import { OSTINATO_PATTERN_ORDER, OSTINATO_PATTERNS } from '../engine/ostinatoGenerator'
+import { compositeOrder, POLYRHYTHM_RATIO_ORDER, POLYRHYTHM_RATIOS } from '../engine/polyrhythmGenerator'
 import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
 import { midiToNoteName } from '../engine/noteNames'
 import { latinNameOf, readingRange } from '../engine/readingQuiz'
@@ -54,6 +55,9 @@ import type {
   OstinatoMelodyRhythm,
   OstinatoPattern,
   OstinatoSettings,
+  PolyrhythmPitches,
+  PolyrhythmRatio,
+  PolyrhythmSettings,
   TrainingAccidentalMode,
   TrainingDifficulty,
   TrainingExerciseContentMode,
@@ -79,6 +83,7 @@ const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
   { kind: 'hanon', label: 'Hanon' },
   { kind: 'ostinato', label: 'Ostinato' },
+  { kind: 'polyrhythm', label: 'Polyrhythms' },
   { kind: 'reading', label: 'Reading' },
   { kind: 'sequence', label: 'Note order' },
   { kind: 'chords', label: 'Chords' },
@@ -118,6 +123,7 @@ export interface ExerciseSetupDraft {
   training: TrainingExerciseSettings
   hanon: HanonSettings
   ostinato: OstinatoSettings
+  polyrhythm: PolyrhythmSettings
   keyboardAssistMode: KeyboardAssistMode
   backingTrackEnabled: boolean
   reading: ReadingQuizSettings
@@ -140,6 +146,7 @@ interface ExerciseSetupProps {
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
   initialOstinatoSettings: OstinatoSettings
+  initialPolyrhythmSettings: PolyrhythmSettings
   initialKeyboardAssistMode: KeyboardAssistMode
   initialBackingTrackEnabled: boolean
   onExerciseReady: (
@@ -184,6 +191,7 @@ export function ExerciseSetup({
   initialSettings,
   initialHanonSettings,
   initialOstinatoSettings,
+  initialPolyrhythmSettings,
   initialKeyboardAssistMode,
   initialBackingTrackEnabled,
   onExerciseReady,
@@ -199,7 +207,7 @@ export function ExerciseSetup({
   // The two tabs that build a MusicXML file and hand it to Practice. The other
   // two are screen drills with no keyboard, so the MIDI device picker, the
   // keyboard help and the backing track do not belong to them.
-  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon' || tab === 'ostinato'
+  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon' || tab === 'ostinato' || tab === 'polyrhythm'
   const [tab, setTab] = useState<SetupTab>(initialTab)
   // The only tab that carries a lesson, and so the only one that wants the
   // extra width a desktop has.
@@ -256,6 +264,7 @@ export function ExerciseSetup({
   }
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
   const [ostinatoSettings, setOstinatoSettings] = useState<OstinatoSettings>(initialOstinatoSettings)
+  const [polyrhythmSettings, setPolyrhythmSettings] = useState<PolyrhythmSettings>(initialPolyrhythmSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
   const [trainingContentMode, setTrainingContentMode] = useState<TrainingExerciseContentMode>(
@@ -300,6 +309,7 @@ export function ExerciseSetup({
     training: trainingSettings,
     hanon: hanonSettings,
     ostinato: ostinatoSettings,
+    polyrhythm: polyrhythmSettings,
     keyboardAssistMode,
     backingTrackEnabled,
     reading: readingSettings,
@@ -318,6 +328,10 @@ export function ExerciseSetup({
 
   const handleStartOstinatoExercise = () => {
     onExerciseReady({ kind: 'ostinato', settings: ostinatoSettings }, keyboardAssistMode, backingTrackEnabled)
+  }
+
+  const handleStartPolyrhythmExercise = () => {
+    onExerciseReady({ kind: 'polyrhythm', settings: polyrhythmSettings }, keyboardAssistMode, backingTrackEnabled)
   }
 
   const handleStartHanonExercise = () => {
@@ -763,6 +777,96 @@ export function ExerciseSetup({
               hands that play two different rhythms. The score waits for every note as usual, so take the time to
               see where each right-hand note falls against the bass: together with one, or between two. Learn the
               left hand alone first if needed (hand picker on the practice screen), until it runs without looking.
+            </p>
+          </section>
+        ) : tab === 'polyrhythm' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Polyrhythms</h2>
+              <span className="text-xs text-gray-500">Two hands, two divisions of the beat</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Ratio
+                <select
+                  value={polyrhythmSettings.ratio}
+                  onChange={(event) =>
+                    setPolyrhythmSettings((current) => ({ ...current, ratio: event.target.value as PolyrhythmRatio }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {POLYRHYTHM_RATIO_ORDER.map((ratio) => (
+                    <option key={ratio} value={ratio}>
+                      {POLYRHYTHM_RATIOS[ratio].label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-500">
+                  Each beat: {compositeOrder(polyrhythmSettings.ratio).join(', ')}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Notes
+                <select
+                  value={polyrhythmSettings.pitches}
+                  onChange={(event) =>
+                    setPolyrhythmSettings((current) => ({
+                      ...current,
+                      pitches: event.target.value as PolyrhythmPitches,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="single">One note per hand</option>
+                  <option value="broken">Broken chords</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {polyrhythmSettings.pitches === 'single'
+                    ? 'Each hand repeats the chord root: nothing to think about but the rhythm'
+                    : 'Both hands rock up and down the chord, over I IV V I'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Key
+                <select
+                  value={polyrhythmSettings.key}
+                  onChange={(event) => setPolyrhythmSettings((current) => ({ ...current, key: event.target.value }))}
+                  className={SELECT_CLASS}
+                >
+                  <option value={RANDOM_KEY}>Random</option>
+                  {TRAINING_KEY_NAMES.map((keyName) => (
+                    <option key={keyName} value={keyName}>
+                      {keyName} major
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Length
+                <select
+                  value={polyrhythmSettings.measureCount}
+                  onChange={(event) =>
+                    setPolyrhythmSettings((current) => ({ ...current, measureCount: Number(event.target.value) }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value={4}>4 measures</option>
+                  <option value={8}>8 measures</option>
+                  <option value={12}>12 measures</option>
+                  <option value={16}>16 measures</option>
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Within every beat one hand plays three even notes while the other plays two (or four). The score waits
+              for each note of either hand in the order they fall, which is the composite rhythm the two hands make
+              together: for 3 against 2, together, right, left, right. Walk it slowly until that order is automatic,
+              then count it aloud, and only then try it in tempo with a metronome.
             </p>
           </section>
         ) : tab === 'reading' ? (
@@ -1367,7 +1471,9 @@ export function ExerciseSetup({
                 ? handleStartHanonExercise
                 : tab === 'ostinato'
                   ? handleStartOstinatoExercise
-                  : handleStartTrainingExercise
+                  : tab === 'polyrhythm'
+                    ? handleStartPolyrhythmExercise
+                    : handleStartTrainingExercise
             }
             className={`self-start ${PRIMARY_BUTTON}`}
           >
@@ -1375,7 +1481,9 @@ export function ExerciseSetup({
               ? `Start Hanon No. ${hanonSettings.exerciseNumber}`
               : tab === 'ostinato'
                 ? 'Start ostinato'
-                : 'Start generated training'}
+                : tab === 'polyrhythm'
+                  ? 'Start polyrhythm'
+                  : 'Start generated training'}
           </button>
         </section>
         )}

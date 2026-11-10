@@ -13,6 +13,7 @@ import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { createHanonExercise } from './engine/hanonGenerator'
 import { createOstinatoExercise } from './engine/ostinatoGenerator'
+import { createPolyrhythmExercise } from './engine/polyrhythmGenerator'
 import { adoptGuestLinkToken, clearToken, fetchAuthStatus, isGuest, subscribeAuthRequired } from './api/auth'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
@@ -36,6 +37,7 @@ import type {
   ExerciseRequest,
   HanonSettings,
   OstinatoSettings,
+  PolyrhythmSettings,
   TrainingExerciseSettings,
 } from './types/training'
 
@@ -105,6 +107,13 @@ const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
   questionCount: 20,
   // Replaced by a fresh one per round in ChordQuiz, same as the other drills.
   seed: 'chords',
+}
+
+const DEFAULT_POLYRHYTHM_SETTINGS: PolyrhythmSettings = {
+  ratio: '3:2',
+  pitches: 'single',
+  key: 'C',
+  measureCount: 8,
 }
 
 const DEFAULT_OSTINATO_SETTINGS: OstinatoSettings = {
@@ -197,6 +206,9 @@ function App() {
   const [ostinatoSettings, setOstinatoSettings] = useState<OstinatoSettings>(() =>
     loadPreference('exercise-ostinato', DEFAULT_OSTINATO_SETTINGS),
   )
+  const [polyrhythmSettings, setPolyrhythmSettings] = useState<PolyrhythmSettings>(() =>
+    loadPreference('exercise-polyrhythm', DEFAULT_POLYRHYTHM_SETTINGS),
+  )
   const [initialExerciseOptions] = useState(() => loadPreference('exercise-options', DEFAULT_EXERCISE_OPTIONS))
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>(
     initialExerciseOptions.keyboardAssistMode,
@@ -222,6 +234,7 @@ function App() {
   useEffect(() => savePreference('exercise-training', exerciseSettings), [exerciseSettings])
   useEffect(() => savePreference('exercise-hanon', hanonSettings), [hanonSettings])
   useEffect(() => savePreference('exercise-ostinato', ostinatoSettings), [ostinatoSettings])
+  useEffect(() => savePreference('exercise-polyrhythm', polyrhythmSettings), [polyrhythmSettings])
   useEffect(
     () =>
       savePreference<ExerciseOptions>('exercise-options', {
@@ -239,6 +252,7 @@ function App() {
     setExerciseSettings(draft.training)
     setHanonSettings(draft.hanon)
     setOstinatoSettings(draft.ostinato)
+    setPolyrhythmSettings(draft.polyrhythm)
     setExerciseKeyboardAssistMode(draft.keyboardAssistMode)
     setExerciseBackingTrackEnabled(draft.backingTrackEnabled)
     setReadingSettings(draft.reading)
@@ -372,7 +386,9 @@ function App() {
           ? createHanonExercise(request.settings)
           : request.kind === 'ostinato'
             ? createOstinatoExercise(request.settings, String(Date.now()))
-            : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
+            : request.kind === 'polyrhythm'
+              ? createPolyrhythmExercise(request.settings, String(Date.now()))
+              : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
       const backingTrack = backingTrackEnabled
         ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
         : null
@@ -382,6 +398,8 @@ function App() {
         setHanonSettings(request.settings)
       } else if (request.kind === 'ostinato') {
         setOstinatoSettings(request.settings)
+      } else if (request.kind === 'polyrhythm') {
+        setPolyrhythmSettings(request.settings)
       } else {
         setExerciseSettings(request.settings)
       }
@@ -449,7 +467,9 @@ function App() {
         ? { kind: 'hanon', settings: { ...hanonSettings, exerciseNumber: Math.min(hanonSettings.exerciseNumber + 1, 20) } }
         : exerciseKind === 'ostinato'
           ? { kind: 'ostinato', settings: ostinatoSettings }
-          : { kind: 'generated', settings: exerciseSettings }
+          : exerciseKind === 'polyrhythm'
+            ? { kind: 'polyrhythm', settings: polyrhythmSettings }
+            : { kind: 'generated', settings: exerciseSettings }
     startExercise(request, exerciseKeyboardAssistMode, exerciseBackingTrackEnabled)
   }, [
     exerciseBackingTrackEnabled,
@@ -458,6 +478,7 @@ function App() {
     exerciseSettings,
     hanonSettings,
     ostinatoSettings,
+    polyrhythmSettings,
     startExercise,
   ])
 
@@ -509,6 +530,7 @@ function App() {
         initialSettings={exerciseSettings}
         initialHanonSettings={hanonSettings}
         initialOstinatoSettings={ostinatoSettings}
+        initialPolyrhythmSettings={polyrhythmSettings}
         initialKeyboardAssistMode={exerciseKeyboardAssistMode}
         initialBackingTrackEnabled={exerciseBackingTrackEnabled}
         onExerciseReady={startExercise}
