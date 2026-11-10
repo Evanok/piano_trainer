@@ -109,4 +109,16 @@ describe('RhythmQuizEngine', () => {
     expect(engine.state.firstTryCount).toBe(0)
     expect(engine.notesStats().confusions[0].played).toBe(wrong)
   })
+
+  it('times the next question from the end of the review, not from the answer', () => {
+    const engine = new RhythmQuizEngine(round.questions, round.steps, 0)
+    const [first, second] = round.questions
+    engine.answerBeat(first.beat, 500)
+    engine.answerSubdivision(first.subdivision, 1000)
+    // Ten seconds spent reading the counted measure, then "Next".
+    engine.showNextQuestion(11000)
+    engine.answerBeat(second.beat, 11500)
+    engine.answerSubdivision(second.subdivision, 12000)
+    expect(engine.notesStats().averageResponseMs).toBe(1000)
+  })
 })

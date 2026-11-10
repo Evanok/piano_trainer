@@ -50,6 +50,14 @@ export class RhythmQuizEngine extends QuizScoringEngine<RhythmQuestion> {
     )
   }
 
+  /**
+   * The screen held the answered measure up for review; the next question is
+   * only on screen from now, so its response time starts here.
+   */
+  showNextQuestion(now = Date.now()): void {
+    this.restartResponseClock(now)
+  }
+
   private submit(correct: boolean, expected: string, played: string, now: number): QuizAnswerResult {
     const isLast = this.stepIndex >= this.steps.length - 1
     const result = this.judge(correct, expected, played, now, isLast)

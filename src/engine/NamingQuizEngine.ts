@@ -157,6 +157,15 @@ export class QuizScoringEngine<Q> {
     this.questionShownAt = null
   }
 
+  /**
+   * Start timing the current question from now. For a drill that holds the
+   * screen on an answered question (a review the player dismisses), so the
+   * time spent reading that review does not land in the next answer's time.
+   */
+  protected restartResponseClock(now: number): void {
+    this.questionShownAt = now
+  }
+
   /** Percentage of questions answered right on the first attempt. */
   get successPercent(): number {
     if (this.answeredCount === 0) {

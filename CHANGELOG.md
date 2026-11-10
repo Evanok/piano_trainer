@@ -12,7 +12,9 @@ Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
   the beat (1 to 4) then where inside it (on the beat, "e", "&", "a"). Three levels: quarters and eighths, with
   sixteenths, then rests and syncopations. The first note of a measure is never asked and off-beat notes come up
   twice as often. A missed beat shows only the beat; a missed subdivision counts the whole measure out under the
-  staff ("1 e & a 2 e & a...") with each note and rest start marked. Recorded as its own session kind
+  staff ("1 e & a 2 e & a...") with each note and rest start marked. Every answered question, right or wrong,
+  then stays on screen with that count until "Next" (or Enter), so the other notes of the measure are revised
+  too; the next question is timed from "Next". Recorded as its own session kind
   (`rhythm`), counted as theory time.
 
 ## Polyrhythm drill (2026-11-10)

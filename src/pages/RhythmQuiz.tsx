@@ -6,10 +6,16 @@
  * steps of a question.
  *
  * A missed beat reveals the beat only, which says nothing about the
- * subdivision still to come. Once the question is over (or the subdivision is
- * missed) the whole measure is counted out under the staff, "1 e & a 2 e & a",
- * with the positions where a note or a rest starts marked: that count is the
- * method the drill is meant to install.
+ * subdivision still to come. Once the subdivision is missed the whole measure
+ * is counted out under the staff, "1 e & a 2 e & a", with the positions where
+ * a note or a rest starts marked: that count is the method the drill is meant
+ * to install.
+ *
+ * And every answered question stays on screen with that count until "Next" is
+ * pressed, right or wrong: placing the other notes of the measure is free
+ * revision, and that is worth a tap. The engine has already moved on by then
+ * (its scoring is done), so the screen shows `review` instead of the engine's
+ * current question, and the next question's clock starts on "Next".
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChoiceButtons } from '../components/ChoiceButtons'
@@ -91,11 +97,13 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
   const [wrongBeats, setWrongBeats] = useState<number[]>([])
   const [wrongSubdivisions, setWrongSubdivisions] = useState<RhythmSubdivision[]>([])
   const [revealed, setRevealed] = useState(false)
+  // The question just answered, held on screen until "Next".
+  const [review, setReview] = useState<RhythmQuestion | null>(null)
   const [staffError, setStaffError] = useState<string | null>(null)
   const wrongTimeoutRef = useRef<number | null>(null)
 
-  const question = engineRef.current.currentQuestion
-  const currentStep = engineRef.current.currentStep
+  const question = review ?? engineRef.current.currentQuestion
+  const currentStep = review ? null : engineRef.current.currentStep
 
   const buildSessionRecord = (frame: QuizSessionFrame): PracticeSessionRecord => {
     const engine = engineRef.current
@@ -177,17 +185,28 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
 
   const handleAnswerSubdivision = (subdivision: RhythmSubdivision) => {
     const engine = engineRef.current
-    if (engine.state.completed) {
+    const answering = engine.currentQuestion
+    if (engine.state.completed || review || !answering) {
       return
     }
-    applyResult(engine.answerSubdivision(subdivision), () =>
+    const result = engine.answerSubdivision(subdivision)
+    applyResult(result, () =>
       setWrongSubdivisions((current) => (current.includes(subdivision) ? current : [...current, subdivision])),
     )
+    if (result !== 'wrong') {
+      setReview(answering)
+    }
+  }
+
+  const handleNext = () => {
+    setReview(null)
+    engineRef.current.showNextQuestion()
   }
 
   const startNewRound = () => {
     startNewSession()
     clearFeedback()
+    setReview(null)
     setRoundSeed(createSessionId())
   }
 
@@ -229,7 +248,7 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
             ))}
           </div>
           <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-700">
-            {Math.min(answered + 1, total)} / {total}
+            {review ? answered : Math.min(answered + 1, total)} / {total}
           </span>
           <span className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-orange-700">
             combo {state.combo}
@@ -251,7 +270,7 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
               <ReadingStaff ref={staffRef} source={round.file} onError={setStaffError} />
             </div>
           )}
-          {state.completed ? (
+          {state.completed && !review ? (
             <RoundSummary
               successPercent={engineRef.current.successPercent}
               errorCount={state.errorCount}
@@ -263,7 +282,7 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
           ) : null}
         </div>
 
-        {!state.completed ? (
+        {!state.completed && !review ? (
           <p className="text-center text-sm text-gray-600">
             {keypadStep === 'beat'
               ? 'Which beat does the orange note fall in?'
@@ -271,7 +290,16 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
           </p>
         ) : null}
 
-        {revealed && question ? (
+        {review ? (
+          <div className="flex flex-col gap-1 rounded-lg bg-emerald-50 px-4 py-1.5 text-center text-sm font-medium text-emerald-800">
+            <span>
+              &quot;{positionLabel(review)}&quot;. Now count the other notes:
+            </span>
+            <CountLine question={review} step={countStep} />
+          </div>
+        ) : null}
+
+        {!review && revealed && question ? (
           <div className="flex flex-col gap-1 rounded-lg bg-emerald-50 px-4 py-1.5 text-center text-sm font-medium text-emerald-800">
             {leaksLaterStep ? (
               <span>Beat {question.beat}</span>
@@ -289,7 +317,17 @@ export function RhythmQuiz({ settings, onBack }: RhythmQuizProps) {
           </div>
         ) : null}
 
-        {keypadStep === 'subdivision' ? (
+        {review ? (
+          <button
+            type="button"
+            // Focused so Enter or Space moves on, the keyboard way through a round.
+            autoFocus
+            onClick={handleNext}
+            className="rounded-lg border border-indigo-300 bg-indigo-600 px-1 py-4 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 sm:text-base"
+          >
+            {state.completed ? 'See results' : 'Next'}
+          </button>
+        ) : keypadStep === 'subdivision' ? (
           <ChoiceButtons
             choices={round.subdivisions}
             labelOf={subdivisionLabel}

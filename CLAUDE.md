@@ -612,7 +612,8 @@ The fifth screen drill, built like the interval drill: one measure of 4/4 per qu
 - **Measures are built from cells** (`CELLS`, sixteenths, negative = rest), two-beat cells only on beats 1 or 3, so nothing needs a tie. Beams are explicit per beat, and the sixteenth level is written as real runs (`begin`/`continue`/`end`) with a hook only for a lone sixteenth, since the ostinato's hook-only rule would break `1 1 2` or `1 1 1 1`.
 - **The first note of a measure is never asked** (it answers itself), off-beat targets weigh double, and the same position is never asked twice in a row.
 - **Only one meter, 4/4**, on purpose: a cropped measure shows no time signature after the first, so a round mixing meters could not be read.
-- A missed beat reveals only the beat; once the subdivision is answered or missed, `CountLine` counts the whole measure out ("1 e & a 2 e & a...") with note starts dark, rest starts struck through and the target in orange. Session kind `rhythm`, reading time in `activityOf`.
+- **Every answered question is held for review until "Next"** (the `review` state in `RhythmQuiz.tsx`), right or wrong, with the whole measure counted out: placing the other notes is free revision. The engine has already advanced by then, so the screen shows `review` instead of its current question, and `showNextQuestion` restarts the response clock on "Next" (`restartResponseClock` in `QuizScoringEngine`) so reading the review is not timed as the next answer.
+- A missed beat reveals only the beat; once the subdivision is missed, `CountLine` counts the whole measure out ("1 e & a 2 e & a...") with note starts dark, rest starts struck through and the target in orange. Session kind `rhythm`, reading time in `activityOf`.
 
 **What the screen drills share, and why each piece moved there**:
 `QuizScoringEngine` (all the scoring -- combo, first-try accuracy, response
