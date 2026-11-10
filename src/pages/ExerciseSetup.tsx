@@ -7,6 +7,7 @@ import { MidiDevice } from '../components/MidiDevice'
 import { StreakBadges } from '../components/StreakBadges'
 import { RANDOM_KEY, TRAINING_KEY_NAMES } from '../engine/musicKeys'
 import { hanonMidiRange, isHanonRangePlayable } from '../engine/hanonGenerator'
+import { OSTINATO_PATTERN_ORDER, OSTINATO_PATTERNS } from '../engine/ostinatoGenerator'
 import { HANON_EXERCISE_NUMBERS } from '../engine/hanonPatterns'
 import { midiToNoteName } from '../engine/noteNames'
 import { latinNameOf, readingRange } from '../engine/readingQuiz'
@@ -50,6 +51,9 @@ import type {
   ExerciseRequest,
   HanonLength,
   HanonSettings,
+  OstinatoMelodyRhythm,
+  OstinatoPattern,
+  OstinatoSettings,
   TrainingAccidentalMode,
   TrainingDifficulty,
   TrainingExerciseContentMode,
@@ -74,6 +78,7 @@ export type SetupTab = ExerciseKind | 'reading' | 'sequence' | 'chords' | 'inter
 const EXERCISE_TABS: Array<{ kind: SetupTab; label: string }> = [
   { kind: 'generated', label: 'Generated drills' },
   { kind: 'hanon', label: 'Hanon' },
+  { kind: 'ostinato', label: 'Ostinato' },
   { kind: 'reading', label: 'Reading' },
   { kind: 'sequence', label: 'Note order' },
   { kind: 'chords', label: 'Chords' },
@@ -112,6 +117,7 @@ function readingNoteLabel(midi: number): string {
 export interface ExerciseSetupDraft {
   training: TrainingExerciseSettings
   hanon: HanonSettings
+  ostinato: OstinatoSettings
   keyboardAssistMode: KeyboardAssistMode
   backingTrackEnabled: boolean
   reading: ReadingQuizSettings
@@ -133,6 +139,7 @@ interface ExerciseSetupProps {
   initialIntervalSettings: IntervalQuizSettings
   initialSettings: TrainingExerciseSettings
   initialHanonSettings: HanonSettings
+  initialOstinatoSettings: OstinatoSettings
   initialKeyboardAssistMode: KeyboardAssistMode
   initialBackingTrackEnabled: boolean
   onExerciseReady: (
@@ -176,6 +183,7 @@ export function ExerciseSetup({
   initialIntervalSettings,
   initialSettings,
   initialHanonSettings,
+  initialOstinatoSettings,
   initialKeyboardAssistMode,
   initialBackingTrackEnabled,
   onExerciseReady,
@@ -191,7 +199,7 @@ export function ExerciseSetup({
   // The two tabs that build a MusicXML file and hand it to Practice. The other
   // two are screen drills with no keyboard, so the MIDI device picker, the
   // keyboard help and the backing track do not belong to them.
-  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon'
+  const isKeyboardDrill = (tab: SetupTab) => tab === 'generated' || tab === 'hanon' || tab === 'ostinato'
   const [tab, setTab] = useState<SetupTab>(initialTab)
   // The only tab that carries a lesson, and so the only one that wants the
   // extra width a desktop has.
@@ -247,6 +255,7 @@ export function ExerciseSetup({
     })
   }
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(initialHanonSettings)
+  const [ostinatoSettings, setOstinatoSettings] = useState<OstinatoSettings>(initialOstinatoSettings)
   const [trainingHandMode, setTrainingHandMode] = useState<TrainingHandMode>(initialSettings.handMode)
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>(initialSettings.difficulty)
   const [trainingContentMode, setTrainingContentMode] = useState<TrainingExerciseContentMode>(
@@ -290,6 +299,7 @@ export function ExerciseSetup({
   const draftKey = JSON.stringify({
     training: trainingSettings,
     hanon: hanonSettings,
+    ostinato: ostinatoSettings,
     keyboardAssistMode,
     backingTrackEnabled,
     reading: readingSettings,
@@ -304,6 +314,10 @@ export function ExerciseSetup({
 
   const handleStartTrainingExercise = () => {
     onExerciseReady({ kind: 'generated', settings: trainingSettings }, keyboardAssistMode, backingTrackEnabled)
+  }
+
+  const handleStartOstinatoExercise = () => {
+    onExerciseReady({ kind: 'ostinato', settings: ostinatoSettings }, keyboardAssistMode, backingTrackEnabled)
   }
 
   const handleStartHanonExercise = () => {
@@ -650,6 +664,105 @@ export function ExerciseSetup({
             <p className="text-xs leading-5 text-gray-500">
               Hanon is finger technique, not a melody: one short figure walks up the scale a degree at a time, then
               back down. Both hands play it in parallel, an octave apart.
+            </p>
+          </section>
+        ) : tab === 'ostinato' ? (
+          <section className={`flex w-full flex-col gap-4 p-5 ${PAGE_CARD}`}>
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 className="text-lg font-medium text-gray-900">Ostinato</h2>
+              <span className="text-xs text-gray-500">Two hands, two rhythms</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Left hand figure
+                <select
+                  value={ostinatoSettings.pattern}
+                  onChange={(event) =>
+                    setOstinatoSettings((current) => ({ ...current, pattern: event.target.value as OstinatoPattern }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  {OSTINATO_PATTERN_ORDER.map((pattern) => (
+                    <option key={pattern} value={pattern}>
+                      {OSTINATO_PATTERNS[pattern].label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-500">
+                  {ostinatoSettings.pattern === 'fifths'
+                    ? 'Root, fifth, octave, fifth in quarters, over I V vi IV'
+                    : ostinatoSettings.pattern === 'alberti'
+                      ? 'Root, fifth, third, fifth in eighths, over I IV V I'
+                      : ostinatoSettings.pattern === 'boogie'
+                        ? 'The walking blues bass in even eighths, over a twelve-bar blues'
+                        : 'The same walk in long-short pairs (dotted eighth, sixteenth)'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Right hand melody
+                <select
+                  value={ostinatoSettings.melodyRhythm}
+                  onChange={(event) =>
+                    setOstinatoSettings((current) => ({
+                      ...current,
+                      melodyRhythm: event.target.value as OstinatoMelodyRhythm,
+                    }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value="easy">Long notes (whole, half)</option>
+                  <option value="medium">Quarters and eighths</option>
+                  <option value="hard">Dotted, off-beat, syncopated</option>
+                </select>
+                <span className="text-xs text-gray-500">
+                  {ostinatoSettings.melodyRhythm === 'easy'
+                    ? 'Hold the right hand while the left keeps moving under it'
+                    : ostinatoSettings.melodyRhythm === 'medium'
+                      ? 'The hands strike together on most beats, apart on some'
+                      : 'The hands rarely strike together: each note has its own place'}
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Key
+                <select
+                  value={ostinatoSettings.key}
+                  onChange={(event) => setOstinatoSettings((current) => ({ ...current, key: event.target.value }))}
+                  className={SELECT_CLASS}
+                >
+                  <option value={RANDOM_KEY}>Random</option>
+                  {TRAINING_KEY_NAMES.map((keyName) => (
+                    <option key={keyName} value={keyName}>
+                      {keyName} major
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                Length
+                <select
+                  value={ostinatoSettings.measureCount}
+                  onChange={(event) =>
+                    setOstinatoSettings((current) => ({ ...current, measureCount: Number(event.target.value) }))
+                  }
+                  className={SELECT_CLASS}
+                >
+                  <option value={8}>8 measures</option>
+                  <option value={12}>12 measures</option>
+                  <option value={16}>16 measures</option>
+                  <option value={24}>24 measures</option>
+                </select>
+              </label>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              The left hand repeats one figure while the right hand plays a melody on top, the classic drill for
+              hands that play two different rhythms. The score waits for every note as usual, so take the time to
+              see where each right-hand note falls against the bass: together with one, or between two. Learn the
+              left hand alone first if needed (hand picker on the practice screen), until it runs without looking.
             </p>
           </section>
         ) : tab === 'reading' ? (
@@ -1249,10 +1362,20 @@ export function ExerciseSetup({
 
           <button
             type="button"
-            onClick={tab === 'hanon' ? handleStartHanonExercise : handleStartTrainingExercise}
+            onClick={
+              tab === 'hanon'
+                ? handleStartHanonExercise
+                : tab === 'ostinato'
+                  ? handleStartOstinatoExercise
+                  : handleStartTrainingExercise
+            }
             className={`self-start ${PRIMARY_BUTTON}`}
           >
-            {tab === 'hanon' ? `Start Hanon No. ${hanonSettings.exerciseNumber}` : 'Start generated training'}
+            {tab === 'hanon'
+              ? `Start Hanon No. ${hanonSettings.exerciseNumber}`
+              : tab === 'ostinato'
+                ? 'Start ostinato'
+                : 'Start generated training'}
           </button>
         </section>
         )}

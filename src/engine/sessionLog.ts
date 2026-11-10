@@ -264,8 +264,20 @@ export function readingSessionTitle(settings: ReadingQuizSettings): string {
  * session starts rather than derived at display time, so the stats screen never
  * has to know anything about generator settings (see SessionSource.title).
  */
+// Kept here rather than imported from the generator: this module is
+// typechecked by the server too, and must not pull in code that builds Files.
+const OSTINATO_LABELS: Record<string, string> = {
+  fifths: 'Fifths',
+  alberti: 'Alberti bass',
+  boogie: 'Boogie',
+  boogieDotted: 'Boogie long-short',
+}
+
 export function exerciseSessionTitle(request: ExerciseRequest, keyName: string | null): string {
   const key = keyName ?? request.settings.key
+  if (request.kind === 'ostinato') {
+    return `Ostinato - ${OSTINATO_LABELS[request.settings.pattern] ?? request.settings.pattern} - ${key} (${request.settings.melodyRhythm} melody)`
+  }
   const hand = HAND_LABELS[request.settings.handMode] ?? request.settings.handMode
   if (request.kind === 'hanon') {
     const length = request.settings.length === 'ascending' ? ', ascending' : ''

@@ -6,6 +6,14 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Ostinato drill (2026-11-09)
+
+- New "Ostinato" tab among the keyboard drills, for hands playing two different rhythms: the left hand repeats
+  a figure (fifths in quarters, Alberti bass, boogie-woogie straight or long-short) over its own progression,
+  while the right hand plays a generated melody whose rhythm is the difficulty: long notes held over the
+  moving bass, quarters and eighths, or dotted, off-beat and syncopated cells. Major keys up to three signs, or
+  random. Played in the usual Wait Mode, so each melody note's place against the bass can be worked out.
+
 ## Interval quiz (2026-11-09)
 
 - New "Intervals" tab among the screen drills: two notes on a staff, named in up to two steps, the number

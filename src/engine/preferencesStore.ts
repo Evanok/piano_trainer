@@ -16,6 +16,7 @@ export type PreferenceKey =
   | 'setup-tab'
   | 'exercise-training'
   | 'exercise-hanon'
+  | 'exercise-ostinato'
   | 'exercise-options'
   | 'reading'
   | 'sequence'

@@ -12,6 +12,7 @@ import { ReadingQuiz } from './pages/ReadingQuiz'
 import { End } from './pages/End'
 import { createTrainingExercise } from './engine/trainingGenerator'
 import { createHanonExercise } from './engine/hanonGenerator'
+import { createOstinatoExercise } from './engine/ostinatoGenerator'
 import { adoptGuestLinkToken, clearToken, fetchAuthStatus, isGuest, subscribeAuthRequired } from './api/auth'
 import { useMidi } from './hooks/useMidi'
 import { stopAllBackingTrackAudio } from './hooks/useBackingTrack'
@@ -34,6 +35,7 @@ import type {
   ExerciseKind,
   ExerciseRequest,
   HanonSettings,
+  OstinatoSettings,
   TrainingExerciseSettings,
 } from './types/training'
 
@@ -103,6 +105,15 @@ const DEFAULT_CHORD_SETTINGS: ChordQuizSettings = {
   questionCount: 20,
   // Replaced by a fresh one per round in ChordQuiz, same as the other drills.
   seed: 'chords',
+}
+
+const DEFAULT_OSTINATO_SETTINGS: OstinatoSettings = {
+  // Alberti under long right-hand notes: the first rung of independence, one
+  // hand holding while the other keeps moving.
+  pattern: 'alberti',
+  melodyRhythm: 'easy',
+  key: 'C',
+  measureCount: 8,
 }
 
 const DEFAULT_HANON_SETTINGS: HanonSettings = {
@@ -183,6 +194,9 @@ function App() {
   const [hanonSettings, setHanonSettings] = useState<HanonSettings>(() =>
     loadPreference('exercise-hanon', DEFAULT_HANON_SETTINGS),
   )
+  const [ostinatoSettings, setOstinatoSettings] = useState<OstinatoSettings>(() =>
+    loadPreference('exercise-ostinato', DEFAULT_OSTINATO_SETTINGS),
+  )
   const [initialExerciseOptions] = useState(() => loadPreference('exercise-options', DEFAULT_EXERCISE_OPTIONS))
   const [exerciseKeyboardAssistMode, setExerciseKeyboardAssistMode] = useState<KeyboardAssistMode>(
     initialExerciseOptions.keyboardAssistMode,
@@ -207,6 +221,7 @@ function App() {
   useEffect(() => savePreference('setup-tab', setupTab), [setupTab])
   useEffect(() => savePreference('exercise-training', exerciseSettings), [exerciseSettings])
   useEffect(() => savePreference('exercise-hanon', hanonSettings), [hanonSettings])
+  useEffect(() => savePreference('exercise-ostinato', ostinatoSettings), [ostinatoSettings])
   useEffect(
     () =>
       savePreference<ExerciseOptions>('exercise-options', {
@@ -223,6 +238,7 @@ function App() {
   const handleExerciseSetupChange = useCallback((draft: ExerciseSetupDraft) => {
     setExerciseSettings(draft.training)
     setHanonSettings(draft.hanon)
+    setOstinatoSettings(draft.ostinato)
     setExerciseKeyboardAssistMode(draft.keyboardAssistMode)
     setExerciseBackingTrackEnabled(draft.backingTrackEnabled)
     setReadingSettings(draft.reading)
@@ -354,7 +370,9 @@ function App() {
       const exercise =
         request.kind === 'hanon'
           ? createHanonExercise(request.settings)
-          : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
+          : request.kind === 'ostinato'
+            ? createOstinatoExercise(request.settings, String(Date.now()))
+            : createTrainingExercise({ ...request.settings, seed: String(Date.now()) })
       const backingTrack = backingTrackEnabled
         ? { enabled: true, keyName: exercise.keyName, tonicPitchClass: exercise.tonicPitchClass }
         : null
@@ -362,6 +380,8 @@ function App() {
       setExerciseKind(request.kind)
       if (request.kind === 'hanon') {
         setHanonSettings(request.settings)
+      } else if (request.kind === 'ostinato') {
+        setOstinatoSettings(request.settings)
       } else {
         setExerciseSettings(request.settings)
       }
@@ -427,7 +447,9 @@ function App() {
     const request: ExerciseRequest =
       exerciseKind === 'hanon'
         ? { kind: 'hanon', settings: { ...hanonSettings, exerciseNumber: Math.min(hanonSettings.exerciseNumber + 1, 20) } }
-        : { kind: 'generated', settings: exerciseSettings }
+        : exerciseKind === 'ostinato'
+          ? { kind: 'ostinato', settings: ostinatoSettings }
+          : { kind: 'generated', settings: exerciseSettings }
     startExercise(request, exerciseKeyboardAssistMode, exerciseBackingTrackEnabled)
   }, [
     exerciseBackingTrackEnabled,
@@ -435,6 +457,7 @@ function App() {
     exerciseKind,
     exerciseSettings,
     hanonSettings,
+    ostinatoSettings,
     startExercise,
   ])
 
@@ -485,6 +508,7 @@ function App() {
         initialTab={setupTab}
         initialSettings={exerciseSettings}
         initialHanonSettings={hanonSettings}
+        initialOstinatoSettings={ostinatoSettings}
         initialKeyboardAssistMode={exerciseKeyboardAssistMode}
         initialBackingTrackEnabled={exerciseBackingTrackEnabled}
         onExerciseReady={startExercise}
