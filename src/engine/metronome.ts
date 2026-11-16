@@ -163,6 +163,8 @@ export class Metronome {
   private beatTimeouts = new Set<ReturnType<typeof setTimeout>>()
   private nextBeatTime = 0
   private beatIndex = 0
+  private silentFrom: number | null = null
+  private pendingClicks = new Set<OscillatorNode>()
   private bpm: number
   private meter: Meter | null
   private volume: number
@@ -189,12 +191,22 @@ export class Metronome {
   }
 
   /**
-   * Must be called from a user gesture: browsers only let an AudioContext
-   * start (or resume) from one. Resolves false when no audio is available.
+   * Must be called from a user gesture (or after one already started the
+   * audio): browsers only let an AudioContext start from one. Resolves false
+   * when no audio is available.
+   *
+   * `anchorMs` puts a downbeat at that `performance.now()` time, so the clicks
+   * share a grid with something else on that clock (the tempo mode's scroll);
+   * a running metronome is restarted on the new grid. Without it, the first
+   * click is right away. `silentFromMs` keeps the grid but mutes every click
+   * from that time on (a count-in when the metronome itself is off).
    */
-  async start(): Promise<boolean> {
+  async start(options: { anchorMs?: number; silentFromMs?: number | null } = {}): Promise<boolean> {
     if (this.isRunning) {
-      return true
+      if (options.anchorMs === undefined) {
+        return true
+      }
+      this.stop()
     }
     if (!this.context) {
       this.context = createAudioContext()
@@ -209,10 +221,35 @@ export class Metronome {
       return false
     }
     this.beatIndex = 0
-    this.nextBeatTime = context.currentTime + START_LEAD_SECONDS
+    this.nextBeatTime =
+      options.anchorMs === undefined ? context.currentTime + START_LEAD_SECONDS : this.contextTimeAt(options.anchorMs)
+    this.silentFrom = options.silentFromMs == null ? null : this.contextTimeAt(options.silentFromMs)
     this.timerId = setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS)
     this.schedule()
     return true
+  }
+
+  /** Mutes (or, with null, unmutes) every click from that performance.now() time on. */
+  setSilentFrom(perfMs: number | null): void {
+    this.silentFrom = perfMs === null ? null : this.contextTimeAt(perfMs)
+  }
+
+  /**
+   * The audio-clock time at which a sound scheduled now is heard at
+   * `perfMs`. getOutputTimestamp pairs the two clocks at the speaker, so the
+   * output latency is already in it; the fallback subtracts the reported one.
+   */
+  private contextTimeAt(perfMs: number): number {
+    const context = this.context
+    if (!context) {
+      return 0
+    }
+    const stamp = typeof context.getOutputTimestamp === 'function' ? context.getOutputTimestamp() : null
+    if (stamp && stamp.contextTime !== undefined && stamp.performanceTime) {
+      return stamp.contextTime + (perfMs - stamp.performanceTime) / 1000
+    }
+    const latency = context.outputLatency || context.baseLatency || 0
+    return context.currentTime + (perfMs - performance.now()) / 1000 - latency
   }
 
   stop(): void {
@@ -220,6 +257,16 @@ export class Metronome {
       clearInterval(this.timerId)
       this.timerId = null
     }
+    // Clicks already booked inside the lookahead would otherwise still sound,
+    // which on a restart on a new grid is a stray click off the beat.
+    for (const oscillator of this.pendingClicks) {
+      try {
+        oscillator.stop()
+      } catch {
+        // Already finished.
+      }
+    }
+    this.pendingClicks.clear()
     for (const timeout of this.beatTimeouts) {
       clearTimeout(timeout)
     }
@@ -260,6 +307,10 @@ export class Metronome {
     const accent = beatAccent(beatIndex, this.meter)
     const peak = Math.max(0, Math.min(1, this.volume)) * MAX_CLICK_GAIN * CLICK_LEVEL[accent]
 
+    const audible = this.silentFrom === null || time < this.silentFrom - 0.001
+    if (!audible) {
+      return // A muted beat neither sounds nor flashes.
+    }
     if (peak > 0) {
       const oscillator = context.createOscillator()
       oscillator.type = 'sine'
@@ -272,6 +323,8 @@ export class Metronome {
       gain.connect(context.destination)
       oscillator.start(time)
       oscillator.stop(time + CLICK_SECONDS + 0.01)
+      this.pendingClicks.add(oscillator)
+      oscillator.onended = () => this.pendingClicks.delete(oscillator)
     }
 
     if (this.onBeat) {

@@ -6,6 +6,26 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Tempo mode: auto-scroll (2026-11-16)
+
+- New "Auto-scroll" control in the practice header, apart from the metronome so it is used with or without the
+  click: the score moves by itself at the tempo and every note is judged on its timing instead of the score waiting for it. Works in Scroll,
+  Scroll loop and Sudden death; not in Page free. Its panel has its own tempo field, but the tempo is one value
+  shared with the metronome, so turning the click on mid-run is always in time; the beat unit follows the
+  metronome's time signature (eighths in 6/8).
+- Start/Stop in the header (Space on desktop), then one bar of count-in, heard even with the metronome off. A
+  soft band over the staves is the playhead, held at the usual look-ahead point. It moves at a constant speed
+  inside each measure, from one downbeat to the next (`engine/playhead.ts`): following each note's engraved x
+  made it speed up and slow down, since notation does not space notes in proportion to their duration.
+- Each note is on time within 70 ms, early or late within 180 ms, otherwise missed (`TempoEngine`, pure and
+  unit-tested); a chord is judged by its worst note. On the score: green on time, orange off the beat, red missed.
+- Scroll loop goes round on the same grid without a new count-in; Sudden death stops at the first missed or
+  wrong note, and Retry starts a new run. Any jump, mode, hand or loop change stops the run.
+- The End screen gets a Rhythm card (on time / early / late / missed and the average lean ahead of or behind the
+  beat), also stored on the session record as `tempo`. The exercise card drops its reaction times when there are
+  none (a tempo run has none).
+- The metronome's state moved to `useMetronome` so the panel and the tempo mode share one instance and one grid.
+
 ## Metronome on the practice screen (2026-11-16)
 
 - A metronome icon in the practice header (desktop and mobile, every mode, scores and exercises) opens a small

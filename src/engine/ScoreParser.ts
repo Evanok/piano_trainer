@@ -255,7 +255,8 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: Han
       })
       const fingers = notes.map(noteFinger)
       const measureNumber = cursor.Iterator.CurrentMeasureIndex + 1
-      events.push({ index, pitches, measureNumber, hands, fingers })
+      const timestampWholeNotes = cursor.Iterator.CurrentSourceTimestamp.RealValue
+      events.push({ index, pitches, measureNumber, hands, fingers, timestampWholeNotes })
       index += 1
     }
     advanceCursorSilently(osmd)
@@ -282,4 +283,26 @@ export function openingMeter(osmd: {
     return null
   }
   return { numerator: signature.Numerator, denominator: signature.Denominator }
+}
+
+/**
+ * Where a measure starts and ends, in whole notes from the piece's start
+ * (`measureNumber` 1-based and sequential, like ExpectedEvent.measureNumber).
+ * Structurally typed for the same reason as openingMeter. Null for a measure
+ * the sheet does not have.
+ */
+export function measureSpanWholeNotes(
+  osmd: {
+    Sheet?: {
+      SourceMeasures?: Array<{ AbsoluteTimestamp: { RealValue: number }; Duration: { RealValue: number } }>
+    }
+  },
+  measureNumber: number,
+): { start: number; end: number } | null {
+  const measure = osmd.Sheet?.SourceMeasures?.[measureNumber - 1]
+  if (!measure) {
+    return null
+  }
+  const start = measure.AbsoluteTimestamp.RealValue
+  return { start, end: start + measure.Duration.RealValue }
 }

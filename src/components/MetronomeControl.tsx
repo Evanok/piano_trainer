@@ -1,37 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import type { TouchEvent as ReactTouchEvent } from 'react'
 import { MetronomeIcon } from './icons'
-import {
-  DEFAULT_METRONOME_SETTINGS,
-  MAX_BPM,
-  METER_CHOICES,
-  MIN_BPM,
-  Metronome,
-  clampBpm,
-  formatMeter,
-  isCompoundMeter,
-  parseMeter,
-  recentTaps,
-  resolveMeter,
-  tapTempoBpm,
-  type Meter,
-  type MeterChoice,
-  type MetronomeSettings,
-} from '../engine/metronome'
-import { loadPreference, savePreference } from '../engine/preferencesStore'
+import { TempoField } from './TempoField'
+import { METER_CHOICES, formatMeter, isCompoundMeter, type Meter, type MeterChoice } from '../engine/metronome'
+import type { MetronomeState } from '../hooks/useMetronome'
+import { stopTouch, usePopover } from '../hooks/usePopover'
 
 interface MetronomeControlProps {
   /** Icon-only button for the one-row mobile header. */
   compact?: boolean
+  metronome: MetronomeState
   /** The piece's opening time signature, null until loaded or when it states none. */
   scoreMeter: Meter | null
+  /** An auto-scroll run is under way: tempo and meter cannot change under it. */
+  runActive: boolean
 }
 
 const BEAT_FLASH_MS = 110
-
-// The score wrapper turns a held press into a cursor jump on mobile; a press
-// inside the panel must not reach it.
-const stopTouch = (event: ReactTouchEvent) => event.stopPropagation()
 
 function meterHint(meter: Meter | null, bpm: number): string {
   if (!meter) {
@@ -43,138 +27,48 @@ function meterHint(meter: Meter | null, bpm: number): string {
   return `${meter.numerator} clicks per bar, accent on 1.`
 }
 
-
 /**
  * The practice screen's metronome: one icon that opens a small panel (on/off,
- * tempo, time signature, volume, tap tempo). It owns its `Metronome` and its beat
- * flash, so a tick re-renders this button and nothing else -- the practice
- * screen around it is far too heavy to re-render on every beat.
+ * tempo, time signature, volume, tap tempo). The state lives in
+ * `useMetronome` (Practice), since auto-scroll shares the tempo; only the
+ * beat flash lives here, so a tick re-renders this button and nothing else --
+ * the practice screen around it is far too heavy for that.
  *
  * The time signature follows the score by default ('score'), so the accent
  * lands where the piece's bar starts without touching anything; a fixed one
  * can still be forced. Only the opening signature is read: a piece that
  * changes meter midway keeps counting the first one.
- *
- * Settings persist per device (`metronome` preference); whether it is ticking
- * does not, since a click starting by itself on opening a score would be a
- * surprise, and browsers would refuse it without a gesture anyway.
  */
-export function MetronomeControl({ compact = false, scoreMeter }: MetronomeControlProps) {
-  const [settings, setSettings] = useState<MetronomeSettings>(() =>
-    loadPreference('metronome', DEFAULT_METRONOME_SETTINGS),
-  )
-  const [isRunning, setIsRunning] = useState(false)
-  const [isOpen, setIsOpen] = useState(false)
+export function MetronomeControl({ compact = false, metronome, scoreMeter, runActive }: MetronomeControlProps) {
+  const { settings, updateSettings, meter, soundOn, toggleSound, subscribeBeat } = metronome
+  const { isOpen, setIsOpen, rootRef } = usePopover()
   const [flash, setFlash] = useState<'accent' | 'beat' | null>(null)
-  const [bpmDraft, setBpmDraft] = useState(String(settings.bpm))
-  const metronomeRef = useRef<Metronome | null>(null)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const tapsRef = useRef<number[]>([])
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const meter = resolveMeter(settings.meter, scoreMeter)
-  const meterKey = meter ? formatMeter(meter) : 'none'
 
-  const getMetronome = () => {
-    if (!metronomeRef.current) {
-      const metronome = new Metronome(settings.bpm, meter, settings.volume)
-      metronome.onBeat = (accent) => {
-        setFlash(accent === 'strong' ? 'accent' : 'beat')
-        if (flashTimeoutRef.current !== null) {
-          clearTimeout(flashTimeoutRef.current)
-        }
-        flashTimeoutRef.current = setTimeout(() => setFlash(null), BEAT_FLASH_MS)
+  useEffect(() => {
+    const unsubscribe = subscribeBeat((accent) => {
+      setFlash(accent === 'strong' ? 'accent' : 'beat')
+      if (flashTimeoutRef.current !== null) {
+        clearTimeout(flashTimeoutRef.current)
       }
-      metronomeRef.current = metronome
-    }
-    return metronomeRef.current
-  }
-
-  useEffect(() => {
-    savePreference('metronome', settings)
-  }, [settings])
-
-  useEffect(() => {
-    metronomeRef.current?.update(settings.bpm, parseMeter(meterKey), settings.volume)
-  }, [settings.bpm, settings.volume, meterKey])
-
-  useEffect(() => {
+      flashTimeoutRef.current = setTimeout(() => setFlash(null), BEAT_FLASH_MS)
+    })
     return () => {
-      metronomeRef.current?.dispose()
-      metronomeRef.current = null
+      unsubscribe()
       if (flashTimeoutRef.current !== null) {
         clearTimeout(flashTimeoutRef.current)
       }
     }
-  }, [])
+  }, [subscribeBeat])
 
-  // Click or tap outside closes the panel.
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen])
-
-  const updateSettings = (patch: Partial<MetronomeSettings>) => {
-    const next = { ...settings, ...patch }
-    if (patch.bpm !== undefined) {
-      next.bpm = clampBpm(patch.bpm)
-      setBpmDraft(String(next.bpm))
-    }
-    setSettings(next)
-  }
-
-  const handleToggleRunning = async () => {
-    const metronome = getMetronome()
-    if (metronome.isRunning) {
-      metronome.stop()
-      setIsRunning(false)
-      setFlash(null)
-      return
-    }
-    const started = await metronome.start()
-    setIsRunning(started)
-  }
-
-  const commitBpmDraft = () => {
-    const parsed = Number(bpmDraft)
-    updateSettings({ bpm: bpmDraft.trim() === '' ? settings.bpm : parsed })
-  }
-
-  const handleTap = () => {
-    const now = performance.now()
-    tapsRef.current = recentTaps([...tapsRef.current, now])
-    const bpm = tapTempoBpm(tapsRef.current)
-    if (bpm !== null) {
-      updateSettings({ bpm })
-    }
-  }
-
-  const iconTone = flash === 'accent'
-    ? 'bg-indigo-600 text-white'
-    : flash === 'beat'
-      ? 'bg-indigo-200 text-indigo-800'
-      : isRunning
-        ? 'bg-indigo-50 text-indigo-700'
-        : 'text-gray-600 hover:bg-gray-100'
-
-  const stepButton =
-    'h-8 w-8 shrink-0 rounded-md border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50'
+  const iconTone =
+    flash === 'accent'
+      ? 'bg-indigo-600 text-white'
+      : flash === 'beat'
+        ? 'bg-indigo-200 text-indigo-800'
+        : soundOn
+          ? 'bg-indigo-50 text-indigo-700'
+          : 'text-gray-600 hover:bg-gray-100'
 
   return (
     <div ref={rootRef} className="relative shrink-0" onTouchStart={stopTouch}>
@@ -183,93 +77,52 @@ export function MetronomeControl({ compact = false, scoreMeter }: MetronomeContr
         onClick={() => setIsOpen((open) => !open)}
         aria-label="Metronome"
         aria-expanded={isOpen}
-        title={isRunning ? `Metronome: ${settings.bpm} bpm` : 'Metronome'}
+        title={soundOn ? `Metronome: ${settings.bpm} bpm` : 'Metronome'}
         className={
           compact
             ? `flex items-center gap-1 rounded-md p-2 transition-colors duration-75 ${iconTone}`
             : `flex items-center gap-1.5 rounded-md border border-gray-300 px-2.5 py-1 text-sm transition-colors duration-75 ${
-                flash || isRunning ? iconTone : 'bg-white text-gray-600 hover:bg-gray-50'
+                flash || soundOn ? iconTone : 'bg-white text-gray-600 hover:bg-gray-50'
               }`
         }
       >
         <MetronomeIcon className={compact ? 'h-5 w-5' : 'h-4 w-4'} />
         {compact ? (
-          isRunning && <span className="text-xs font-semibold tabular-nums">{settings.bpm}</span>
+          soundOn && <span className="text-xs font-semibold tabular-nums">{settings.bpm}</span>
         ) : (
-          <span className="tabular-nums">{isRunning ? `${settings.bpm} bpm` : 'Metronome'}</span>
+          <span className="tabular-nums">{soundOn ? `${settings.bpm} bpm` : 'Metronome'}</span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700 shadow-xl">
-          <button
-            type="button"
-            onClick={() => void handleToggleRunning()}
-            className={
-              isRunning
-                ? 'w-full rounded-md bg-red-50 px-3 py-2 font-semibold text-red-700 hover:bg-red-100'
-                : 'w-full rounded-md bg-indigo-600 px-3 py-2 font-semibold text-white hover:bg-indigo-700'
-            }
-          >
-            {isRunning ? 'Stop' : 'Start'}
-          </button>
-
-          <div className="mt-3 flex items-center gap-1.5">
+        <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700 shadow-xl">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">Metronome</span>
             <button
               type="button"
-              onClick={() => updateSettings({ bpm: settings.bpm - 1 })}
-              aria-label="Slower"
-              className={stepButton}
+              onClick={() => void toggleSound()}
+              className={
+                soundOn
+                  ? 'rounded-md bg-red-50 px-3 py-1.5 font-semibold text-red-700 hover:bg-red-100'
+                  : 'rounded-md bg-indigo-600 px-3 py-1.5 font-semibold text-white hover:bg-indigo-700'
+              }
             >
-              -
-            </button>
-            <input
-              type="number"
-              min={MIN_BPM}
-              max={MAX_BPM}
-              value={bpmDraft}
-              onChange={(e) => setBpmDraft(e.target.value)}
-              onBlur={commitBpmDraft}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  commitBpmDraft()
-                }
-              }}
-              aria-label="Tempo in beats per minute"
-              className="h-8 w-16 min-w-0 rounded-md border border-gray-300 px-2 text-center tabular-nums"
-            />
-            <button
-              type="button"
-              onClick={() => updateSettings({ bpm: settings.bpm + 1 })}
-              aria-label="Faster"
-              className={stepButton}
-            >
-              +
-            </button>
-            <span className="text-xs text-gray-500">bpm</span>
-            <button
-              type="button"
-              onClick={handleTap}
-              className="ml-auto h-8 rounded-md border border-gray-300 bg-white px-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              Tap
+              {soundOn ? 'Stop' : 'Start'}
             </button>
           </div>
-          <input
-            type="range"
-            min={MIN_BPM}
-            max={MAX_BPM}
-            step={1}
-            value={settings.bpm}
-            onChange={(e) => updateSettings({ bpm: Number(e.target.value) })}
-            aria-label="Tempo"
-            className="mt-2 w-full"
-          />
+
+          {runActive && (
+            <p className="mt-3 text-xs text-amber-700">Stop the auto-scroll run to change the tempo or time signature.</p>
+          )}
+          <div className="mt-3">
+            <TempoField bpm={settings.bpm} onChange={(bpm) => updateSettings({ bpm })} disabled={runActive} />
+          </div>
 
           <label className="mt-3 flex items-center justify-between gap-2">
             Time signature
             <select
               value={settings.meter}
+              disabled={runActive}
               onChange={(e) => updateSettings({ meter: e.target.value as MeterChoice })}
               className="rounded-md border border-gray-300 bg-white px-2 py-1"
             >

@@ -36,6 +36,12 @@ export interface ExpectedEvent {
    * of their notes, so a null entry is the ordinary case rather than an error.
    */
   fingers?: (NoteFinger | null)[]
+  /**
+   * Where the event falls in the piece, in whole notes from its start (OSMD's
+   * source timestamp, repeats ignored like the cursor walk). What the tempo
+   * mode turns into a time; optional for the same reason as `hands`.
+   */
+  timestampWholeNotes?: number
 }
 
 export type EventStatus = 'pending' | 'waiting' | 'error' | 'done'

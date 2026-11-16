@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { OpenSheetMusicDisplay, PointF2D } from 'opensheetmusicdisplay'
+import { Fraction, OpenSheetMusicDisplay, PointF2D } from 'opensheetmusicdisplay'
 import type { Note } from 'opensheetmusicdisplay'
+import { playheadX, type MeasureSpan } from '../engine/playhead'
 import {
   advanceCursorSilently,
   noteToMidi,
@@ -14,6 +15,33 @@ import type { HandMode } from '../types/practice'
 const CORRECT_COLOR = '#22c55e'
 const NEUTRAL_COLOR = '#eab308'
 const DEFAULT_COLOR = '#000000'
+
+/** How the tempo mode marks a settled event on the sheet. */
+export type TempoMark = 'onTime' | 'offBeat' | 'missed'
+const TEMPO_MARK_COLORS: Record<TempoMark, string> = {
+  onTime: CORRECT_COLOR,
+  offBeat: '#f97316',
+  missed: '#ef4444',
+}
+// The auto-scroll playhead is an element of our own: OSMD's cursor image is
+// drawn behind the page (z-index -1) and sized for one note. A soft band over
+// the staves only, darker in its middle so "now" can still be read off it.
+const PLAYHEAD_WIDTH_PX = 22
+const PLAYHEAD_STYLE = [
+  'position:absolute',
+  `width:${PLAYHEAD_WIDTH_PX}px`,
+  `margin-left:${-PLAYHEAD_WIDTH_PX / 2}px`,
+  'border-radius:9999px',
+  'pointer-events:none',
+  'z-index:1',
+  'background:linear-gradient(90deg,rgba(99,102,241,0) 0%,rgba(99,102,241,0.16) 30%,rgba(99,102,241,0.42) 50%,rgba(99,102,241,0.16) 70%,rgba(99,102,241,0) 100%)',
+].join(';')
+// How far the band reaches past the top and bottom staff lines, in OSMD units
+// (one unit is the gap between two staff lines).
+const PLAYHEAD_OVERHANG_UNITS = 2
+// Whole notes are turned back into an OSMD Fraction on this grid, fine enough
+// for any tuplet a score writes.
+const TIMESTAMP_TICKS = 3840
 
 // OSMD's graphical model is laid out in its own abstract units, rendered at
 // 10px per unit before the zoom multiplier. Needed to turn a pointer position
@@ -56,6 +84,17 @@ export interface PianoScoreHandle {
   // it is already the one drawn. Without `bounds` the current crop is kept
   // and the target is assumed to be inside it.
   goToEventIndex: (targetIndex: number, bounds?: MeasureBounds | null) => void
+  // Tempo mode only. Moves the cursor forward to an event without painting the
+  // events it leaves (their result is painted by markEvent once known) and
+  // without placing the cursor image, which the playhead drives instead.
+  stepTo: (targetIndex: number) => void
+  // Tempo mode only. Paints an event by its timing result; an event the
+  // cursor has not reached yet keeps the mark until it does.
+  markEvent: (index: number, mark: TempoMark) => void
+  // Tempo mode only (scroll layout). Puts the playhead at a position in the
+  // piece, in whole notes, and scrolls so it stays at the look-ahead point;
+  // null hands the cursor back to the usual per-event placement.
+  setPlayhead: (wholeNotes: number | null) => void
   // Restricts rendering to [startMeasure, endMeasure] (1-based, inclusive,
   // matching ExpectedEvent.measureNumber) -- training mode's "each section is
   // its own isolated score" (no leftover notes from the previous section
@@ -254,6 +293,48 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   // render, and both restarting a section and restarting a loop ask for the
   // very crop they are already in.
   const cropRef = useRef<MeasureBounds | null>(null)
+  // The event index the cursor stands on, and the notes of every event it has
+  // stood on since the last jump, so the tempo mode can paint an event after
+  // the cursor has moved past it (a late note settles it there). Marks for
+  // an event not reached yet wait in pendingMarksRef.
+  const cursorIndexRef = useRef(0)
+  const eventNotesRef = useRef<Map<number, Note[]>>(new Map())
+  const pendingMarksRef = useRef<Map<number, string>>(new Map())
+  const playheadRef = useRef<HTMLDivElement | null>(null)
+  // What the playhead needs from the layout, read once per layout rather than
+  // every frame: the measures' spans, each downbeat's x, and the staves'
+  // vertical extent. `key` names the layout it was read from (zoom, sheet
+  // width), so any re-render -- a crop, a zoom, a window resize -- rebuilds it.
+  const playheadLayoutRef = useRef<{
+    key: string
+    measures: MeasureSpan[]
+    downbeatX: Map<number, number | null>
+    top: number
+    height: number
+  } | null>(null)
+
+  // Records the notes under the cursor as event `index`, and paints them:
+  // a mark waiting for them, else the "to play" yellow.
+  const landOnEvent = (osmd: OpenSheetMusicDisplay, index: number) => {
+    cursorIndexRef.current = index
+    const notes = requiredNotesUnderCursor(osmd, handModeRef.current)
+    eventNotesRef.current.set(index, notes)
+    const color = pendingMarksRef.current.get(index) ?? NEUTRAL_COLOR
+    pendingMarksRef.current.delete(index)
+    colorNotes(
+      osmd,
+      notes.map((note) => [note, color]),
+    )
+  }
+
+  // Advances past rest-only and tie-only positions, the same filter as
+  // extractExpectedEvents, so the count stays in step with the event list.
+  const advanceToNextEvent = (osmd: OpenSheetMusicDisplay) => {
+    advanceCursorSilently(osmd)
+    while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd, handModeRef.current).length === 0) {
+      advanceCursorSilently(osmd)
+    }
+  }
 
   // Colors every given note via the fast path, remembering each choice so it
   // survives a future full render() (see reapplyColors).
@@ -297,6 +378,8 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     // A remount (e.g. toggling layoutMode) leaves the previous instance's SVG
     // behind otherwise -- OSMD doesn't clear a container it didn't create itself.
     containerRef.current.replaceChildren()
+    playheadRef.current = null
+    playheadLayoutRef.current = null
     const osmd = new OpenSheetMusicDisplay(containerRef.current, {
       autoResize: true,
       backend: 'svg',
@@ -321,6 +404,9 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     osmdRef.current = osmd
     noteColorsRef.current = new Map()
     cropRef.current = null
+    cursorIndexRef.current = 0
+    eventNotesRef.current = new Map()
+    pendingMarksRef.current = new Map()
     stableScrollZoomRef.current = null
     stableScrollHeightRef.current = null
     hasLoadedRef.current = false
@@ -462,21 +548,15 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           osmd,
           requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, CORRECT_COLOR]),
         )
-        advanceCursorSilently(osmd)
         // Skip rest-only and tie-continuation-only positions -- extractExpectedEvents
         // does the same, so the cursor must land on the same positions it counted as
         // real events, or the cursor and the WaitEngine's event index fall out of sync.
-        while (!osmd.cursor.Iterator.EndReached && requiredNotesUnderCursor(osmd, handModeRef.current).length === 0) {
-          advanceCursorSilently(osmd)
-        }
+        advanceToNextEvent(osmd)
         // Moved silently above, so the cursor element is placed once, here --
         // scrollCursorIntoView below reads its position.
         osmd.cursor.update()
         // The new position hasn't been attempted yet -- neutral, not alarming.
-        colorNotes(
-          osmd,
-          requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, NEUTRAL_COLOR]),
-        )
+        landOnEvent(osmd, cursorIndexRef.current + 1)
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
         }
@@ -556,6 +636,8 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           DEFAULT_COLOR,
         ])
         colorNotes(osmd, clearAssignments)
+        eventNotesRef.current = new Map()
+        pendingMarksRef.current = new Map()
 
         const walk = () => {
           // Silent walk: whatever places the cursor element afterwards
@@ -578,10 +660,7 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         } else {
           withUncroppedCursor(osmd, walk)
         }
-        colorNotes(
-          osmd,
-          requiredNotesUnderCursor(osmd, handModeRef.current).map((note) => [note, NEUTRAL_COLOR]),
-        )
+        landOnEvent(osmd, targetIndex)
         if (bounds !== undefined && !sameCrop(cropRef.current, bounds)) {
           // Colors the notes and places the cursor itself, once the new crop is drawn.
           applyCrop(osmd, bounds)
@@ -591,6 +670,108 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
         if (containerRef.current) {
           scrollCursorIntoView(osmd, containerRef.current, layoutModeRef.current)
         }
+      },
+      stepTo: (targetIndex: number) => {
+        const osmd = osmdRef.current
+        if (!osmd || !hasLoadedRef.current) {
+          return
+        }
+        while (cursorIndexRef.current < targetIndex && !osmd.cursor.Iterator.EndReached) {
+          advanceToNextEvent(osmd)
+          if (osmd.cursor.Iterator.EndReached) {
+            break
+          }
+          landOnEvent(osmd, cursorIndexRef.current + 1)
+        }
+      },
+      markEvent: (index: number, mark: TempoMark) => {
+        const osmd = osmdRef.current
+        if (!osmd || !hasLoadedRef.current) {
+          return
+        }
+        const color = TEMPO_MARK_COLORS[mark]
+        const notes = eventNotesRef.current.get(index)
+        if (notes) {
+          colorNotes(
+            osmd,
+            notes.map((note) => [note, color]),
+          )
+        } else if (index > cursorIndexRef.current) {
+          pendingMarksRef.current.set(index, color)
+        }
+      },
+      setPlayhead: (wholeNotes: number | null) => {
+        const osmd = osmdRef.current
+        const container = containerRef.current
+        if (wholeNotes === null) {
+          playheadRef.current?.remove()
+          playheadRef.current = null
+          playheadLayoutRef.current = null
+          return
+        }
+        const svg = container?.querySelector('svg')
+        const host = svg?.parentElement
+        const sheet = osmd?.Sheet
+        if (!osmd || !hasLoadedRef.current || !container || !svg || !host || !sheet) {
+          return
+        }
+        const unit = OSMD_PIXELS_PER_UNIT * osmd.Zoom
+        const rules = osmd.EngravingRules
+        const key = `${osmd.Zoom}|${svg.getAttribute('width')}|${rules.MinMeasureToDrawIndex}|${rules.MaxMeasureToDrawIndex}`
+        let layout = playheadLayoutRef.current
+        if (!layout || layout.key !== key) {
+          const staffLines = osmd.GraphicSheet.MusicPages[0]?.MusicSystems[0]?.StaffLines ?? []
+          const ys = staffLines.map((line) => line.PositionAndShape.AbsolutePosition.y)
+          const top = ys.length > 0 ? Math.min(...ys) - PLAYHEAD_OVERHANG_UNITS : 0
+          const bottom =
+            ys.length > 0 ? Math.max(...ys) + osmd.EngravingRules.StaffHeight + PLAYHEAD_OVERHANG_UNITS : 0
+          layout = {
+            key,
+            measures: sheet.SourceMeasures.map((measure) => ({
+              start: measure.AbsoluteTimestamp.RealValue,
+              end: measure.AbsoluteTimestamp.RealValue + measure.Duration.RealValue,
+            })),
+            downbeatX: new Map(),
+            top: top * unit,
+            height: (bottom - top) * unit,
+          }
+          playheadLayoutRef.current = layout
+        }
+        const { measures, downbeatX } = layout
+        const xAtMeasureStart = (index: number): number | null => {
+          if (!downbeatX.has(index)) {
+            const at = index < measures.length ? measures[index].start : measures[measures.length - 1]?.end
+            let x: number | null = null
+            if (at !== undefined) {
+              const timestamp = new Fraction(Math.round(at * TIMESTAMP_TICKS), TIMESTAMP_TICKS)
+              const [xUnits] = osmd.GraphicSheet.calculateXPositionFromTimestamp(timestamp)
+              x = Number.isFinite(xUnits) && xUnits > 0 ? xUnits : null
+            }
+            downbeatX.set(index, x)
+          }
+          return downbeatX.get(index) ?? null
+        }
+        const xUnits = playheadX(measures, wholeNotes, xAtMeasureStart)
+        if (xUnits === null) {
+          return
+        }
+        let playhead = playheadRef.current
+        if (!playhead || playhead.parentElement !== host) {
+          playhead?.remove()
+          playhead = document.createElement('div')
+          playhead.setAttribute('style', PLAYHEAD_STYLE)
+          host.style.position = host.style.position || 'relative'
+          host.appendChild(playhead)
+          playheadRef.current = playhead
+        }
+        // Both rects scroll together, so their difference does not.
+        const svgRect = svg.getBoundingClientRect()
+        const hostRect = host.getBoundingClientRect()
+        playhead.style.top = `${svgRect.top - hostRect.top + layout.top}px`
+        playhead.style.height = `${layout.height}px`
+        const left = svgRect.left - hostRect.left + xUnits * unit
+        playhead.style.left = `${left}px`
+        container.scrollLeft = Math.max(0, left - container.clientWidth * SCROLL_MODE_LOOKAHEAD_FRACTION)
       },
       setZoom: (value: number) => {
         const osmd = osmdRef.current

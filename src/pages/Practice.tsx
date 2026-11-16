@@ -14,14 +14,15 @@ import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ComboOverlay, type ComboBreak } from '../components/ComboOverlay'
 import { LoopRangeBar } from '../components/LoopRangeBar'
+import { AutoScrollControl } from '../components/AutoScrollControl'
 import { MetronomeControl } from '../components/MetronomeControl'
-import type { Meter } from '../engine/metronome'
 import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
 import { SuddenDeathCard, type SuddenDeathMiss } from '../components/SuddenDeathCard'
+import { TempoRunOverlay } from '../components/TempoRunOverlay'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
-import { effectiveHandMode, extractExpectedEvents, openingMeter } from '../engine/ScoreParser'
+import { effectiveHandMode, extractExpectedEvents, measureSpanWholeNotes, openingMeter } from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
 import { eventIndexAtOrAfterMeasure, lastMeasureNumber, sectionForMeasureRange, type Section } from '../engine/sections'
@@ -29,6 +30,16 @@ import { createSessionId } from '../engine/sessionLog'
 import { getSessions, saveSession } from '../engine/sessionStore'
 import { scoreBestCombo } from '../engine/statsAnalytics'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
+import type { Meter } from '../engine/metronome'
+import {
+  GOOD_WINDOW_MS,
+  TempoEngine,
+  addSettledEvent,
+  emptyTempoStats,
+  type SettledEvent,
+  type TempoStats,
+} from '../engine/TempoEngine'
+import { useMetronome } from '../hooks/useMetronome'
 import { midiToNoteName } from '../engine/noteNames'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useBackingTrack } from '../hooks/useBackingTrack'
@@ -76,6 +87,34 @@ const LONG_PRESS_MOVE_TOLERANCE_PX = 12
 
 /** Returned by runWhileBusy's work to keep the overlay up until the remounted score is ready. */
 const WAIT_FOR_READY = 'wait-for-ready'
+
+// Tempo mode: the count-in's first click comes this long after Start, so the
+// click is never booked in the past.
+const COUNT_IN_LEAD_MS = 150
+// With no time signature to read, the tempo counts quarters, four to a bar.
+const DEFAULT_BEAT_UNIT = 4
+const DEFAULT_BEATS_PER_BAR = 4
+
+/**
+ * One pass of the tempo mode over the range being practised: when the range
+ * starts on the clock (`originMs`, the downbeat of its first measure, at
+ * `originWhole` in the piece) and how fast it goes. A loop starts a new run
+ * on the same grid each time round.
+ */
+interface TempoRun {
+  engine: TempoEngine
+  originMs: number
+  originWhole: number
+  msPerWhole: number
+  beatMs: number
+  /** The count-in's first click; equal to originMs for a run with no count-in. */
+  countInStartMs: number
+  /** End of the range's last measure, on the clock. */
+  endMs: number
+  /** The last event index the cursor was moved to. */
+  shownIndex: number
+  rafId: number | null
+}
 
 // Desktop starts in Page free, mobile in Scroll free, for real scores and
 // generated exercises alike.
@@ -204,6 +243,18 @@ export function Practice({
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   // The piece's opening time signature, which the metronome accents by default.
   const [scoreMeter, setScoreMeter] = useState<Meter | null>(null)
+  const metronome = useMetronome(scoreMeter)
+  // The tempo mode ("Auto-scroll"): the score moves by itself at the
+  // metronome's tempo and notes are judged on their timing, instead of the
+  // score waiting for each one. Independent of the click being heard, and of
+  // the practice mode (it works over the loop and in sudden death alike).
+  const [autoScroll, setAutoScroll] = useState(false)
+  // 'idle' until Start, then a count-in bar, then the score moving.
+  const [runPhase, setRunPhase] = useState<'idle' | 'countIn' | 'running'>('idle')
+  const [countInBeat, setCountInBeat] = useState<number | null>(null)
+  const tempoRunRef = useRef<TempoRun | null>(null)
+  // The session's timing totals over every run, null until a run settles anything.
+  const tempoStatsRef = useRef<TempoStats | null>(null)
   // What drives navigation through the piece -- see PracticeMode. Computed
   // once at mount only: re-forcing a default whenever isMobile flips (resize,
   // rotation) would reintroduce the "state fights the user's choice" problem
@@ -225,6 +276,8 @@ export function Practice({
   const [expectedHandPitches, setExpectedHandPitches] = useState(NO_HAND_PITCHES)
 
   const [events, setEvents] = useState<ExpectedEvent[]>([])
+  const eventsRef = useRef<ExpectedEvent[]>([])
+  eventsRef.current = events
   const [sectionMessage, setSectionMessage] = useState<string | null>(null)
   // Scroll loop's range, in measures. It starts as the whole piece, which
   // is what makes the mode behave exactly like plain Scroll until a bound is
@@ -266,6 +319,8 @@ export function Practice({
     if (busyRef.current) {
       return
     }
+    // Everything run here re-lays the score out: a tempo run cannot keep time across that.
+    stopTempoRun()
     busyRef.current = true
     setBusyLabel(label)
     // rAF runs just before the next paint; the timeout queued from it runs
@@ -369,6 +424,11 @@ export function Practice({
   // MIDI input is simply not tracked (see the onNoteEvent effect below).
   const isFreePageMode = practiceMode === 'page'
   const resolvedLayoutMode: LayoutMode = practiceMode === 'page' ? 'page' : 'scroll'
+  // The tempo mode needs the cursor and the single scrolling line, so Page
+  // free cannot have it; the setting is kept and comes back on leaving it.
+  const tempoMode = autoScroll && !isFreePageMode
+  const autoScrollUnavailable = isFreePageMode ? 'Not available in Page free: pick Scroll, Loop or Sudden death.' : null
+  const runActive = runPhase !== 'idle'
 
   const clearDecayTimer = () => {
     if (decayTimeoutRef.current !== null) {
@@ -456,6 +516,7 @@ export function Practice({
       successPercent: reached === 0 ? 0 : Math.round((100 * (reached - eventsWithErrorsRef.current.size)) / reached),
       maxCombo: maxComboRef.current,
       notes: buildNoteStats(),
+      ...(tempoStatsRef.current ? { tempo: tempoStatsRef.current } : {}),
     }
   }
 
@@ -558,6 +619,9 @@ export function Practice({
     if (!engine) {
       return
     }
+    // Every move of the cursor ends a tempo run: it was timed from where it
+    // started, so it cannot carry on from anywhere else.
+    stopTempoRun()
     clearDecayTimer()
     engine.jumpToEventIndex(targetIndex)
     scoreRef.current?.goToEventIndex(
@@ -583,6 +647,285 @@ export function Practice({
     eventStartedAtRef.current = nowMs()
   }
 
+  // --- Tempo mode -----------------------------------------------------------
+
+  const stopTempoRun = (options: { keepGrid?: boolean } = {}) => {
+    const run = tempoRunRef.current
+    if (!run) {
+      return
+    }
+    if (run.rafId !== null) {
+      cancelAnimationFrame(run.rafId)
+    }
+    tempoRunRef.current = null
+    setRunPhase('idle')
+    setCountInBeat(null)
+    scoreRef.current?.setPlayhead(null)
+    if (!options.keepGrid) {
+      metronome.endRunGrid()
+    }
+  }
+
+  /**
+   * Starts the score moving from the event the cursor is on, at the
+   * metronome's tempo. From the downbeat of that event's measure, after one
+   * bar of count-in, unless `originMs` continues an earlier run's grid (a
+   * loop going round). Each event's time is its place in the piece, in whole
+   * notes, turned into milliseconds at that tempo; the score's own tempo
+   * markings are deliberately not followed, the player sets the speed.
+   */
+  const startTempoRun = (continueFromMs: number | null = null) => {
+    const osmd = osmdRef.current
+    const wait = waitEngineRef.current
+    if (!osmd || !wait || busyRef.current || tempoRunRef.current) {
+      return
+    }
+    const allEvents = eventsRef.current
+    const bounds = activeBoundsRef.current
+    const endIndex = bounds ? bounds.endEventIndex : allEvents.length
+    const startIndex = Math.max(wait.state.currentIndex, bounds ? bounds.startEventIndex : 0)
+    if (startIndex >= endIndex) {
+      return
+    }
+    const firstMeasure = measureSpanWholeNotes(osmd, allEvents[startIndex].measureNumber)
+    const lastMeasure = measureSpanWholeNotes(osmd, bounds ? bounds.endMeasure : lastMeasureNumber(allEvents))
+    if (!firstMeasure || !lastMeasure) {
+      return
+    }
+    // A clean slate on the score and the keyboard: start-of-run colors only.
+    goToEventIndex(startIndex)
+
+    const meter = metronome.meter
+    const beatMs = 60000 / metronome.settings.bpm
+    const msPerWhole = beatMs * (meter?.denominator ?? DEFAULT_BEAT_UNIT)
+    const countInMs = beatMs * (meter?.numerator ?? DEFAULT_BEATS_PER_BAR)
+    const originMs = continueFromMs ?? performance.now() + COUNT_IN_LEAD_MS + countInMs
+    const originWhole = firstMeasure.start
+    const engine = new TempoEngine(
+      allEvents.slice(startIndex, endIndex).map((event) => ({
+        index: event.index,
+        pitches: event.pitches,
+        timeMs: originMs + ((event.timestampWholeNotes ?? originWhole) - originWhole) * msPerWhole,
+      })),
+    )
+    tempoRunRef.current = {
+      engine,
+      originMs,
+      originWhole,
+      msPerWhole,
+      beatMs,
+      countInStartMs: continueFromMs === null ? originMs - countInMs : originMs,
+      endMs: originMs + (lastMeasure.end - originWhole) * msPerWhole,
+      shownIndex: startIndex,
+      rafId: null,
+    }
+    if (!tempoStatsRef.current) {
+      tempoStatsRef.current = emptyTempoStats(metronome.settings.bpm)
+    }
+    tempoStatsRef.current = { ...tempoStatsRef.current, bpm: metronome.settings.bpm }
+    if (continueFromMs === null) {
+      void metronome.startRunGrid(originMs - countInMs, originMs)
+      setRunPhase('countIn')
+    } else {
+      metronome.continueRunGrid()
+      setRunPhase('running')
+    }
+    tempoRunRef.current.rafId = requestAnimationFrame(() => tempoTickRef.current())
+  }
+
+  const breakCombo = () => {
+    const brokenRun = comboRef.current
+    comboRef.current = 0
+    setCurrentCombo(0)
+    if (brokenRun > 0) {
+      setComboBreak({ id: Date.now(), value: brokenRun })
+    }
+    return brokenRun
+  }
+
+  // Sudden death over a tempo run: the first miss or wrong note stops the
+  // score where it is, with the same card as the waiting version.
+  const endRunOnMiss = (expectedPitchesForMiss: number[], played: string, brokenRun: number) => {
+    stopTempoRun()
+    clearDecayTimer()
+    setMiss({
+      measure: scoreRef.current?.getCurrentMeasure() ?? 1,
+      expected: expectedPitchesForMiss.map(midiToNoteName).join(' + '),
+      played,
+      run: brokenRun,
+    })
+  }
+
+  const eventPitches = (index: number) => eventsRef.current[index]?.pitches ?? []
+
+  const handleSettled = (settled: SettledEvent) => {
+    tempoStatsRef.current = addSettledEvent(tempoStatsRef.current ?? emptyTempoStats(metronome.settings.bpm), settled)
+    furthestIndexRef.current = Math.max(furthestIndexRef.current, settled.index + 1)
+    if (settled.result === 'missed') {
+      scoreRef.current?.markEvent(settled.index, 'missed')
+      eventsWithErrorsRef.current.add(settled.index)
+      errorCountRef.current += 1
+      setErrorCount(errorCountRef.current)
+      eventPitches(settled.index).forEach((pitch) => incrementCount(missedNoteCountsRef.current, pitch))
+      const brokenRun = breakCombo()
+      if (practiceModeRef.current === 'suddenDeath') {
+        endRunOnMiss(eventPitches(settled.index), 'nothing', brokenRun)
+      }
+      return
+    }
+    scoreRef.current?.markEvent(settled.index, settled.result === 'onTime' ? 'onTime' : 'offBeat')
+    comboRef.current += 1
+    maxComboRef.current = Math.max(maxComboRef.current, comboRef.current)
+    setCurrentCombo(comboRef.current)
+    setBestCombo(maxComboRef.current)
+  }
+
+  const handleTempoNote = (event: MidiNoteEvent) => {
+    const run = tempoRunRef.current
+    // A key touched during the count-in, well before the first note, is not
+    // an attempt at anything.
+    if (!run || event.timestamp < run.originMs - GOOD_WINDOW_MS) {
+      return
+    }
+    const outcome = run.engine.noteOn(event.pitch, event.timestamp)
+    if (outcome.kind === 'hit') {
+      correctNoteCountRef.current += 1
+      setCorrectNoteCount(correctNoteCountRef.current)
+      if (outcome.settled) {
+        handleSettled(outcome.settled)
+      }
+      return
+    }
+    errorCountRef.current += 1
+    setErrorCount(errorCountRef.current)
+    const expectedNearby = outcome.nearestIndex === null ? [] : eventPitches(outcome.nearestIndex)
+    if (outcome.nearestIndex !== null) {
+      eventsWithErrorsRef.current.add(outcome.nearestIndex)
+    }
+    recordNoteError(expectedNearby, event.pitch)
+    const brokenRun = breakCombo()
+    setWrongPitches((pitches) => [...pitches, event.pitch])
+    if (practiceModeRef.current === 'suddenDeath') {
+      endRunOnMiss(expectedNearby, midiToNoteName(event.pitch), brokenRun)
+      return
+    }
+    scheduleDecay(WRONG_NOTE_DISPLAY_MS)
+  }
+
+  // One animation frame of a run: the playhead, the count-in, the events whose
+  // time has passed unplayed, the cursor, and the end of the range. Read
+  // through a ref so the loop always runs this render's version.
+  const tempoTick = () => {
+    const run = tempoRunRef.current
+    if (!run) {
+      return
+    }
+    run.rafId = null
+    const now = performance.now()
+    const position = run.originWhole + (now - run.originMs) / run.msPerWhole
+    scoreRef.current?.setPlayhead(Math.max(position, run.originWhole))
+
+    if (now < run.originMs) {
+      // Counted up like a conductor's "one, two": nothing before the first click.
+      setCountInBeat(now < run.countInStartMs ? null : Math.floor((now - run.countInStartMs) / run.beatMs) + 1)
+    } else {
+      setCountInBeat(null)
+      setRunPhase('running')
+    }
+
+    for (const settled of run.engine.advance(now)) {
+      handleSettled(settled)
+      if (tempoRunRef.current !== run) {
+        return // Sudden death ended the run.
+      }
+    }
+
+    const current = run.engine.currentIndex
+    if (current !== null && current > run.shownIndex) {
+      run.shownIndex = current
+      scoreRef.current?.stepTo(current)
+      const wait = waitEngineRef.current
+      if (wait) {
+        // Kept on the same event, which is what the keyboard, the header and
+        // the session record (eventsPlayed) all read.
+        wait.jumpToEventIndex(current)
+        setEngineState(wait.state)
+        setExpectedPitches(wait.currentExpectedPitches)
+        setExpectedHandPitches(handPitchesOf(wait.currentEvent))
+      }
+      setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
+    }
+
+    if (run.engine.isFinished && now >= run.endMs) {
+      const loop = activeBoundsRef.current
+      if (loop) {
+        // Round again on the same grid, no count-in: the loop is one
+        // continuous stretch of practice.
+        stopTempoRun({ keepGrid: true })
+        goToEventIndex(loop.startEventIndex, loop)
+        startTempoRun(run.endMs)
+        return
+      }
+      stopTempoRun()
+      const wait = waitEngineRef.current
+      if (wait) {
+        wait.jumpToEventIndex(totalEventsRef.current)
+      }
+      finishSession()
+      return
+    }
+    run.rafId = requestAnimationFrame(() => tempoTickRef.current())
+  }
+  const tempoTickRef = useRef(tempoTick)
+  tempoTickRef.current = tempoTick
+
+  const handleToggleRun = () => {
+    if (tempoRunRef.current) {
+      stopTempoRun()
+      return
+    }
+    startTempoRun()
+  }
+
+  const handleAutoScrollChange = (enabled: boolean) => {
+    if (!enabled) {
+      stopTempoRun()
+    }
+    setAutoScroll(enabled)
+  }
+
+  // Leaving the screen mid-run: no frame may run against an unmounted score.
+  useEffect(() => {
+    return () => {
+      const run = tempoRunRef.current
+      if (run?.rafId != null) {
+        cancelAnimationFrame(run.rafId)
+      }
+      tempoRunRef.current = null
+    }
+  }, [])
+
+  // Space starts and stops a run on a desktop keyboard; Enter/Space already
+  // retry a sudden-death miss, which then starts a run by itself.
+  useEffect(() => {
+    if (!tempoMode || suddenDeathMiss !== null) {
+      return
+    }
+    const handleKey = (keyEvent: KeyboardEvent) => {
+      const target = keyEvent.target as HTMLElement | null
+      if (target && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(target.tagName)) {
+        return
+      }
+      if (keyEvent.key === ' ' && !keyEvent.repeat) {
+        keyEvent.preventDefault()
+        handleToggleRun()
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tempoMode, suddenDeathMiss])
+
   // The WaitEngine reached its last event: the piece is done.
   const finishSession = () => {
     const total = totalEventsRef.current
@@ -593,6 +936,7 @@ export function Practice({
       totalEvents: total,
       successPercent: Math.round((100 * (total - eventsWithErrorsRef.current.size)) / total),
       maxCombo: maxComboRef.current,
+      ...(tempoStatsRef.current ? { tempo: tempoStatsRef.current } : {}),
       // The End screen's response-time breakdown stays exercise-only: on a real
       // score those timings are mostly sight-reading pauses, not reaction times.
       ...(sourceKindRef.current === 'generated-training' ? { exercise: buildNoteStats() } : {}),
@@ -629,11 +973,21 @@ export function Practice({
     goToEventIndex(bounds ? bounds.startEventIndex : eventIndexAtOrAfterMeasure(events, clampedStart), bounds)
   }
 
+  // The note effect below subscribes once, so it reaches the tempo handler
+  // (which reads this render's state) through a ref.
+  const handleTempoNoteRef = useRef(handleTempoNote)
+  handleTempoNoteRef.current = handleTempoNote
+
   useEffect(() => {
     const handleNoteEvent = (event: MidiNoteEvent) => {
       // A note landing between a switch and its work would be judged against
       // the event list the switch is about to replace.
       if (event.type !== 'noteon' || busyRef.current || suddenDeathMissRef.current !== null) {
+        return
+      }
+      // A tempo run judges timing, not order: its own path entirely.
+      if (tempoRunRef.current) {
+        handleTempoNoteRef.current(event)
         return
       }
       // Page free is a plain read-along viewer with no wait-gating and no
@@ -780,6 +1134,7 @@ export function Practice({
 
   const handleReady = (osmd: OpenSheetMusicDisplay) => {
     clearDecayTimer()
+    stopTempoRun()
     // A remount (layout/hand-mode switch, or moving to a new exercise) can
     // load a different file entirely -- any in-progress preview is now
     // playing back notes that no longer match what's on screen.
@@ -846,6 +1201,10 @@ export function Practice({
   // note. No overlay: with nothing cropped, the jump renders nothing.
   const handleRetry = () => {
     goToEventIndex(0)
+    // In tempo the attempt is the run itself, so retrying starts one.
+    if (tempoMode) {
+      startTempoRun()
+    }
   }
 
   // Enter or Space retries too, so a desktop player need not reach for the
@@ -1190,7 +1549,30 @@ export function Practice({
               {backingTrackButtonLabel}
             </button>
           )}
-          <MetronomeControl compact scoreMeter={scoreMeter} />
+          <MetronomeControl compact metronome={metronome} scoreMeter={scoreMeter} runActive={runActive} />
+          <AutoScrollControl
+            compact
+            enabled={autoScroll}
+            onEnabledChange={handleAutoScrollChange}
+            unavailable={autoScrollUnavailable}
+            bpm={metronome.settings.bpm}
+            onBpmChange={(bpm) => metronome.updateSettings({ bpm })}
+            meter={metronome.meter}
+            runActive={runActive}
+          />
+          {tempoMode && (
+            <button
+              type="button"
+              onClick={handleToggleRun}
+              className={
+                runActive
+                  ? 'shrink-0 rounded-md bg-red-50 px-2 py-1 text-xs font-semibold text-red-700'
+                  : 'shrink-0 rounded-md bg-indigo-600 px-2 py-1 text-xs font-semibold text-white'
+              }
+            >
+              {runActive ? 'Stop' : 'Start'}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleTogglePreviewPlayback}
@@ -1295,6 +1677,9 @@ export function Practice({
           )}
           {suddenDeathMiss && (
             <SuddenDeathCard compact miss={suddenDeathMiss} best={comboToBeat} onRetry={handleRetry} />
+          )}
+          {tempoMode && (
+            <TempoRunOverlay compact phase={runPhase} countInBeat={countInBeat} bpm={metronome.settings.bpm} />
           )}
           {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
           {/* Transient messages (loop restarts, long-press jumps), floated
@@ -1424,7 +1809,29 @@ export function Practice({
           {isPreviewPlaying ? <StopIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
           {isPreviewPlaying ? 'Stop' : 'Play'}
         </button>
-        <MetronomeControl scoreMeter={scoreMeter} />
+        <MetronomeControl metronome={metronome} scoreMeter={scoreMeter} runActive={runActive} />
+        <AutoScrollControl
+          enabled={autoScroll}
+          onEnabledChange={handleAutoScrollChange}
+          unavailable={autoScrollUnavailable}
+          bpm={metronome.settings.bpm}
+          onBpmChange={(bpm) => metronome.updateSettings({ bpm })}
+          meter={metronome.meter}
+          runActive={runActive}
+        />
+        {tempoMode && (
+          <button
+            type="button"
+            onClick={handleToggleRun}
+            className={
+              runActive
+                ? 'rounded-md border border-red-300 bg-red-50 px-2.5 py-1 text-sm font-semibold text-red-700 hover:bg-red-100'
+                : 'rounded-md bg-indigo-600 px-2.5 py-1 text-sm font-semibold text-white hover:bg-indigo-700'
+            }
+          >
+            {runActive ? 'Stop run' : 'Start run (Space)'}
+          </button>
+        )}
         {sourceKind === 'generated-training' ? (
           <>
             <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
@@ -1505,6 +1912,7 @@ export function Practice({
         />
         {!isFreePageMode && <ComboOverlay combo={currentCombo} best={comboToBeat} comboBreak={comboBreak} />}
         {suddenDeathMiss && <SuddenDeathCard miss={suddenDeathMiss} best={comboToBeat} onRetry={handleRetry} />}
+        {tempoMode && <TempoRunOverlay phase={runPhase} countInBeat={countInBeat} bpm={metronome.settings.bpm} />}
         {busyLabel && <ScoreBusyOverlay label={busyLabel} />}
       </div>
 

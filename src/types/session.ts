@@ -27,6 +27,18 @@ export interface ExerciseSessionStats {
   confusions: ExerciseConfusionStat[]
 }
 
+/** Running totals of the tempo mode's runs over one session. */
+export interface TempoStats {
+  /** The tempo of the latest run. */
+  bpm: number
+  onTime: number
+  early: number
+  late: number
+  missed: number
+  /** Mean offset of every played event, negative = ahead of the beat. Null when nothing was played. */
+  meanOffsetMs: number | null
+}
+
 /** What the End screen shows for the session that just finished. */
 export interface SessionStats {
   durationMs: number
@@ -35,6 +47,8 @@ export interface SessionStats {
   successPercent: number
   maxCombo: number
   exercise?: ExerciseSessionStats
+  /** Present when the session was played (at least partly) in the tempo mode. */
+  tempo?: TempoStats
 }
 
 /**
@@ -165,4 +179,6 @@ export interface PracticeSessionRecord {
   maxCombo: number
   /** Note-level detail, recorded for every session (exercise or real score). */
   notes: ExerciseSessionStats
+  /** Timing totals, for a session played (at least partly) in the tempo mode. */
+  tempo?: TempoStats
 }

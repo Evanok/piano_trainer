@@ -1,6 +1,6 @@
 import { computeGrade } from '../engine/grade'
 import { getStreakStats } from '../engine/streak'
-import type { SessionStats } from '../types/session'
+import type { SessionStats, TempoStats } from '../types/session'
 import { PAGE_BACKGROUND, PAGE_CARD, PRIMARY_BUTTON, SECONDARY_BUTTON, STAT_TONES, type StatTone } from '../theme'
 
 interface EndProps {
@@ -37,6 +37,51 @@ function StatTile({ label, value, tone }: { label: string; value: string | numbe
   )
 }
 
+function describeOffset(meanOffsetMs: number | null): string {
+  if (meanOffsetMs === null) {
+    return 'No note played'
+  }
+  if (Math.abs(meanOffsetMs) <= 15) {
+    return 'Right on the beat on average'
+  }
+  return `${Math.abs(meanOffsetMs)} ms ${meanOffsetMs < 0 ? 'ahead of' : 'behind'} the beat on average`
+}
+
+/**
+ * The tempo mode's verdict: how many events landed on the beat, off it or not
+ * at all, and which way the player leans -- the one number that says what to
+ * work on (rushing or dragging).
+ */
+function TempoSummary({ tempo }: { tempo: TempoStats }) {
+  const total = tempo.onTime + tempo.early + tempo.late + tempo.missed
+  const percent = (count: number) => (total === 0 ? 0 : Math.round((100 * count) / total))
+  const rows: Array<[string, number, string]> = [
+    ['On time', tempo.onTime, 'text-emerald-700'],
+    ['Early', tempo.early, 'text-orange-700'],
+    ['Late', tempo.late, 'text-orange-700'],
+    ['Missed', tempo.missed, 'text-red-700'],
+  ]
+  return (
+    <section className={`w-full p-4 text-left ${PAGE_CARD}`}>
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="text-lg font-medium text-gray-900">Rhythm</h2>
+        <span className="text-xs text-gray-500">{tempo.bpm} bpm</span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {rows.map(([label, count, tone]) => (
+          <div key={label}>
+            <dt className="text-xs text-gray-500">{label}</dt>
+            <dd className={`mt-1 text-lg font-semibold ${tone}`}>
+              {percent(count)}% <span className="text-xs font-normal text-gray-500">({count})</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-sm text-gray-700">{describeOffset(tempo.meanOffsetMs)}</p>
+    </section>
+  )
+}
+
 export function End({ stats, onHome, onNextExercise, onChangeSettings, onReplay, onBackToCatalog }: EndProps) {
   const grade = computeGrade(stats.successPercent)
   // recordPracticeDay() already ran when this session's Practice screen
@@ -57,27 +102,35 @@ export function End({ stats, onHome, onNextExercise, onChangeSettings, onReplay,
           <StatTile label="Streak" value={streak.currentStreak} tone="streak" />
         </dl>
 
+        {stats.tempo && <TempoSummary tempo={stats.tempo} />}
+
         {stats.exercise && (
           <section className={`w-full p-4 text-left ${PAGE_CARD}`}>
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-lg font-medium text-gray-900">Exercise stats</h2>
-              <span className="text-xs text-gray-500">{stats.exercise.responseCount} responses</span>
+              {stats.exercise.responseCount > 0 && (
+                <span className="text-xs text-gray-500">{stats.exercise.responseCount} responses</span>
+              )}
             </div>
 
-            <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2">
-                <dt className="text-xs uppercase text-sky-700">Average</dt>
-                <dd className="mt-1 text-lg font-semibold text-gray-900">{formatResponse(stats.exercise.averageResponseMs)}</dd>
-              </div>
-              <div className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2">
-                <dt className="text-xs uppercase text-sky-700">Median</dt>
-                <dd className="mt-1 text-lg font-semibold text-gray-900">{formatResponse(stats.exercise.medianResponseMs)}</dd>
-              </div>
-              <div className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2">
-                <dt className="text-xs uppercase text-amber-700">Slowest</dt>
-                <dd className="mt-1 text-lg font-semibold text-gray-900">{formatResponse(stats.exercise.slowestResponseMs)}</dd>
-              </div>
-            </dl>
+            {/* A tempo run has no reaction times (the clock sets when to play),
+                so its exercise card keeps only the note lists. */}
+            {stats.exercise.responseCount > 0 && (
+              <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2">
+                  <dt className="text-xs uppercase text-sky-700">Average</dt>
+                  <dd className="mt-1 text-lg font-semibold text-gray-900">{formatResponse(stats.exercise.averageResponseMs)}</dd>
+                </div>
+                <div className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2">
+                  <dt className="text-xs uppercase text-sky-700">Median</dt>
+                  <dd className="mt-1 text-lg font-semibold text-gray-900">{formatResponse(stats.exercise.medianResponseMs)}</dd>
+                </div>
+                <div className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2">
+                  <dt className="text-xs uppercase text-amber-700">Slowest</dt>
+                  <dd className="mt-1 text-lg font-semibold text-gray-900">{formatResponse(stats.exercise.slowestResponseMs)}</dd>
+                </div>
+              </dl>
+            )}
 
             <div className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
               <div>
