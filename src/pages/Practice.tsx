@@ -669,12 +669,13 @@ export function Practice({
   /**
    * Starts the score moving from the event the cursor is on, at the
    * metronome's tempo. From the downbeat of that event's measure, after one
-   * bar of count-in, unless `originMs` continues an earlier run's grid (a
-   * loop going round). Each event's time is its place in the piece, in whole
+   * bar of count-in. `countInFromMs` starts that count-in on an earlier run's
+   * grid instead of a fresh one (a loop going round, counted in again at the
+   * end of each pass). Each event's time is its place in the piece, in whole
    * notes, turned into milliseconds at that tempo; the score's own tempo
    * markings are deliberately not followed, the player sets the speed.
    */
-  const startTempoRun = (continueFromMs: number | null = null) => {
+  const startTempoRun = (countInFromMs: number | null = null) => {
     const osmd = osmdRef.current
     const wait = waitEngineRef.current
     if (!osmd || !wait || busyRef.current || tempoRunRef.current) {
@@ -699,8 +700,9 @@ export function Practice({
     const beatMs = 60000 / metronome.settings.bpm
     const msPerWhole = beatMs * (meter?.denominator ?? DEFAULT_BEAT_UNIT)
     const countInMs = beatMs * (meter?.numerator ?? DEFAULT_BEATS_PER_BAR)
-    const originMs = continueFromMs ?? performance.now() + COUNT_IN_LEAD_MS + countInMs
+    const originMs = (countInFromMs ?? performance.now() + COUNT_IN_LEAD_MS) + countInMs
     const originWhole = firstMeasure.start
+    const endMs = originMs + (lastMeasure.end - originWhole) * msPerWhole
     const engine = new TempoEngine(
       allEvents.slice(startIndex, endIndex).map((event) => ({
         index: event.index,
@@ -714,8 +716,8 @@ export function Practice({
       originWhole,
       msPerWhole,
       beatMs,
-      countInStartMs: continueFromMs === null ? originMs - countInMs : originMs,
-      endMs: originMs + (lastMeasure.end - originWhole) * msPerWhole,
+      countInStartMs: originMs - countInMs,
+      endMs,
       shownIndex: startIndex,
       rafId: null,
     }
@@ -723,13 +725,13 @@ export function Practice({
       tempoStatsRef.current = emptyTempoStats(metronome.settings.bpm)
     }
     tempoStatsRef.current = { ...tempoStatsRef.current, bpm: metronome.settings.bpm }
-    if (continueFromMs === null) {
-      void metronome.startRunGrid(originMs - countInMs, originMs)
-      setRunPhase('countIn')
+    if (countInFromMs === null) {
+      // In a loop the mute ends with the pass, so the next count-in is heard.
+      void metronome.startRunGrid(originMs - countInMs, originMs, bounds ? endMs : null)
     } else {
-      metronome.continueRunGrid()
-      setRunPhase('running')
+      metronome.continueRunGrid(originMs, endMs)
     }
+    setRunPhase('countIn')
     tempoRunRef.current.rafId = requestAnimationFrame(() => tempoTickRef.current())
   }
 
@@ -859,8 +861,8 @@ export function Practice({
     if (run.engine.isFinished && now >= run.endMs) {
       const loop = activeBoundsRef.current
       if (loop) {
-        // Round again on the same grid, no count-in: the loop is one
-        // continuous stretch of practice.
+        // Round again on the same grid, counted in again by one bar from
+        // the end of this pass, so the clicks never leave the beat.
         stopTempoRun({ keepGrid: true })
         goToEventIndex(loop.startEventIndex, loop)
         startTempoRun(run.endMs)

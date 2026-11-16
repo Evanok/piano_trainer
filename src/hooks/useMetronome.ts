@@ -23,11 +23,16 @@ export interface MetronomeState {
   /**
    * Puts the clicks on a tempo run's grid: a downbeat at `anchorMs` (the
    * count-in's first beat), muted from `originMs` on when the sound is off, so
-   * the count-in is heard either way.
+   * the count-in is heard either way. With `endMs` (a loop pass) the mute
+   * stops there, so the next pass's count-in is heard too.
    */
-  startRunGrid: (anchorMs: number, originMs: number) => Promise<void>
-  /** A loop restarting on the same grid: nothing to re-anchor, only the run goes on. */
-  continueRunGrid: () => void
+  startRunGrid: (anchorMs: number, originMs: number, endMs: number | null) => Promise<void>
+  /**
+   * A loop going round on the same grid: nothing to re-anchor, the next
+   * pass's count-in is already being heard, and the clicks (when the sound is
+   * off) go quiet again from its `originMs` up to its `endMs`.
+   */
+  continueRunGrid: (originMs: number, endMs: number) => void
   /** The run is over: the clicks stop unless the player has the sound on. */
   endRunGrid: () => void
 }
@@ -127,16 +132,23 @@ export function useMetronome(scoreMeter: Meter | null): MetronomeState {
   }, [])
 
   const startRunGrid = useCallback(
-    async (anchorMs: number, originMs: number) => {
+    async (anchorMs: number, originMs: number, endMs: number | null) => {
       runActiveRef.current = true
       gridAnchorRef.current = anchorMs
-      await getMetronome().start({ anchorMs, silentFromMs: soundOnRef.current ? null : originMs })
+      const metronome = getMetronome()
+      await metronome.start({ anchorMs, silentFromMs: soundOnRef.current ? null : originMs })
+      if (!soundOnRef.current && endMs !== null) {
+        metronome.setSilentFrom(originMs, endMs)
+      }
     },
     [getMetronome],
   )
 
-  const continueRunGrid = useCallback(() => {
+  const continueRunGrid = useCallback((originMs: number, endMs: number) => {
     runActiveRef.current = true
+    if (!soundOnRef.current) {
+      metronomeRef.current?.setSilentFrom(originMs, endMs)
+    }
   }, [])
 
   const endRunGrid = useCallback(() => {

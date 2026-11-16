@@ -19,8 +19,8 @@ Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
   made it speed up and slow down, since notation does not space notes in proportion to their duration.
 - Each note is on time within 70 ms, early or late within 180 ms, otherwise missed (`TempoEngine`, pure and
   unit-tested); a chord is judged by its worst note. On the score: green on time, orange off the beat, red missed.
-- Scroll loop goes round on the same grid without a new count-in; Sudden death stops at the first missed or
-  wrong note, and Retry starts a new run. Any jump, mode, hand or loop change stops the run.
+- Scroll loop counts each pass in again with one bar on the same grid (heard even with the click off);
+  Sudden death stops at the first missed or wrong note, and Retry starts a new run. Any jump, mode, hand or loop change stops the run.
 - The End screen gets a Rhythm card (on time / early / late / missed and the average lean ahead of or behind the
   beat), also stored on the session record as `tempo`. The exercise card drops its reaction times when there are
   none (a tempo run has none).

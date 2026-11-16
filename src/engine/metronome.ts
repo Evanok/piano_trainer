@@ -164,6 +164,7 @@ export class Metronome {
   private nextBeatTime = 0
   private beatIndex = 0
   private silentFrom: number | null = null
+  private silentUntil: number | null = null
   private pendingClicks = new Set<OscillatorNode>()
   private bpm: number
   private meter: Meter | null
@@ -224,14 +225,20 @@ export class Metronome {
     this.nextBeatTime =
       options.anchorMs === undefined ? context.currentTime + START_LEAD_SECONDS : this.contextTimeAt(options.anchorMs)
     this.silentFrom = options.silentFromMs == null ? null : this.contextTimeAt(options.silentFromMs)
+    this.silentUntil = null
     this.timerId = setInterval(() => this.schedule(), SCHEDULER_INTERVAL_MS)
     this.schedule()
     return true
   }
 
-  /** Mutes (or, with null, unmutes) every click from that performance.now() time on. */
-  setSilentFrom(perfMs: number | null): void {
+  /**
+   * Mutes (or, with null, unmutes) every click from that performance.now()
+   * time on, or only up to `untilMs` when given: a loop pass is silent, and
+   * the next pass's count-in after it is heard again.
+   */
+  setSilentFrom(perfMs: number | null, untilMs: number | null = null): void {
     this.silentFrom = perfMs === null ? null : this.contextTimeAt(perfMs)
+    this.silentUntil = perfMs === null || untilMs === null ? null : this.contextTimeAt(untilMs)
   }
 
   /**
@@ -307,7 +314,10 @@ export class Metronome {
     const accent = beatAccent(beatIndex, this.meter)
     const peak = Math.max(0, Math.min(1, this.volume)) * MAX_CLICK_GAIN * CLICK_LEVEL[accent]
 
-    const audible = this.silentFrom === null || time < this.silentFrom - 0.001
+    const audible =
+      this.silentFrom === null ||
+      time < this.silentFrom - 0.001 ||
+      (this.silentUntil !== null && time >= this.silentUntil - 0.001)
     if (!audible) {
       return // A muted beat neither sounds nor flashes.
     }
