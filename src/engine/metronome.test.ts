@@ -5,7 +5,10 @@ import {
   TAP_RESET_MS,
   beatIntervalSeconds,
   clampBpm,
-  isAccentBeat,
+  beatAccent,
+  isCompoundMeter,
+  parseMeter,
+  resolveMeter,
   recentTaps,
   tapTempoBpm,
 } from './metronome'
@@ -29,14 +32,57 @@ describe('beatIntervalSeconds', () => {
   })
 })
 
-describe('isAccentBeat', () => {
-  it('accents the first beat of every bar', () => {
-    expect([0, 1, 2, 3, 4, 5].map((beat) => isAccentBeat(beat, 3))).toEqual([true, false, false, true, false, false])
+describe('beatAccent', () => {
+  it('accents the first beat of every bar in a simple meter', () => {
+    const meter = { numerator: 3, denominator: 4 }
+    expect([0, 1, 2, 3, 4, 5].map((beat) => beatAccent(beat, meter))).toEqual([
+      'strong',
+      'weak',
+      'weak',
+      'strong',
+      'weak',
+      'weak',
+    ])
   })
 
-  it('accents nothing without a bar length', () => {
-    expect(isAccentBeat(0, 0)).toBe(false)
-    expect(isAccentBeat(4, 0)).toBe(false)
+  it('counts 6/8 in eighths with a lighter accent on the fourth', () => {
+    const meter = { numerator: 6, denominator: 8 }
+    expect([0, 1, 2, 3, 4, 5, 6].map((beat) => beatAccent(beat, meter))).toEqual([
+      'strong',
+      'weak',
+      'weak',
+      'medium',
+      'weak',
+      'weak',
+      'strong',
+    ])
+  })
+
+  it('clicks every beat the same without a meter', () => {
+    expect([0, 1, 2].map((beat) => beatAccent(beat, null))).toEqual(['strong', 'strong', 'strong'])
+  })
+})
+
+describe('meters', () => {
+  it('parses a written signature and rejects anything else', () => {
+    expect(parseMeter('6/8')).toEqual({ numerator: 6, denominator: 8 })
+    expect(parseMeter('score')).toBeNull()
+    expect(parseMeter('0/4')).toBeNull()
+  })
+
+  it('treats only 6/8, 9/8, 12/8 as compound', () => {
+    expect(isCompoundMeter({ numerator: 6, denominator: 8 })).toBe(true)
+    expect(isCompoundMeter({ numerator: 12, denominator: 8 })).toBe(true)
+    expect(isCompoundMeter({ numerator: 3, denominator: 8 })).toBe(false)
+    expect(isCompoundMeter({ numerator: 6, denominator: 4 })).toBe(false)
+  })
+
+  it('follows the score unless a signature is forced', () => {
+    const score = { numerator: 3, denominator: 4 }
+    expect(resolveMeter('score', score)).toEqual(score)
+    expect(resolveMeter('score', null)).toBeNull()
+    expect(resolveMeter('none', score)).toBeNull()
+    expect(resolveMeter('6/8', score)).toEqual({ numerator: 6, denominator: 8 })
   })
 })
 

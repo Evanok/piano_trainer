@@ -9,8 +9,10 @@ Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 ## Metronome on the practice screen (2026-11-16)
 
 - A metronome icon in the practice header (desktop and mobile, every mode, scores and exercises) opens a small
-  panel: start/stop, tempo (30-240 bpm, field, -/+ steppers, slider, tap tempo), accent every 2/3/4/6 beats or
-  none, volume. The icon flashes on each beat and shows the tempo while running.
+  panel: start/stop, tempo (30-240 bpm, field, -/+ steppers, slider, tap tempo), time signature, volume.
+- The time signature follows the score's opening one by default (`openingMeter`), or is forced to 2/4, 3/4,
+  4/4, 6/8 or no accent. Compound meters (6/8, 9/8, 12/8) click every eighth, strong on 1 and lighter at the
+  start of each group of three, and the bpm then counts eighths. The icon flashes on each beat and shows the tempo while running.
 - Clicks are scheduled on the Web Audio clock with a short lookahead (`engine/metronome.ts`), not fired from
   timers, so they stay steady through main-thread work; a freeze longer than the lookahead skips the beats it
   covered instead of bursting them out.

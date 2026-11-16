@@ -17,29 +17,94 @@ export const MIN_BPM = 30
 export const MAX_BPM = 240
 export const DEFAULT_BPM = 80
 
-/** 0 means no accent: every beat clicks the same. */
-export const BEATS_PER_BAR_CHOICES = [0, 2, 3, 4, 6] as const
+/** A time signature, e.g. 6/8 is `{ numerator: 6, denominator: 8 }`. */
+export interface Meter {
+  numerator: number
+  denominator: number
+}
+
+/**
+ * What the meter setting holds: follow the score's own time signature, no
+ * accent at all, or a fixed signature written as "3/4".
+ */
+export type MeterChoice = 'score' | 'none' | `${number}/${number}`
+
+/** The fixed signatures offered in the panel, besides the score's own. */
+export const METER_CHOICES: readonly MeterChoice[] = ['2/4', '3/4', '4/4', '6/8']
 
 export interface MetronomeSettings {
   bpm: number
-  /** Accented beat every N beats, 0 for no accent. */
-  beatsPerBar: number
+  meter: MeterChoice
   /** 0..1 */
   volume: number
 }
 
 export const DEFAULT_METRONOME_SETTINGS: MetronomeSettings = {
   bpm: DEFAULT_BPM,
-  beatsPerBar: 4,
+  meter: 'score',
   volume: 0.7,
+}
+
+export type BeatAccent = 'strong' | 'medium' | 'weak'
+
+export function formatMeter(meter: Meter): string {
+  return `${meter.numerator}/${meter.denominator}`
+}
+
+export function parseMeter(text: string): Meter | null {
+  const match = /^(\d+)\/(\d+)$/.exec(text)
+  if (!match) {
+    return null
+  }
+  const numerator = Number(match[1])
+  const denominator = Number(match[2])
+  return numerator > 0 && denominator > 0 ? { numerator, denominator } : null
+}
+
+/**
+ * The meter the metronome actually counts: the score's when the setting says
+ * so (or holds something unreadable), none when the score states none.
+ */
+export function resolveMeter(choice: MeterChoice, scoreMeter: Meter | null): Meter | null {
+  if (choice === 'none') {
+    return null
+  }
+  if (choice === 'score') {
+    return scoreMeter
+  }
+  return parseMeter(choice) ?? scoreMeter
+}
+
+/**
+ * Compound meters (6/8, 9/8, 12/8) are counted in their eighths, with the
+ * strong accent on the first and a lighter one at the start of every group of
+ * three, which is how the bar is felt: 6/8 is ONE two three FOUR five six.
+ */
+export function isCompoundMeter(meter: Meter): boolean {
+  return meter.denominator === 8 && meter.numerator >= 6 && meter.numerator % 3 === 0
+}
+
+/** One click per numerator unit; beat 0 of the bar is strong. */
+export function beatAccent(beatIndex: number, meter: Meter | null): BeatAccent {
+  if (!meter || meter.numerator < 2) {
+    return 'strong'
+  }
+  const beatInBar = beatIndex % meter.numerator
+  if (beatInBar === 0) {
+    return 'strong'
+  }
+  if (isCompoundMeter(meter) && beatInBar % 3 === 0) {
+    return 'medium'
+  }
+  return 'weak'
 }
 
 const SCHEDULER_INTERVAL_MS = 25
 const LOOKAHEAD_SECONDS = 0.12
 const START_LEAD_SECONDS = 0.05
 const CLICK_SECONDS = 0.05
-const ACCENT_FREQUENCY = 1760
-const BEAT_FREQUENCY = 1100
+const CLICK_FREQUENCY: Record<BeatAccent, number> = { strong: 1760, medium: 1320, weak: 1100 }
+const CLICK_LEVEL: Record<BeatAccent, number> = { strong: 1, medium: 0.8, weak: 0.6 }
 const MAX_CLICK_GAIN = 0.9
 
 /** Taps further apart than this start a new measurement. */
@@ -55,11 +120,6 @@ export function clampBpm(bpm: number): number {
 
 export function beatIntervalSeconds(bpm: number): number {
   return 60 / clampBpm(bpm)
-}
-
-/** Beat 0 of every bar is accented; with no bar length nothing is. */
-export function isAccentBeat(beatIndex: number, beatsPerBar: number): boolean {
-  return beatsPerBar > 1 && beatIndex % beatsPerBar === 0
 }
 
 /**
@@ -103,23 +163,29 @@ export class Metronome {
   private beatTimeouts = new Set<ReturnType<typeof setTimeout>>()
   private nextBeatTime = 0
   private beatIndex = 0
-  private settings: MetronomeSettings
+  private bpm: number
+  private meter: Meter | null
+  private volume: number
 
-  /** Called as each beat sounds (not when it is scheduled), with its index in the bar. */
-  onBeat: ((beatInBar: number, accent: boolean) => void) | null = null
+  /** Called as each beat sounds (not when it is scheduled). */
+  onBeat: ((accent: BeatAccent) => void) | null = null
 
-  constructor(settings: MetronomeSettings) {
-    this.settings = { ...settings }
+  constructor(bpm: number, meter: Meter | null, volume: number) {
+    this.bpm = bpm
+    this.meter = meter
+    this.volume = volume
   }
 
   get isRunning(): boolean {
     return this.timerId !== null
   }
 
-  update(settings: MetronomeSettings): void {
+  update(bpm: number, meter: Meter | null, volume: number): void {
     // A tempo change applies from the next unscheduled beat, so the beat
     // already booked still sounds where it was promised.
-    this.settings = { ...settings }
+    this.bpm = bpm
+    this.meter = meter
+    this.volume = volume
   }
 
   /**
@@ -175,7 +241,7 @@ export class Metronome {
     if (!context) {
       return
     }
-    const interval = beatIntervalSeconds(this.settings.bpm)
+    const interval = beatIntervalSeconds(this.bpm)
     // Back on the grid after a freeze: skip the beats that are already past
     // instead of playing them all at once.
     if (this.nextBeatTime < context.currentTime) {
@@ -191,14 +257,13 @@ export class Metronome {
   }
 
   private scheduleClick(context: AudioContext, time: number, beatIndex: number): void {
-    const { beatsPerBar, volume } = this.settings
-    const accent = isAccentBeat(beatIndex, beatsPerBar)
-    const peak = Math.max(0, Math.min(1, volume)) * MAX_CLICK_GAIN * (accent || beatsPerBar <= 1 ? 1 : 0.6)
+    const accent = beatAccent(beatIndex, this.meter)
+    const peak = Math.max(0, Math.min(1, this.volume)) * MAX_CLICK_GAIN * CLICK_LEVEL[accent]
 
     if (peak > 0) {
       const oscillator = context.createOscillator()
       oscillator.type = 'sine'
-      oscillator.frequency.value = accent ? ACCENT_FREQUENCY : BEAT_FREQUENCY
+      oscillator.frequency.value = CLICK_FREQUENCY[accent]
       const gain = context.createGain()
       gain.gain.setValueAtTime(0, time)
       gain.gain.linearRampToValueAtTime(peak, time + 0.002)
@@ -210,11 +275,10 @@ export class Metronome {
     }
 
     if (this.onBeat) {
-      const beatInBar = beatsPerBar > 1 ? beatIndex % beatsPerBar : 0
       const delayMs = Math.max(0, (time - context.currentTime) * 1000)
       const timeout = setTimeout(() => {
         this.beatTimeouts.delete(timeout)
-        this.onBeat?.(beatInBar, accent)
+        this.onBeat?.(accent)
       }, delayMs)
       this.beatTimeouts.add(timeout)
     }

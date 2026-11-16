@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { noteFinger, selectHandStaff, selectHandStaves } from './ScoreParser'
+import { noteFinger, openingMeter, selectHandStaff, selectHandStaves } from './ScoreParser'
 
 // The staff objects only ever get compared by identity (a note's ParentStaff is
 // matched against the selected one), so plain strings stand in for them here --
@@ -116,5 +116,17 @@ describe('noteFinger', () => {
     expect(noteFinger({ Fingering: { value: '0' } })).toBeNull()
     expect(noteFinger({ Fingering: { value: '6' } })).toBeNull()
     expect(noteFinger({ Fingering: { value: '3rd' } })).toBeNull()
+  })
+})
+
+describe('openingMeter', () => {
+  it('reads the first measure time signature', () => {
+    const osmd = { Sheet: { SourceMeasures: [{ ActiveTimeSignature: { Numerator: 6, Denominator: 8 } }] } }
+    expect(openingMeter(osmd)).toEqual({ numerator: 6, denominator: 8 })
+  })
+
+  it('is null when the score states none', () => {
+    expect(openingMeter({ Sheet: { SourceMeasures: [{ ActiveTimeSignature: null }] } })).toBeNull()
+    expect(openingMeter({ Sheet: { SourceMeasures: [] } })).toBeNull()
   })
 })

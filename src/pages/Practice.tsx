@@ -15,12 +15,13 @@ import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../component
 import { ComboOverlay, type ComboBreak } from '../components/ComboOverlay'
 import { LoopRangeBar } from '../components/LoopRangeBar'
 import { MetronomeControl } from '../components/MetronomeControl'
+import type { Meter } from '../engine/metronome'
 import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
 import { SuddenDeathCard, type SuddenDeathMiss } from '../components/SuddenDeathCard'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
-import { effectiveHandMode, extractExpectedEvents } from '../engine/ScoreParser'
+import { effectiveHandMode, extractExpectedEvents, openingMeter } from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
 import { eventIndexAtOrAfterMeasure, lastMeasureNumber, sectionForMeasureRange, type Section } from '../engine/sections'
@@ -201,6 +202,8 @@ export function Practice({
   const [showKeyboard, setShowKeyboard] = useState(false)
   const [mobileKeyboardVisible, setMobileKeyboardVisible] = useState(true)
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
+  // The piece's opening time signature, which the metronome accents by default.
+  const [scoreMeter, setScoreMeter] = useState<Meter | null>(null)
   // What drives navigation through the piece -- see PracticeMode. Computed
   // once at mount only: re-forcing a default whenever isMobile flips (resize,
   // rotation) would reintroduce the "state fights the user's choice" problem
@@ -783,6 +786,7 @@ export function Practice({
     synthRef.current?.stop()
     setIsPreviewPlaying(false)
     osmdRef.current = osmd
+    setScoreMeter(openingMeter(osmd))
     const newEvents = extractExpectedEvents(osmd, handMode)
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
@@ -1186,7 +1190,7 @@ export function Practice({
               {backingTrackButtonLabel}
             </button>
           )}
-          <MetronomeControl compact />
+          <MetronomeControl compact scoreMeter={scoreMeter} />
           <button
             type="button"
             onClick={handleTogglePreviewPlayback}
@@ -1420,7 +1424,7 @@ export function Practice({
           {isPreviewPlaying ? <StopIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
           {isPreviewPlaying ? 'Stop' : 'Play'}
         </button>
-        <MetronomeControl />
+        <MetronomeControl scoreMeter={scoreMeter} />
         {sourceKind === 'generated-training' ? (
           <>
             <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">

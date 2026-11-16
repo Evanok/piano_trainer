@@ -1,6 +1,7 @@
 import type { Instrument, Note, OpenSheetMusicDisplay, Staff } from 'opensheetmusicdisplay'
 import type { HandMode } from '../types/practice'
 import type { ExpectedEvent, NoteFinger, NoteHand } from '../types/score'
+import type { Meter } from './metronome'
 
 // OSMD's Note.halfTone uses its own internal octave convention (offset by
 // Pitch.OctaveXmlDifference = 3 from the MusicXML octave). +12 converts it to
@@ -265,4 +266,20 @@ export function extractExpectedEvents(osmd: OpenSheetMusicDisplay, handMode: Han
   // whatever is drawn.
   cursor.reset()
   return events
+}
+
+/**
+ * The piece's opening time signature (the metronome's default accent), or null
+ * when the file states none. Structurally typed so it is tested without a
+ * loaded OSMD; only the first measure is read, a later change of meter is not
+ * followed.
+ */
+export function openingMeter(osmd: {
+  Sheet?: { SourceMeasures?: Array<{ ActiveTimeSignature?: { Numerator: number; Denominator: number } | null }> }
+}): Meter | null {
+  const signature = osmd.Sheet?.SourceMeasures?.[0]?.ActiveTimeSignature
+  if (!signature || !(signature.Numerator > 0) || !(signature.Denominator > 0)) {
+    return null
+  }
+  return { numerator: signature.Numerator, denominator: signature.Denominator }
 }

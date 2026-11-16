@@ -2,14 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import type { TouchEvent as ReactTouchEvent } from 'react'
 import { MetronomeIcon } from './icons'
 import {
-  BEATS_PER_BAR_CHOICES,
   DEFAULT_METRONOME_SETTINGS,
   MAX_BPM,
+  METER_CHOICES,
   MIN_BPM,
   Metronome,
   clampBpm,
+  formatMeter,
+  isCompoundMeter,
+  parseMeter,
   recentTaps,
+  resolveMeter,
   tapTempoBpm,
+  type Meter,
+  type MeterChoice,
   type MetronomeSettings,
 } from '../engine/metronome'
 import { loadPreference, savePreference } from '../engine/preferencesStore'
@@ -17,6 +23,8 @@ import { loadPreference, savePreference } from '../engine/preferencesStore'
 interface MetronomeControlProps {
   /** Icon-only button for the one-row mobile header. */
   compact?: boolean
+  /** The piece's opening time signature, null until loaded or when it states none. */
+  scoreMeter: Meter | null
 }
 
 const BEAT_FLASH_MS = 110
@@ -25,21 +33,33 @@ const BEAT_FLASH_MS = 110
 // inside the panel must not reach it.
 const stopTouch = (event: ReactTouchEvent) => event.stopPropagation()
 
-function beatsPerBarLabel(beats: number): string {
-  return beats === 0 ? 'No accent' : `${beats} beats`
+function meterHint(meter: Meter | null, bpm: number): string {
+  if (!meter) {
+    return 'Every click the same.'
+  }
+  if (isCompoundMeter(meter)) {
+    return `${meter.numerator} eighths per bar, accents on 1 and every 3. ${bpm} bpm counts eighths.`
+  }
+  return `${meter.numerator} clicks per bar, accent on 1.`
 }
+
 
 /**
  * The practice screen's metronome: one icon that opens a small panel (on/off,
- * tempo, accent, volume, tap tempo). It owns its `Metronome` and its beat
+ * tempo, time signature, volume, tap tempo). It owns its `Metronome` and its beat
  * flash, so a tick re-renders this button and nothing else -- the practice
  * screen around it is far too heavy to re-render on every beat.
+ *
+ * The time signature follows the score by default ('score'), so the accent
+ * lands where the piece's bar starts without touching anything; a fixed one
+ * can still be forced. Only the opening signature is read: a piece that
+ * changes meter midway keeps counting the first one.
  *
  * Settings persist per device (`metronome` preference); whether it is ticking
  * does not, since a click starting by itself on opening a score would be a
  * surprise, and browsers would refuse it without a gesture anyway.
  */
-export function MetronomeControl({ compact = false }: MetronomeControlProps) {
+export function MetronomeControl({ compact = false, scoreMeter }: MetronomeControlProps) {
   const [settings, setSettings] = useState<MetronomeSettings>(() =>
     loadPreference('metronome', DEFAULT_METRONOME_SETTINGS),
   )
@@ -51,12 +71,14 @@ export function MetronomeControl({ compact = false }: MetronomeControlProps) {
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tapsRef = useRef<number[]>([])
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const meter = resolveMeter(settings.meter, scoreMeter)
+  const meterKey = meter ? formatMeter(meter) : 'none'
 
   const getMetronome = () => {
     if (!metronomeRef.current) {
-      const metronome = new Metronome(settings)
-      metronome.onBeat = (_beatInBar, accent) => {
-        setFlash(accent ? 'accent' : 'beat')
+      const metronome = new Metronome(settings.bpm, meter, settings.volume)
+      metronome.onBeat = (accent) => {
+        setFlash(accent === 'strong' ? 'accent' : 'beat')
         if (flashTimeoutRef.current !== null) {
           clearTimeout(flashTimeoutRef.current)
         }
@@ -68,9 +90,12 @@ export function MetronomeControl({ compact = false }: MetronomeControlProps) {
   }
 
   useEffect(() => {
-    metronomeRef.current?.update(settings)
     savePreference('metronome', settings)
   }, [settings])
+
+  useEffect(() => {
+    metronomeRef.current?.update(settings.bpm, parseMeter(meterKey), settings.volume)
+  }, [settings.bpm, settings.volume, meterKey])
 
   useEffect(() => {
     return () => {
@@ -242,19 +267,24 @@ export function MetronomeControl({ compact = false }: MetronomeControlProps) {
           />
 
           <label className="mt-3 flex items-center justify-between gap-2">
-            Accent
+            Time signature
             <select
-              value={settings.beatsPerBar}
-              onChange={(e) => updateSettings({ beatsPerBar: Number(e.target.value) })}
+              value={settings.meter}
+              onChange={(e) => updateSettings({ meter: e.target.value as MeterChoice })}
               className="rounded-md border border-gray-300 bg-white px-2 py-1"
             >
-              {BEATS_PER_BAR_CHOICES.map((beats) => (
-                <option key={beats} value={beats}>
-                  {beatsPerBarLabel(beats)}
+              <option value="score">{scoreMeter ? `Auto (${formatMeter(scoreMeter)})` : 'Auto'}</option>
+              {/* The score's own signature is already the Auto entry; listing
+                  it again would offer two options that sound the same. */}
+              {METER_CHOICES.filter((choice) => !scoreMeter || choice !== formatMeter(scoreMeter)).map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
                 </option>
               ))}
+              <option value="none">No accent</option>
             </select>
           </label>
+          <p className="mt-1 text-xs text-gray-500">{meterHint(meter, settings.bpm)}</p>
 
           <label className="mt-3 flex items-center gap-2">
             Volume
