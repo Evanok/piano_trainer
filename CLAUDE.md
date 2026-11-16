@@ -745,6 +745,10 @@ The codebase should stay one app: use shared pages/components plus responsive cl
 
 Chrome on Android supports Web MIDI (USB-OTG or Bluetooth MIDI keyboard); Safari on iOS does not support Web MIDI at all, full stop.
 
+### Metronome (`engine/metronome.ts`, `components/MetronomeControl.tsx`)
+
+A plain click track in the practice header, in every mode and for both source kinds. It is **not tied to Wait Mode**: the score never waits on it and nothing is judged against it. Clicks are booked on the `AudioContext` clock by a 25ms interval looking 120ms ahead, never fired from a timer, since this screen's main thread is constantly busy (coloring, OSMD renders); a freeze longer than the lookahead skips the covered beats and resumes on the grid. `MetronomeControl` owns its `Metronome` and the per-beat flash state so a tick re-renders only the button, never `Practice`. Its settings (bpm, accent, volume) persist per device under the `metronome` preference; the on/off state deliberately does not, and the context is only started from the Start click (a browser refuses audio without a gesture). It unmounts with the practice screen, which disposes the context.
+
 ### Busy overlay (`ScoreBusyOverlay.tsx`, `runWhileBusy` in `Practice.tsx`)
 
 Loading a score, a mode or hand switch, a loop range change and "back to start" block the main thread for up to several seconds on a phone (OSMD render, see `bench/`). They now run behind an overlay over the score instead of an unexplained freeze. Three things it depends on:

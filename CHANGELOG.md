@@ -6,6 +6,16 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Metronome on the practice screen (2026-11-16)
+
+- A metronome icon in the practice header (desktop and mobile, every mode, scores and exercises) opens a small
+  panel: start/stop, tempo (30-240 bpm, field, -/+ steppers, slider, tap tempo), accent every 2/3/4/6 beats or
+  none, volume. The icon flashes on each beat and shows the tempo while running.
+- Clicks are scheduled on the Web Audio clock with a short lookahead (`engine/metronome.ts`), not fired from
+  timers, so they stay steady through main-thread work; a freeze longer than the lookahead skips the beats it
+  covered instead of bursting them out.
+- Settings persist per device (`metronome` preference); whether it is ticking does not.
+
 ## Rhythm quiz (2026-11-10)
 
 - New "Rhythm" tab among the screen drills: one measure of 4/4 with one note in orange, placed in two steps,

@@ -224,3 +224,21 @@ export function KeyboardIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function MetronomeIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M9.5 3h5l4.5 18H5L9.5 3z" />
+      <path d="M7 15h10" />
+      <path d="M12 15l5.5-9" />
+    </svg>
+  )
+}

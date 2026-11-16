@@ -14,6 +14,7 @@ import { isGuest } from '../api/auth'
 import { PianoScore, type LayoutMode, type PianoScoreHandle } from '../components/PianoScore'
 import { ComboOverlay, type ComboBreak } from '../components/ComboOverlay'
 import { LoopRangeBar } from '../components/LoopRangeBar'
+import { MetronomeControl } from '../components/MetronomeControl'
 import { ScoreBusyOverlay } from '../components/ScoreBusyOverlay'
 import { ScoreHud } from '../components/ScoreHud'
 import { SuddenDeathCard, type SuddenDeathMiss } from '../components/SuddenDeathCard'
@@ -1185,6 +1186,7 @@ export function Practice({
               {backingTrackButtonLabel}
             </button>
           )}
+          <MetronomeControl compact />
           <button
             type="button"
             onClick={handleTogglePreviewPlayback}
@@ -1418,6 +1420,7 @@ export function Practice({
           {isPreviewPlaying ? <StopIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
           {isPreviewPlaying ? 'Stop' : 'Play'}
         </button>
+        <MetronomeControl />
         {sourceKind === 'generated-training' ? (
           <>
             <span className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-600">
