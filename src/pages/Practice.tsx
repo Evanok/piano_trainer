@@ -43,6 +43,7 @@ import {
   addSettledEvent,
   emptyTempoStats,
   type SettledEvent,
+  type TempoEventInput,
   type TempoStats,
 } from '../engine/TempoEngine'
 import { useMetronome } from '../hooks/useMetronome'
@@ -121,6 +122,12 @@ interface TempoRun {
   shownIndex: number
   /** Whether the keyboard shows that event right now (dark between notes). */
   keysLit: boolean
+  /** The run's events, in time order, for the notes' fade-in. */
+  events: TempoEventInput[]
+  /** Events before this one are at full opacity already. */
+  rampPosition: number
+  /** Events settled before their time (played early): already at full opacity. */
+  settledEarly: Set<number>
   rafId: number | null
 }
 
@@ -671,7 +678,7 @@ export function Practice({
     tempoRunRef.current = null
     setRunPhase('idle')
     setCountInBeat(null)
-    scoreRef.current?.setPlayhead(null)
+    scoreRef.current?.endTempoPreview()
     if (!options.keepGrid) {
       metronome.endRunGrid()
     }
@@ -714,14 +721,13 @@ export function Practice({
     const originMs = (countInFromMs ?? performance.now() + COUNT_IN_LEAD_MS) + countInMs
     const originWhole = firstMeasure.start
     const endMs = originMs + (lastMeasure.end - originWhole) * msPerWhole
-    const engine = new TempoEngine(
-      allEvents.slice(startIndex, endIndex).map((event) => ({
-        index: event.index,
-        pitches: event.pitches,
-        timeMs: originMs + ((event.timestampWholeNotes ?? originWhole) - originWhole) * msPerWhole,
-      })),
-      tempoWindows(beatMs),
-    )
+    const runEvents = allEvents.slice(startIndex, endIndex).map((event) => ({
+      index: event.index,
+      pitches: event.pitches,
+      timeMs: originMs + ((event.timestampWholeNotes ?? originWhole) - originWhole) * msPerWhole,
+    }))
+    const engine = new TempoEngine(runEvents, tempoWindows(beatMs))
+    scoreRef.current?.startTempoPreview(endIndex - 1)
     tempoRunRef.current = {
       engine,
       originMs,
@@ -731,6 +737,9 @@ export function Practice({
       countInStartMs: originMs - countInMs,
       endMs,
       shownIndex: startIndex,
+      events: runEvents,
+      rampPosition: 0,
+      settledEarly: new Set(),
       // The first note is lit through the count-in, to place the hands.
       keysLit: true,
       rafId: null,
@@ -775,6 +784,9 @@ export function Practice({
   const eventPitches = (index: number) => eventsRef.current[index]?.pitches ?? []
 
   const handleSettled = (settled: SettledEvent) => {
+    // Played early or missed, it is shown in full with its result.
+    tempoRunRef.current?.settledEarly.add(settled.index)
+    scoreRef.current?.setEventEmphasis(settled.index, 1)
     tempoStatsRef.current = addSettledEvent(tempoStatsRef.current ?? emptyTempoStats(metronome.settings.bpm), settled)
     furthestIndexRef.current = Math.max(furthestIndexRef.current, settled.index + 1)
     if (settled.result === 'missed') {
@@ -839,7 +851,29 @@ export function Practice({
     run.rafId = null
     const now = performance.now()
     const position = run.originWhole + (now - run.originMs) / run.msPerWhole
-    scoreRef.current?.setPlayhead(Math.max(position, run.originWhole))
+    scoreRef.current?.followTime(Math.max(position, run.originWhole))
+    // Each note comes up from dimmed to full over the beat before it is due,
+    // so it can be seen coming and struck on time rather than reacted to.
+    while (run.rampPosition < run.events.length) {
+      const event = run.events[run.rampPosition]
+      if (event.timeMs <= now) {
+        scoreRef.current?.setEventEmphasis(event.index, 1)
+        run.rampPosition += 1
+      } else {
+        break
+      }
+    }
+    for (let i = run.rampPosition; i < run.events.length; i += 1) {
+      const event = run.events[i]
+      const rampStart = event.timeMs - run.beatMs
+      if (rampStart > now) {
+        break
+      }
+      if (run.settledEarly.has(event.index)) {
+        continue
+      }
+      scoreRef.current?.setEventEmphasis(event.index, (now - rampStart) / run.beatMs)
+    }
 
     if (now < run.originMs) {
       // Counted up like a conductor's "one, two": nothing before the first click.

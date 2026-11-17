@@ -1,27 +1,20 @@
 /**
  * Where the auto-scroll playhead stands for a position in the piece.
  *
- * It passes over every written onset exactly at that onset's time: between
- * two consecutive onsets (any staff, rests included) it moves at a constant
- * speed from the x of one to the x of the next. That is what lets a note be
- * played "when the band is on it", which is the whole promise of the mode.
- *
- * The earlier version moved at a constant speed through each measure, from
- * one downbeat to the next, because following the notes makes the band speed
- * up and slow down (engraving does not space notes in proportion to their
- * duration). Measured on a real score at 50 bpm, that put the band up to
- * 400ms away from a mid-measure note at the moment it had to be played, more
- * than the whole timing window, so a note played on the band was judged
- * wrong. The error grows as the tempo slows, so slowing down made it worse.
- * Uneven speed is the price of being right where it matters.
+ * Engraving does not space notes in proportion to their duration (a half note
+ * takes barely more room than an eighth, a clef or a first note pushes the
+ * rest along), so following every note's own x made the playhead speed up and
+ * slow down from one note to the next while the tempo never changed. It goes
+ * at a constant speed inside each measure instead, from the first note of the
+ * measure to the first note of the next: every downbeat still lands exactly on
+ * its note, and the speed can only change at a barline, by however much the
+ * two measures' widths differ.
  */
 
 export interface MeasureSpan {
   /** Whole notes from the piece's start. */
   start: number
   end: number
-  /** Every onset in the measure, in whole notes from the piece's start, ascending. */
-  onsets: readonly number[]
 }
 
 /** Index of the measure containing `wholeNotes` (the last one past the end), -1 before the first. */
@@ -42,52 +35,27 @@ export function measureIndexAt(measures: readonly MeasureSpan[], wholeNotes: num
 }
 
 /**
- * The two anchors around `wholeNotes`: the last onset at or before it (the
- * measure's start when it has none earlier) and the next one after it (the
- * next measure's start, or the end of the last measure).
- */
-export function anchorsAround(
-  measures: readonly MeasureSpan[],
-  index: number,
-  wholeNotes: number,
-): { from: number; to: number } {
-  const measure = measures[index]
-  const to = measures[index + 1]?.start ?? measure.end
-  let from = measure.start
-  let next = to
-  for (const onset of measure.onsets) {
-    if (onset <= wholeNotes) {
-      from = Math.max(from, onset)
-    } else if (onset < next) {
-      next = onset
-    }
-  }
-  return { from, to: next }
-}
-
-/**
- * The playhead's x for `wholeNotes`, from `xAt(t)` (the x of the score at the
- * timestamp t, in whole notes). Null when there is no position before it (a
- * measure the current crop does not draw); it holds still on the last anchor
- * when the next one has no position.
+ * The playhead's x for `wholeNotes`, from `xAtMeasureStart(i)` (the x of
+ * measure i's first beat, i === measures.length meaning the end of the last
+ * one). Null when either end of the stretch has no position (a measure the
+ * current crop does not draw).
  */
 export function playheadX(
   measures: readonly MeasureSpan[],
   wholeNotes: number,
-  xAt: (wholeNotes: number) => number | null,
+  xAtMeasureStart: (index: number) => number | null,
 ): number | null {
   const index = measureIndexAt(measures, wholeNotes)
   if (index < 0) {
     return null
   }
-  const last = measures[measures.length - 1]
-  const at = Math.min(wholeNotes, last.end)
-  const { from, to } = anchorsAround(measures, index, at)
-  const fromX = xAt(from)
-  const toX = to > from ? xAt(to) : null
-  if (fromX === null || toX === null) {
-    return fromX
+  const measure = measures[index]
+  const from = xAtMeasureStart(index)
+  const to = xAtMeasureStart(index + 1)
+  if (from === null || to === null) {
+    return from
   }
-  const fraction = Math.min(1, Math.max(0, (at - from) / (to - from)))
-  return fromX + fraction * (toX - fromX)
+  const length = measure.end - measure.start
+  const fraction = length > 0 ? Math.min(1, Math.max(0, (wholeNotes - measure.start) / length)) : 0
+  return from + fraction * (to - from)
 }

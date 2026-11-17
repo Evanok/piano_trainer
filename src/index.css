@@ -283,3 +283,10 @@ body {
     animation: combo-break 1ms linear both;
   }
 }
+
+/* Tempo mode: upcoming notes are dimmed, and each comes up to full opacity
+   (an inline style set by PianoScore.setEventEmphasis) over the beat before
+   it is due. Kept in step with TEMPO_PREVIEW_DIM_OPACITY. */
+.tempo-preview .vf-stavenote {
+  opacity: 0.35;
+}

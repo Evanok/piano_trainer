@@ -6,6 +6,15 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Auto-scroll: notes fade in instead of a playhead (2026-11-16)
+
+- The moving band is gone. Upcoming notes are dimmed, and each one comes up to full opacity over the beat before
+  it is due, then takes its result's color. The band either missed mid-measure notes (constant speed per measure)
+  or sped up and slowed down (note to note), since engraving does not space notes by duration.
+- The score scrolls at a constant speed inside each measure again.
+- Forcing proportional spacing into OSMD was prototyped (aligned to 0ms on six catalog scores) and set aside: it
+  needs very wide measures on dense pieces and patches OSMD internals.
+
 ## OSMD 2.3.1 (2026-11-16)
 
 - `opensheetmusicdisplay` 2.1.0 to 2.3.1: rendering fixes (overlaps, barlines, dynamics, single horizontal

@@ -23,22 +23,13 @@ const TEMPO_MARK_COLORS: Record<TempoMark, string> = {
   offBeat: '#f97316',
   missed: '#ef4444',
 }
-// The auto-scroll playhead is an element of our own: OSMD's cursor image is
-// drawn behind the page (z-index -1) and sized for one note. A soft band over
-// the staves only, darker in its middle so "now" can still be read off it.
-const PLAYHEAD_WIDTH_PX = 22
-const PLAYHEAD_STYLE = [
-  'position:absolute',
-  `width:${PLAYHEAD_WIDTH_PX}px`,
-  `margin-left:${-PLAYHEAD_WIDTH_PX / 2}px`,
-  'border-radius:9999px',
-  'pointer-events:none',
-  'z-index:1',
-  'background:linear-gradient(90deg,rgba(99,102,241,0) 0%,rgba(99,102,241,0.16) 30%,rgba(99,102,241,0.42) 50%,rgba(99,102,241,0.16) 70%,rgba(99,102,241,0) 100%)',
-].join(';')
-// How far the band reaches past the top and bottom staff lines, in OSMD units
-// (one unit is the gap between two staff lines).
-const PLAYHEAD_OVERHANG_UNITS = 2
+// Tempo mode shows time on the notes themselves rather than with a moving
+// band: engraving does not space notes by duration, so no band can both move
+// steadily and pass over every note on time. Upcoming notes are dimmed (the
+// container class, see `.tempo-preview` in index.css) and each one comes up to
+// full opacity over the beat before it is due (setEventEmphasis).
+const TEMPO_PREVIEW_CLASS = 'tempo-preview'
+const TEMPO_PREVIEW_DIM_OPACITY = 0.35
 // Whole notes are turned back into an OSMD Fraction on this grid, fine enough
 // for any tuplet a score writes.
 const TIMESTAMP_TICKS = 3840
@@ -86,15 +77,23 @@ export interface PianoScoreHandle {
   goToEventIndex: (targetIndex: number, bounds?: MeasureBounds | null) => void
   // Tempo mode only. Moves the cursor forward to an event without painting the
   // events it leaves (their result is painted by markEvent once known) and
-  // without placing the cursor image, which the playhead drives instead.
+  // without placing the cursor image, which the tempo mode does not show.
   stepTo: (targetIndex: number) => void
   // Tempo mode only. Paints an event by its timing result; an event the
   // cursor has not reached yet keeps the mark until it does.
   markEvent: (index: number, mark: TempoMark) => void
-  // Tempo mode only (scroll layout). Puts the playhead at a position in the
-  // piece, in whole notes, and scrolls so it stays at the look-ahead point;
-  // null hands the cursor back to the usual per-event placement.
-  setPlayhead: (wholeNotes: number | null) => void
+  // Tempo mode only (scroll layout). Scrolls so a position in the piece, in
+  // whole notes, stays at the look-ahead point, at a constant speed through
+  // each measure. Nothing is drawn there: the notes carry the timing.
+  followTime: (wholeNotes: number) => void
+  // Tempo mode only. Dims every note, and records the notes of the events
+  // from the cursor's up to `lastIndex` so they can be brought up one by one.
+  startTempoPreview: (lastIndex: number) => void
+  // Tempo mode only. How far an event has come up, from 0 (dimmed) to 1
+  // (full opacity, the moment it is due or once it is settled).
+  setEventEmphasis: (index: number, amount: number) => void
+  // Undoes startTempoPreview: every note back to full opacity.
+  endTempoPreview: () => void
   // Restricts rendering to [startMeasure, endMeasure] (1-based, inclusive,
   // matching ExpectedEvent.measureNumber) -- training mode's "each section is
   // its own isolated score" (no leftover notes from the previous section
@@ -300,19 +299,19 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   const cursorIndexRef = useRef(0)
   const eventNotesRef = useRef<Map<number, Note[]>>(new Map())
   const pendingMarksRef = useRef<Map<number, string>>(new Map())
-  const playheadRef = useRef<HTMLDivElement | null>(null)
-  // What the playhead needs from the layout, read once per layout rather than
-  // every frame: the measures' spans, each downbeat's x, and the staves'
-  // vertical extent. `key` names the layout it was read from (zoom, sheet
-  // width), so any re-render -- a crop, a zoom, a window resize -- rebuilds it.
-  const playheadLayoutRef = useRef<{
+  // What following the time needs from the layout, read once per layout
+  // rather than every frame: the measures' spans and each downbeat's x. `key`
+  // names the layout it was read from (zoom, sheet width), so any re-render
+  // -- a crop, a zoom, a window resize -- rebuilds it.
+  const timeLayoutRef = useRef<{
     key: string
     measures: MeasureSpan[]
-    /** x of the score at a timestamp (whole notes), filled as the band reaches it. */
-    xByTimestamp: Map<number, number | null>
-    top: number
-    height: number
+    downbeatX: Map<number, number | null>
   } | null>(null)
+  // Tempo preview: the notes of every event of the run, by index, and the
+  // note groups given an opacity of their own (to put back at the end).
+  const previewNotesRef = useRef<Map<number, Note[]>>(new Map())
+  const previewElementsRef = useRef<Set<SVGGElement>>(new Set())
 
   // Records the notes under the cursor as event `index`, and paints them:
   // a mark waiting for them, else the "to play" yellow.
@@ -379,8 +378,10 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
     // A remount (e.g. toggling layoutMode) leaves the previous instance's SVG
     // behind otherwise -- OSMD doesn't clear a container it didn't create itself.
     containerRef.current.replaceChildren()
-    playheadRef.current = null
-    playheadLayoutRef.current = null
+    containerRef.current.classList.remove(TEMPO_PREVIEW_CLASS)
+    timeLayoutRef.current = null
+    previewNotesRef.current = new Map()
+    previewElementsRef.current = new Set()
     const osmd = new OpenSheetMusicDisplay(containerRef.current, {
       autoResize: true,
       backend: 'svg',
@@ -701,80 +702,102 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
           pendingMarksRef.current.set(index, color)
         }
       },
-      setPlayhead: (wholeNotes: number | null) => {
+      followTime: (wholeNotes: number) => {
         const osmd = osmdRef.current
         const container = containerRef.current
-        if (wholeNotes === null) {
-          playheadRef.current?.remove()
-          playheadRef.current = null
-          playheadLayoutRef.current = null
-          return
-        }
         const svg = container?.querySelector('svg')
-        const host = svg?.parentElement
         const sheet = osmd?.Sheet
-        if (!osmd || !hasLoadedRef.current || !container || !svg || !host || !sheet) {
+        if (!osmd || !hasLoadedRef.current || !container || !svg || !sheet) {
           return
         }
         const unit = OSMD_PIXELS_PER_UNIT * osmd.Zoom
         const rules = osmd.EngravingRules
         const key = `${osmd.Zoom}|${svg.getAttribute('width')}|${rules.MinMeasureToDrawIndex}|${rules.MaxMeasureToDrawIndex}`
-        let layout = playheadLayoutRef.current
+        let layout = timeLayoutRef.current
         if (!layout || layout.key !== key) {
-          const staffLines = osmd.GraphicSheet.MusicPages[0]?.MusicSystems[0]?.StaffLines ?? []
-          const ys = staffLines.map((line) => line.PositionAndShape.AbsolutePosition.y)
-          const top = ys.length > 0 ? Math.min(...ys) - PLAYHEAD_OVERHANG_UNITS : 0
-          const bottom =
-            ys.length > 0 ? Math.max(...ys) + osmd.EngravingRules.StaffHeight + PLAYHEAD_OVERHANG_UNITS : 0
           layout = {
             key,
-            measures: sheet.SourceMeasures.map((measure) => {
-              const start = measure.AbsoluteTimestamp.RealValue
-              return {
-                start,
-                end: start + measure.Duration.RealValue,
-                // Every staff's onsets, rests included: the band passes over each one on time.
-                onsets: measure.VerticalSourceStaffEntryContainers.map(
-                  (container) => start + container.Timestamp.RealValue,
-                ).sort((a, b) => a - b),
-              }
-            }),
-            xByTimestamp: new Map(),
-            top: top * unit,
-            height: (bottom - top) * unit,
+            measures: sheet.SourceMeasures.map((measure) => ({
+              start: measure.AbsoluteTimestamp.RealValue,
+              end: measure.AbsoluteTimestamp.RealValue + measure.Duration.RealValue,
+            })),
+            downbeatX: new Map(),
           }
-          playheadLayoutRef.current = layout
+          timeLayoutRef.current = layout
         }
-        const { measures, xByTimestamp } = layout
-        const xAt = (at: number): number | null => {
-          if (!xByTimestamp.has(at)) {
-            const timestamp = new Fraction(Math.round(at * TIMESTAMP_TICKS), TIMESTAMP_TICKS)
-            const [xUnits] = osmd.GraphicSheet.calculateXPositionFromTimestamp(timestamp)
-            xByTimestamp.set(at, Number.isFinite(xUnits) && xUnits > 0 ? xUnits : null)
+        const { measures, downbeatX } = layout
+        const xAtMeasureStart = (index: number): number | null => {
+          if (!downbeatX.has(index)) {
+            const at = index < measures.length ? measures[index].start : measures[measures.length - 1]?.end
+            let x: number | null = null
+            if (at !== undefined) {
+              const timestamp = new Fraction(Math.round(at * TIMESTAMP_TICKS), TIMESTAMP_TICKS)
+              const [xUnits] = osmd.GraphicSheet.calculateXPositionFromTimestamp(timestamp)
+              x = Number.isFinite(xUnits) && xUnits > 0 ? xUnits : null
+            }
+            downbeatX.set(index, x)
           }
-          return xByTimestamp.get(at) ?? null
+          return downbeatX.get(index) ?? null
         }
-        const xUnits = playheadX(measures, wholeNotes, xAt)
+        const xUnits = playheadX(measures, wholeNotes, xAtMeasureStart)
         if (xUnits === null) {
           return
         }
-        let playhead = playheadRef.current
-        if (!playhead || playhead.parentElement !== host) {
-          playhead?.remove()
-          playhead = document.createElement('div')
-          playhead.setAttribute('style', PLAYHEAD_STYLE)
-          host.style.position = host.style.position || 'relative'
-          host.appendChild(playhead)
-          playheadRef.current = playhead
-        }
-        // Both rects scroll together, so their difference does not.
-        const svgRect = svg.getBoundingClientRect()
-        const hostRect = host.getBoundingClientRect()
-        playhead.style.top = `${svgRect.top - hostRect.top + layout.top}px`
-        playhead.style.height = `${layout.height}px`
-        const left = svgRect.left - hostRect.left + xUnits * unit
-        playhead.style.left = `${left}px`
+        // The SVG's offset inside the scrolled content (padding), plus the time's x on it.
+        const svgLeft = svg.getBoundingClientRect().left - container.getBoundingClientRect().left + container.scrollLeft
+        const left = svgLeft + xUnits * unit
         container.scrollLeft = Math.max(0, left - container.clientWidth * SCROLL_MODE_LOOKAHEAD_FRACTION)
+      },
+      startTempoPreview: (lastIndex: number) => {
+        const osmd = osmdRef.current
+        const container = containerRef.current
+        if (!osmd || !hasLoadedRef.current || !container) {
+          return
+        }
+        // Walks ahead on a copy of the iterator, so the cursor itself stays
+        // where it is (stepTo still moves it when each event is due).
+        const notesByIndex = new Map<number, Note[]>()
+        notesByIndex.set(cursorIndexRef.current, eventNotesRef.current.get(cursorIndexRef.current) ?? [])
+        const cursor = osmd.cursor as unknown as { iterator: typeof osmd.cursor.Iterator }
+        const saved = cursor.iterator
+        cursor.iterator = saved.clone()
+        try {
+          for (let index = cursorIndexRef.current + 1; index <= lastIndex; index += 1) {
+            advanceToNextEvent(osmd)
+            if (osmd.cursor.Iterator.EndReached) {
+              break
+            }
+            notesByIndex.set(index, requiredNotesUnderCursor(osmd, handModeRef.current))
+          }
+        } finally {
+          cursor.iterator = saved
+        }
+        previewNotesRef.current = notesByIndex
+        container.classList.add(TEMPO_PREVIEW_CLASS)
+      },
+      setEventEmphasis: (index: number, amount: number) => {
+        const osmd = osmdRef.current
+        const notes = previewNotesRef.current.get(index)
+        if (!osmd || !notes) {
+          return
+        }
+        const opacity = String(TEMPO_PREVIEW_DIM_OPACITY + (1 - TEMPO_PREVIEW_DIM_OPACITY) * Math.min(1, Math.max(0, amount)))
+        for (const note of notes) {
+          const gNote = osmd.EngravingRules.GNote(note) as unknown as { getSVGGElement?: () => SVGGElement | undefined } | undefined
+          const element = gNote?.getSVGGElement?.()
+          if (element) {
+            element.style.opacity = opacity
+            previewElementsRef.current.add(element)
+          }
+        }
+      },
+      endTempoPreview: () => {
+        containerRef.current?.classList.remove(TEMPO_PREVIEW_CLASS)
+        for (const element of previewElementsRef.current) {
+          element.style.opacity = ''
+        }
+        previewElementsRef.current = new Set()
+        previewNotesRef.current = new Map()
       },
       setZoom: (value: number) => {
         const osmd = osmdRef.current
