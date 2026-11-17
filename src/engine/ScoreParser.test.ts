@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { measureSpanWholeNotes, noteFinger, openingMeter, selectHandStaff, selectHandStaves } from './ScoreParser'
+import {
+  measureSpanWholeNotes,
+  noteFinger,
+  openingMeter,
+  openingTempoQuarterBpm,
+  selectHandStaff,
+  selectHandStaves,
+} from './ScoreParser'
 
 // The staff objects only ever get compared by identity (a note's ParentStaff is
 // matched against the selected one), so plain strings stand in for them here --
@@ -128,6 +135,52 @@ describe('openingMeter', () => {
   it('is null when the score states none', () => {
     expect(openingMeter({ Sheet: { SourceMeasures: [{ ActiveTimeSignature: null }] } })).toBeNull()
     expect(openingMeter({ Sheet: { SourceMeasures: [] } })).toBeNull()
+  })
+})
+
+describe('openingTempoQuarterBpm', () => {
+  const mark = (beatUnit: string, perMinute: number, dotted = false) => ({
+    InstantaneousTempo: { beatUnit, dotted, TempoInBpm: perMinute },
+  })
+
+  it('converts a metronome mark to quarter notes per minute', () => {
+    const sheet = (tempo: ReturnType<typeof mark>) => ({
+      Sheet: { HasBPMInfo: true, SourceMeasures: [{ TempoInBPM: 0, TempoExpressions: [tempo] }] },
+    })
+    expect(openingTempoQuarterBpm(sheet(mark('quarter', 100)))).toBe(100)
+    expect(openingTempoQuarterBpm(sheet(mark('quarter', 60, true)))).toBe(90)
+    expect(openingTempoQuarterBpm(sheet(mark('half', 50, true)))).toBe(150)
+    expect(openingTempoQuarterBpm(sheet(mark('eighth', 120)))).toBe(60)
+  })
+
+  it('finds a mark on the second measure (after a pickup)', () => {
+    const osmd = {
+      Sheet: { HasBPMInfo: true, SourceMeasures: [{ TempoExpressions: [] }, { TempoExpressions: [mark('quarter', 72)] }] },
+    }
+    expect(openingTempoQuarterBpm(osmd)).toBe(72)
+  })
+
+  it('reads a sound tempo, whether or not OSMD filled its sheet default', () => {
+    expect(
+      openingTempoQuarterBpm({ Sheet: { HasBPMInfo: true, DefaultStartTempoInBpm: 88, SourceMeasures: [{ TempoInBPM: 88 }] } }),
+    ).toBe(88)
+    expect(openingTempoQuarterBpm({ Sheet: { HasBPMInfo: true, SourceMeasures: [{ TempoInBPM: 88 }] } })).toBe(88)
+    // A bare <sound tempo> only reaches the sheet default.
+    expect(
+      openingTempoQuarterBpm({ Sheet: { HasBPMInfo: true, DefaultStartTempoInBpm: 96, SourceMeasures: [{ TempoInBPM: 0 }] } }),
+    ).toBe(96)
+  })
+
+  it('ignores a tempo first stated later in the piece', () => {
+    // Measures read before any tempo was stated carry OSMD's 120 default.
+    const osmd = {
+      Sheet: { HasBPMInfo: true, DefaultStartTempoInBpm: 66, SourceMeasures: [{ TempoInBPM: 120 }, { TempoInBPM: 120 }] },
+    }
+    expect(openingTempoQuarterBpm(osmd)).toBeNull()
+  })
+
+  it('is null when the score states no tempo', () => {
+    expect(openingTempoQuarterBpm({ Sheet: { HasBPMInfo: false, SourceMeasures: [{ TempoInBPM: 120 }] } })).toBeNull()
   })
 })
 

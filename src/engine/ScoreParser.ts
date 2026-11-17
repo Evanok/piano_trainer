@@ -285,6 +285,78 @@ export function openingMeter(osmd: {
   return { numerator: signature.Numerator, denominator: signature.Denominator }
 }
 
+/** A metronome mark's beat unit (MusicXML `<beat-unit>`), in quarter notes. */
+const BEAT_UNIT_QUARTERS: Record<string, number> = {
+  breve: 8,
+  whole: 4,
+  half: 2,
+  quarter: 1,
+  eighth: 0.5,
+  '16th': 0.25,
+  '32nd': 0.125,
+}
+
+/** How many of the opening measures may carry the starting tempo (a pickup puts it on the second). */
+const OPENING_TEMPO_MEASURES = 2
+
+interface TempoSheet {
+  HasBPMInfo?: boolean
+  DefaultStartTempoInBpm?: number
+  SourceMeasures?: Array<{
+    TempoInBPM?: number
+    TempoExpressions?: Array<{
+      InstantaneousTempo?: { beatUnit?: string; dotted?: boolean; TempoInBpm?: number } | null
+    }>
+  }>
+}
+
+/**
+ * The piece's starting tempo in quarter notes per minute, or null when the
+ * file states none. Structurally typed like openingMeter.
+ *
+ * Two sources, in this order: a metronome mark (`<metronome>`, "dotted
+ * quarter = 60"), converted from its beat unit, then `<sound tempo>`, which
+ * MusicXML always counts in quarters. OSMD cannot be asked for "the tempo"
+ * directly, and its fields need reading together:
+ * - `DefaultStartTempoInBpm` is the first tempo stated *anywhere*, as a raw
+ *   number whatever its unit (60 for a dotted quarter at 60);
+ * - a measure's `TempoInBPM` is set by a `<sound tempo>` inside a direction,
+ *   but is 120 on every measure read before the file has stated any tempo,
+ *   and stays 0 on the first measure when the tempo came from a bare
+ *   `<sound>` element, which only updates the sheet's default.
+ * So a measure's tempo is trusted when it equals the sheet's first stated
+ * one (a 120 default left before a later marking is the one false match, and
+ * a harmless one), and a 0 on the first measure means that bare `<sound>`.
+ * A tempo word alone ("Allegro") is not a number the piece states, so it is
+ * not read.
+ */
+export function openingTempoQuarterBpm(osmd: { Sheet?: TempoSheet }): number | null {
+  const sheet = osmd.Sheet
+  if (!sheet?.HasBPMInfo) {
+    return null
+  }
+  const opening = (sheet.SourceMeasures ?? []).slice(0, OPENING_TEMPO_MEASURES)
+  for (const measure of opening) {
+    for (const expression of measure.TempoExpressions ?? []) {
+      const mark = expression.InstantaneousTempo
+      const unit = mark?.beatUnit !== undefined ? BEAT_UNIT_QUARTERS[mark.beatUnit] : undefined
+      if (unit !== undefined && mark?.TempoInBpm && mark.TempoInBpm > 0) {
+        return mark.TempoInBpm * unit * (mark.dotted ? 1.5 : 1)
+      }
+    }
+  }
+  const firstStated = sheet.DefaultStartTempoInBpm ?? 0
+  if (!(firstStated > 0)) {
+    // OSMD only fills the default when it starts at 0, but the field starts
+    // undefined, so a `<sound tempo>` inside a direction never reaches it.
+    return opening.find((measure) => (measure.TempoInBPM ?? 0) > 0)?.TempoInBPM ?? null
+  }
+  if (opening[0]?.TempoInBPM === 0) {
+    return firstStated
+  }
+  return opening.some((measure) => measure.TempoInBPM === firstStated) ? firstStated : null
+}
+
 /**
  * Where a measure starts and ends, in whole notes from the piece's start
  * (`measureNumber` 1-based and sequential, like ExpectedEvent.measureNumber).

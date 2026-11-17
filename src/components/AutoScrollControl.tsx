@@ -1,5 +1,5 @@
 import { AutoScrollIcon } from './icons'
-import { TempoField } from './TempoField'
+import { TempoField, type ScoreTempo } from './TempoField'
 import { formatMeter, isCompoundMeter, type Meter } from '../engine/metronome'
 import { stopTouch, usePopover } from '../hooks/usePopover'
 
@@ -12,6 +12,8 @@ interface AutoScrollControlProps {
   unavailable: string | null
   bpm: number
   onBpmChange: (bpm: number) => void
+  /** The score's own tempo, null when it states none. */
+  scoreTempo: ScoreTempo | null
   /** The meter the tempo counts in (the metronome's), null when there is none. */
   meter: Meter | null
   /** A run is under way: the tempo cannot change under it. */
@@ -44,6 +46,7 @@ export function AutoScrollControl({
   unavailable,
   bpm,
   onBpmChange,
+  scoreTempo,
   meter,
   runActive,
 }: AutoScrollControlProps) {
@@ -98,7 +101,7 @@ export function AutoScrollControl({
 
           <hr className="my-3 border-gray-200" />
           {runActive && <p className="mb-2 text-xs text-amber-700">Stop the run to change the speed.</p>}
-          <TempoField bpm={bpm} onChange={onBpmChange} disabled={runActive} />
+          <TempoField bpm={bpm} onChange={onBpmChange} disabled={runActive} scoreTempo={scoreTempo} />
           <p className="mt-2 text-xs text-gray-500">
             {beatUnitHint(meter)} Same tempo as the metronome, which can stay off.
           </p>

@@ -32,17 +32,44 @@ export type MeterChoice = 'score' | 'none' | `${number}/${number}`
 /** The fixed signatures offered in the panel, besides the score's own. */
 export const METER_CHOICES: readonly MeterChoice[] = ['2/4', '3/4', '4/4', '6/8']
 
+/** The shares of the score's tempo offered as a starting speed. */
+export const SCORE_TEMPO_PERCENTS: readonly number[] = [50, 60, 70, 80, 90, 100]
+export const DEFAULT_SCORE_TEMPO_PERCENT = 70
+
 export interface MetronomeSettings {
   bpm: number
   meter: MeterChoice
   /** 0..1 */
   volume: number
+  /**
+   * The share of the score's own tempo a piece starts at, when it states one.
+   * Working a piece is done below its written speed, so 100 is not the default.
+   */
+  scorePercent: number
 }
 
 export const DEFAULT_METRONOME_SETTINGS: MetronomeSettings = {
   bpm: DEFAULT_BPM,
   meter: 'score',
   volume: 0.7,
+  scorePercent: DEFAULT_SCORE_TEMPO_PERCENT,
+}
+
+/** Beat unit the bpm counts when there is no meter: quarter notes. */
+const DEFAULT_COUNTED_UNIT = 4
+
+/**
+ * The score's tempo in the unit the bpm counts, which is the meter's bottom
+ * number (eighths in 6/8, halves in 2/2), quarters without a meter. A 6/8
+ * marked "dotted quarter = 60" is 90 quarters, so 180 here.
+ */
+export function scoreTempoInCountedUnit(quarterBpm: number, meter: Meter | null): number {
+  return (quarterBpm * (meter?.denominator ?? DEFAULT_COUNTED_UNIT)) / 4
+}
+
+/** The bpm for a share of the score's tempo (already in the counted unit). */
+export function bpmAtPercent(scoreBpm: number, percent: number): number {
+  return clampBpm((scoreBpm * percent) / 100)
 }
 
 export type BeatAccent = 'strong' | 'medium' | 'weak'

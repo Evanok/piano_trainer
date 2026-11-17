@@ -40,7 +40,7 @@ function meterHint(meter: Meter | null, bpm: number): string {
  * changes meter midway keeps counting the first one.
  */
 export function MetronomeControl({ compact = false, metronome, scoreMeter, runActive }: MetronomeControlProps) {
-  const { settings, updateSettings, meter, soundOn, toggleSound, subscribeBeat } = metronome
+  const { settings, updateSettings, meter, scoreBpm, applyScorePercent, soundOn, toggleSound, subscribeBeat } = metronome
   const { isOpen, setIsOpen, rootRef } = usePopover()
   const [flash, setFlash] = useState<'accent' | 'beat' | null>(null)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -115,7 +115,12 @@ export function MetronomeControl({ compact = false, metronome, scoreMeter, runAc
             <p className="mt-3 text-xs text-amber-700">Stop the auto-scroll run to change the tempo or time signature.</p>
           )}
           <div className="mt-3">
-            <TempoField bpm={settings.bpm} onChange={(bpm) => updateSettings({ bpm })} disabled={runActive} />
+            <TempoField
+              bpm={settings.bpm}
+              onChange={(bpm) => updateSettings({ bpm })}
+              disabled={runActive}
+              scoreTempo={scoreBpm === null ? null : { bpm: scoreBpm, onPercent: applyScorePercent }}
+            />
           </div>
 
           <label className="mt-3 flex items-center justify-between gap-2">

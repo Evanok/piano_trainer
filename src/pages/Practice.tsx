@@ -22,7 +22,13 @@ import { SuddenDeathCard, type SuddenDeathMiss } from '../components/SuddenDeath
 import { TempoRunOverlay } from '../components/TempoRunOverlay'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { handPitchesOf, NO_HAND_PITCHES } from '../engine/handPitches'
-import { effectiveHandMode, extractExpectedEvents, measureSpanWholeNotes, openingMeter } from '../engine/ScoreParser'
+import {
+  effectiveHandMode,
+  extractExpectedEvents,
+  measureSpanWholeNotes,
+  openingMeter,
+  openingTempoQuarterBpm,
+} from '../engine/ScoreParser'
 import { extractTimedNotes } from '../engine/scorePlayback'
 import { ScoreSynth } from '../engine/scoreSynth'
 import { eventIndexAtOrAfterMeasure, lastMeasureNumber, sectionForMeasureRange, type Section } from '../engine/sections'
@@ -243,7 +249,10 @@ export function Practice({
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   // The piece's opening time signature, which the metronome accents by default.
   const [scoreMeter, setScoreMeter] = useState<Meter | null>(null)
-  const metronome = useMetronome(scoreMeter)
+  const [scoreQuarterBpm, setScoreQuarterBpm] = useState<number | null>(null)
+  const metronome = useMetronome(scoreMeter, scoreQuarterBpm)
+  const scoreTempo =
+    metronome.scoreBpm === null ? null : { bpm: metronome.scoreBpm, onPercent: metronome.applyScorePercent }
   // The tempo mode ("Auto-scroll"): the score moves by itself at the
   // metronome's tempo and notes are judged on their timing, instead of the
   // score waiting for each one. Independent of the click being heard, and of
@@ -1144,6 +1153,7 @@ export function Practice({
     setIsPreviewPlaying(false)
     osmdRef.current = osmd
     setScoreMeter(openingMeter(osmd))
+    setScoreQuarterBpm(openingTempoQuarterBpm(osmd))
     const newEvents = extractExpectedEvents(osmd, handMode)
     totalEventsRef.current = newEvents.length
     setTotalEvents(newEvents.length)
@@ -1559,6 +1569,7 @@ export function Practice({
             unavailable={autoScrollUnavailable}
             bpm={metronome.settings.bpm}
             onBpmChange={(bpm) => metronome.updateSettings({ bpm })}
+            scoreTempo={scoreTempo}
             meter={metronome.meter}
             runActive={runActive}
           />
@@ -1818,6 +1829,7 @@ export function Practice({
           unavailable={autoScrollUnavailable}
           bpm={metronome.settings.bpm}
           onBpmChange={(bpm) => metronome.updateSettings({ bpm })}
+          scoreTempo={scoreTempo}
           meter={metronome.meter}
           runActive={runActive}
         />

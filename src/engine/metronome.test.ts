@@ -4,7 +4,9 @@ import {
   MIN_BPM,
   TAP_RESET_MS,
   beatIntervalSeconds,
+  bpmAtPercent,
   clampBpm,
+  scoreTempoInCountedUnit,
   beatAccent,
   isCompoundMeter,
   parseMeter,
@@ -107,5 +109,21 @@ describe('tapTempoBpm', () => {
     const slow = [0, 1000, 2000, 3000, 4000, 5000]
     const fast = [5500, 6000, 6500, 7000, 7500]
     expect(tapTempoBpm([...slow, ...fast])).toBeGreaterThan(100)
+  })
+})
+
+describe('score tempo', () => {
+  it('counts the score tempo in the meter unit', () => {
+    expect(scoreTempoInCountedUnit(120, { numerator: 4, denominator: 4 })).toBe(120)
+    // 6/8 at dotted quarter = 60 is 90 quarters, 180 eighths.
+    expect(scoreTempoInCountedUnit(90, { numerator: 6, denominator: 8 })).toBe(180)
+    expect(scoreTempoInCountedUnit(120, { numerator: 2, denominator: 2 })).toBe(60)
+    expect(scoreTempoInCountedUnit(100, null)).toBe(100)
+  })
+
+  it('takes a rounded, clamped share of it', () => {
+    expect(bpmAtPercent(120, 70)).toBe(84)
+    expect(bpmAtPercent(100, 100)).toBe(100)
+    expect(bpmAtPercent(40, 50)).toBe(MIN_BPM)
   })
 })

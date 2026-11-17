@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_METRONOME_SETTINGS,
   Metronome,
+  bpmAtPercent,
   clampBpm,
+  scoreTempoInCountedUnit,
   resolveMeter,
   type BeatAccent,
   type Meter,
@@ -15,6 +17,10 @@ export interface MetronomeState {
   updateSettings: (patch: Partial<MetronomeSettings>) => void
   /** The meter actually counted: the score's under 'score', else the forced one, or none. */
   meter: Meter | null
+  /** The score's own tempo in the unit the bpm counts, null when it states none. */
+  scoreBpm: number | null
+  /** Sets the tempo to a share of the score's, and keeps that share for the next piece. */
+  applyScorePercent: (percent: number) => void
   /** Whether the player wants to hear it; independent of the tempo mode. */
   soundOn: boolean
   toggleSound: () => Promise<void>
@@ -41,8 +47,13 @@ export interface MetronomeState {
  * The practice screen's one metronome. Shared by its panel and by the tempo
  * mode, which scrolls at its tempo and counts in with it, so there is a single
  * bpm to set. Settings persist per device; the sound being on does not.
+ *
+ * A piece that states its tempo starts at `scorePercent` of it (converted to
+ * the counted unit), once per loaded tempo: a remount of the same piece (a
+ * layout switch) keeps whatever the player has set since. A piece that states
+ * none keeps the last tempo used.
  */
-export function useMetronome(scoreMeter: Meter | null): MetronomeState {
+export function useMetronome(scoreMeter: Meter | null, scoreQuarterBpm: number | null): MetronomeState {
   const [settings, setSettings] = useState<MetronomeSettings>(() =>
     loadPreference('metronome', DEFAULT_METRONOME_SETTINGS),
   )
@@ -59,6 +70,17 @@ export function useMetronome(scoreMeter: Meter | null): MetronomeState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [settings.meter, scoreMeter?.numerator, scoreMeter?.denominator],
   )
+
+  const scoreBpm = scoreQuarterBpm === null ? null : scoreTempoInCountedUnit(scoreQuarterBpm, meter)
+
+  // Keyed on the loaded tempo only: changing the meter or the share later must
+  // not move a tempo the player has set by hand.
+  useEffect(() => {
+    if (scoreBpm !== null) {
+      setSettings((current) => ({ ...current, bpm: bpmAtPercent(scoreBpm, current.scorePercent) }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoreQuarterBpm])
 
   const getMetronome = useCallback(() => {
     if (!metronomeRef.current) {
@@ -93,6 +115,17 @@ export function useMetronome(scoreMeter: Meter | null): MetronomeState {
       ...(patch.bpm !== undefined ? { bpm: clampBpm(patch.bpm) } : {}),
     }))
   }, [])
+
+  const applyScorePercent = useCallback(
+    (percent: number) => {
+      setSettings((current) => ({
+        ...current,
+        scorePercent: percent,
+        ...(scoreBpm !== null ? { bpm: bpmAtPercent(scoreBpm, percent) } : {}),
+      }))
+    },
+    [scoreBpm],
+  )
 
   const setSound = (on: boolean) => {
     soundOnRef.current = on
@@ -159,5 +192,17 @@ export function useMetronome(scoreMeter: Meter | null): MetronomeState {
     }
   }, [])
 
-  return { settings, updateSettings, meter, soundOn, toggleSound, subscribeBeat, startRunGrid, continueRunGrid, endRunGrid }
+  return {
+    settings,
+    updateSettings,
+    meter,
+    scoreBpm,
+    applyScorePercent,
+    soundOn,
+    toggleSound,
+    subscribeBeat,
+    startRunGrid,
+    continueRunGrid,
+    endRunGrid,
+  }
 }

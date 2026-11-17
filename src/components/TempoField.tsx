@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { MAX_BPM, MIN_BPM, recentTaps, tapTempoBpm } from '../engine/metronome'
+import { MAX_BPM, MIN_BPM, SCORE_TEMPO_PERCENTS, bpmAtPercent, recentTaps, tapTempoBpm } from '../engine/metronome'
+
+/** The score's own tempo, when it states one, and the share of it to start from. */
+export interface ScoreTempo {
+  /** In the unit the bpm counts. */
+  bpm: number
+  onPercent: (percent: number) => void
+}
 
 interface TempoFieldProps {
   bpm: number
   onChange: (bpm: number) => void
   disabled?: boolean
+  scoreTempo?: ScoreTempo | null
 }
 
 const STEP_BUTTON =
@@ -14,7 +22,7 @@ const STEP_BUTTON =
  * The tempo, as a field with -/+ steppers, a tap button and a slider. Used by
  * both the metronome and the auto-scroll panels, which share one tempo.
  */
-export function TempoField({ bpm, onChange, disabled = false }: TempoFieldProps) {
+export function TempoField({ bpm, onChange, disabled = false, scoreTempo = null }: TempoFieldProps) {
   const [draft, setDraft] = useState(String(bpm))
   const tapsRef = useRef<number[]>([])
 
@@ -98,6 +106,34 @@ export function TempoField({ bpm, onChange, disabled = false }: TempoFieldProps)
         aria-label="Tempo"
         className="mt-2 w-full"
       />
+      {scoreTempo && (
+        <div className="mt-2">
+          <p className="text-xs text-gray-500">
+            Score tempo {Math.round(scoreTempo.bpm)} bpm, now at {Math.round((bpm / scoreTempo.bpm) * 100)}%
+          </p>
+          <div className="mt-1 flex gap-1">
+            {SCORE_TEMPO_PERCENTS.map((percent) => {
+              // Lit when the tempo is exactly that share, whichever way it got there.
+              const active = bpmAtPercent(scoreTempo.bpm, percent) === bpm
+              return (
+                <button
+                  key={percent}
+                  type="button"
+                  onClick={() => scoreTempo.onPercent(percent)}
+                  disabled={disabled}
+                  className={`h-7 min-w-0 flex-1 rounded-md border text-xs font-semibold tabular-nums disabled:opacity-40 ${
+                    active
+                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {percent}%
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
