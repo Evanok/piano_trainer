@@ -308,7 +308,8 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
   const playheadLayoutRef = useRef<{
     key: string
     measures: MeasureSpan[]
-    downbeatX: Map<number, number | null>
+    /** x of the score at a timestamp (whole notes), filled as the band reaches it. */
+    xByTimestamp: Map<number, number | null>
     top: number
     height: number
   } | null>(null)
@@ -727,31 +728,33 @@ export const PianoScore = forwardRef<PianoScoreHandle, PianoScoreProps>(function
             ys.length > 0 ? Math.max(...ys) + osmd.EngravingRules.StaffHeight + PLAYHEAD_OVERHANG_UNITS : 0
           layout = {
             key,
-            measures: sheet.SourceMeasures.map((measure) => ({
-              start: measure.AbsoluteTimestamp.RealValue,
-              end: measure.AbsoluteTimestamp.RealValue + measure.Duration.RealValue,
-            })),
-            downbeatX: new Map(),
+            measures: sheet.SourceMeasures.map((measure) => {
+              const start = measure.AbsoluteTimestamp.RealValue
+              return {
+                start,
+                end: start + measure.Duration.RealValue,
+                // Every staff's onsets, rests included: the band passes over each one on time.
+                onsets: measure.VerticalSourceStaffEntryContainers.map(
+                  (container) => start + container.Timestamp.RealValue,
+                ).sort((a, b) => a - b),
+              }
+            }),
+            xByTimestamp: new Map(),
             top: top * unit,
             height: (bottom - top) * unit,
           }
           playheadLayoutRef.current = layout
         }
-        const { measures, downbeatX } = layout
-        const xAtMeasureStart = (index: number): number | null => {
-          if (!downbeatX.has(index)) {
-            const at = index < measures.length ? measures[index].start : measures[measures.length - 1]?.end
-            let x: number | null = null
-            if (at !== undefined) {
-              const timestamp = new Fraction(Math.round(at * TIMESTAMP_TICKS), TIMESTAMP_TICKS)
-              const [xUnits] = osmd.GraphicSheet.calculateXPositionFromTimestamp(timestamp)
-              x = Number.isFinite(xUnits) && xUnits > 0 ? xUnits : null
-            }
-            downbeatX.set(index, x)
+        const { measures, xByTimestamp } = layout
+        const xAt = (at: number): number | null => {
+          if (!xByTimestamp.has(at)) {
+            const timestamp = new Fraction(Math.round(at * TIMESTAMP_TICKS), TIMESTAMP_TICKS)
+            const [xUnits] = osmd.GraphicSheet.calculateXPositionFromTimestamp(timestamp)
+            xByTimestamp.set(at, Number.isFinite(xUnits) && xUnits > 0 ? xUnits : null)
           }
-          return downbeatX.get(index) ?? null
+          return xByTimestamp.get(at) ?? null
         }
-        const xUnits = playheadX(measures, wholeNotes, xAtMeasureStart)
+        const xUnits = playheadX(measures, wholeNotes, xAt)
         if (xUnits === null) {
           return
         }

@@ -6,6 +6,17 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## Auto-scroll fixes and tempo from the score (2026-11-16)
+
+- The playhead passes over every note exactly at its time. It moved at a constant speed per measure, which put it
+  up to 400ms off mid-measure notes at 50 bpm, so notes played on the band were judged wrong (worse the slower).
+- The timing windows are a share of the beat (36% to be counted, 14% to be on time, same as before at 120 bpm),
+  so a slow tempo is as forgiving in rhythm as a fast one.
+- The keyboard and cursor follow the rhythm: a note lights up when its window opens, not as soon as the previous
+  note is played.
+- The tempo starts at the score's own (metronome mark converted from its beat unit, or `<sound tempo>`), at a
+  share picked with 50 to 100% buttons under the tempo (default 100%, kept per device).
+
 ## Tempo mode: auto-scroll (2026-11-16)
 
 - New "Auto-scroll" control in the practice header, apart from the metronome so it is used with or without the

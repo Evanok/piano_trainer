@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { GOOD_WINDOW_MS, TempoEngine, addSettledEvent, classifyOffset, emptyTempoStats } from './TempoEngine'
+import {
+  GOOD_WINDOW_MS,
+  ON_TIME_WINDOW_MS,
+  TempoEngine,
+  addSettledEvent,
+  classifyOffset,
+  emptyTempoStats,
+  tempoWindows,
+} from './TempoEngine'
 
 const events = [
   { index: 0, pitches: [60], timeMs: 1000 },
@@ -75,5 +83,36 @@ describe('tempo stats', () => {
     stats = addSettledEvent(stats, { index: 1, result: 'late', offsetMs: 110 })
     stats = addSettledEvent(stats, { index: 2, result: 'missed', offsetMs: null })
     expect(stats).toEqual({ bpm: 80, onTime: 1, early: 0, late: 1, missed: 1, meanOffsetMs: 60 })
+  })
+})
+
+describe('tempoWindows', () => {
+  it('matches the fixed windows at 120 bpm and scales with the beat', () => {
+    expect(tempoWindows(500)).toEqual({ onTimeMs: ON_TIME_WINDOW_MS, goodMs: GOOD_WINDOW_MS })
+    // 50 bpm: a beat of 1200ms.
+    expect(tempoWindows(1200)).toEqual({ onTimeMs: 168, goodMs: 432 })
+  })
+
+  it('keeps a floor at fast tempos', () => {
+    expect(tempoWindows(200)).toEqual({ onTimeMs: 40, goodMs: 100 })
+  })
+
+  it('judges with the windows it was given', () => {
+    const engine = new TempoEngine([{ index: 0, pitches: [60], timeMs: 1000 }], tempoWindows(1200))
+    expect(engine.noteOn(60, 1000 + 400)).toMatchObject({ kind: 'hit', settled: { result: 'late' } })
+    const onTime = new TempoEngine([{ index: 0, pitches: [60], timeMs: 1000 }], tempoWindows(1200))
+    expect(onTime.noteOn(60, 1000 - 150)).toMatchObject({ kind: 'hit', settled: { result: 'onTime' } })
+  })
+})
+
+describe('dueIndex', () => {
+  it('shows a note only once its window has opened, and nothing once it is played', () => {
+    const engine = new TempoEngine(events)
+    expect(engine.dueIndex(1000 - GOOD_WINDOW_MS - 1)).toBeNull()
+    expect(engine.dueIndex(1000 - GOOD_WINDOW_MS)).toBe(0)
+    engine.noteOn(60, 1000)
+    // The next note is 500ms later: dark until its own window opens.
+    expect(engine.dueIndex(1010)).toBeNull()
+    expect(engine.dueIndex(1500 - GOOD_WINDOW_MS)).toBe(1)
   })
 })

@@ -38,8 +38,8 @@ import { scoreBestCombo } from '../engine/statsAnalytics'
 import { DEFAULT_CHORD_TOLERANCE_MS, WaitEngine, type WaitEngineState } from '../engine/WaitEngine'
 import type { Meter } from '../engine/metronome'
 import {
-  GOOD_WINDOW_MS,
   TempoEngine,
+  tempoWindows,
   addSettledEvent,
   emptyTempoStats,
   type SettledEvent,
@@ -119,6 +119,8 @@ interface TempoRun {
   endMs: number
   /** The last event index the cursor was moved to. */
   shownIndex: number
+  /** Whether the keyboard shows that event right now (dark between notes). */
+  keysLit: boolean
   rafId: number | null
 }
 
@@ -718,6 +720,7 @@ export function Practice({
         pitches: event.pitches,
         timeMs: originMs + ((event.timestampWholeNotes ?? originWhole) - originWhole) * msPerWhole,
       })),
+      tempoWindows(beatMs),
     )
     tempoRunRef.current = {
       engine,
@@ -728,6 +731,8 @@ export function Practice({
       countInStartMs: originMs - countInMs,
       endMs,
       shownIndex: startIndex,
+      // The first note is lit through the count-in, to place the hands.
+      keysLit: true,
       rafId: null,
     }
     if (!tempoStatsRef.current) {
@@ -795,7 +800,7 @@ export function Practice({
     const run = tempoRunRef.current
     // A key touched during the count-in, well before the first note, is not
     // an attempt at anything.
-    if (!run || event.timestamp < run.originMs - GOOD_WINDOW_MS) {
+    if (!run || event.timestamp < run.originMs - run.engine.windows.goodMs) {
       return
     }
     const outcome = run.engine.noteOn(event.pitch, event.timestamp)
@@ -851,20 +856,29 @@ export function Practice({
       }
     }
 
-    const current = run.engine.currentIndex
-    if (current !== null && current > run.shownIndex) {
-      run.shownIndex = current
-      scoreRef.current?.stepTo(current)
+    // The keyboard follows the rhythm: a note lights up when its window
+    // opens, and goes dark once it is played or missed, until the next one is
+    // due. Showing the next event as soon as the previous one was settled lit
+    // keys whole beats early, which read as "play it now".
+    const due = run.engine.dueIndex(now)
+    if (due !== null && due > run.shownIndex) {
+      run.shownIndex = due
+      run.keysLit = true
+      scoreRef.current?.stepTo(due)
       const wait = waitEngineRef.current
       if (wait) {
         // Kept on the same event, which is what the keyboard, the header and
         // the session record (eventsPlayed) all read.
-        wait.jumpToEventIndex(current)
+        wait.jumpToEventIndex(due)
         setEngineState(wait.state)
         setExpectedPitches(wait.currentExpectedPitches)
         setExpectedHandPitches(handPitchesOf(wait.currentEvent))
       }
       setCurrentMeasure(scoreRef.current?.getCurrentMeasure() ?? 1)
+    } else if (due === null && run.keysLit && now >= run.originMs) {
+      run.keysLit = false
+      setExpectedPitches([])
+      setExpectedHandPitches(handPitchesOf(undefined))
     }
 
     if (run.engine.isFinished && now >= run.endMs) {

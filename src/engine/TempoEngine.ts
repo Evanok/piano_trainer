@@ -10,16 +10,44 @@ export type { TempoStats }
  * stamps its messages with.
  *
  * Each expected note is a slot (an event's pitch). A key press takes the
- * nearest open slot of the same pitch within `GOOD_WINDOW_MS`; one that finds
- * none is a wrong note. An event is settled once every slot is taken, or once
+ * nearest open slot of the same pitch within its window (`tempoWindows`, a
+ * share of the beat); one that finds none is a wrong note. An event is settled once every slot is taken, or once
  * its window has closed with a slot still open (missed). Only onsets are
  * judged: how long a note is held is not.
  */
 
-/** At most this far from the beat counts as on time. */
+/** At most this far from the beat counts as on time (at 120 bpm, see tempoWindows). */
 export const ON_TIME_WINDOW_MS = 70
-/** Beyond this a press is not matched to the note at all. */
+/** Beyond this a press is not matched to the note at all (at 120 bpm, see tempoWindows). */
 export const GOOD_WINDOW_MS = 180
+
+export interface TempoWindows {
+  /** At most this far from the beat counts as on time. */
+  onTimeMs: number
+  /** Beyond this a press is not matched to the note at all. */
+  goodMs: number
+}
+
+export const DEFAULT_TEMPO_WINDOWS: TempoWindows = { onTimeMs: ON_TIME_WINDOW_MS, goodMs: GOOD_WINDOW_MS }
+
+/** Shares of a beat, chosen so 120 bpm gives the fixed windows above. */
+const ON_TIME_BEAT_SHARE = 0.14
+const GOOD_BEAT_SHARE = 0.36
+/** Floors for fast tempos: MIDI and audio latency do not shrink with the beat. */
+const MIN_ON_TIME_MS = 40
+const MIN_GOOD_MS = 100
+
+/**
+ * The windows for a beat length: a share of the beat, so a slow tempo is as
+ * forgiving, in rhythm, as a fast one. A fixed 180ms is a sixteenth at 83 bpm
+ * but under a sixth of a beat at 50, which is far stricter than the music.
+ */
+export function tempoWindows(beatMs: number): TempoWindows {
+  return {
+    onTimeMs: Math.max(MIN_ON_TIME_MS, Math.round(beatMs * ON_TIME_BEAT_SHARE)),
+    goodMs: Math.max(MIN_GOOD_MS, Math.round(beatMs * GOOD_BEAT_SHARE)),
+  }
+}
 
 export type TempoResult = 'onTime' | 'early' | 'late' | 'missed'
 
@@ -53,8 +81,8 @@ interface EventState {
 }
 
 /** Classifies a mean offset; a press outside the window never gets here. */
-export function classifyOffset(offsetMs: number): Exclude<TempoResult, 'missed'> {
-  if (Math.abs(offsetMs) <= ON_TIME_WINDOW_MS) {
+export function classifyOffset(offsetMs: number, onTimeMs = ON_TIME_WINDOW_MS): Exclude<TempoResult, 'missed'> {
+  if (Math.abs(offsetMs) <= onTimeMs) {
     return 'onTime'
   }
   return offsetMs < 0 ? 'early' : 'late'
@@ -65,7 +93,10 @@ export class TempoEngine {
   /** Events before this are all settled, so the scans start here. */
   private firstOpen = 0
 
-  constructor(events: TempoEventInput[]) {
+  readonly windows: TempoWindows
+
+  constructor(events: TempoEventInput[], windows: TempoWindows = DEFAULT_TEMPO_WINDOWS) {
+    this.windows = windows
     this.states = events.map((input) => ({
       input,
       slots: input.pitches.map((pitch) => ({ pitch, offsetMs: null })),
@@ -88,15 +119,25 @@ export class TempoEngine {
     return this.states[this.firstOpen]?.input.pitches ?? []
   }
 
+  /**
+   * The first unsettled event whose window has opened by `nowMs`, or null
+   * while the next one is still ahead: what the keyboard shows, so it lights a
+   * key when that note is due rather than as soon as the previous one is played.
+   */
+  dueIndex(nowMs: number): number | null {
+    const state = this.states[this.firstOpen]
+    return state && state.input.timeMs - this.windows.goodMs <= nowMs ? state.input.index : null
+  }
+
   noteOn(pitch: number, timeMs: number): TempoNoteOutcome {
     let best: { state: EventState; slot: Slot; offsetMs: number } | null = null
     for (let i = this.firstOpen; i < this.states.length; i += 1) {
       const state = this.states[i]
       const offsetMs = timeMs - state.input.timeMs
-      if (offsetMs < -GOOD_WINDOW_MS) {
+      if (offsetMs < -this.windows.goodMs) {
         break // Events are in time order: everything after is further away.
       }
-      if (state.settled || offsetMs > GOOD_WINDOW_MS) {
+      if (state.settled || offsetMs > this.windows.goodMs) {
         continue
       }
       const slot = state.slots.find((candidate) => candidate.pitch === pitch && candidate.offsetMs === null)
@@ -125,7 +166,7 @@ export class TempoEngine {
     const missed: SettledEvent[] = []
     for (let i = this.firstOpen; i < this.states.length; i += 1) {
       const state = this.states[i]
-      if (state.input.timeMs + GOOD_WINDOW_MS >= nowMs) {
+      if (state.input.timeMs + this.windows.goodMs >= nowMs) {
         break
       }
       if (!state.settled) {
@@ -142,7 +183,8 @@ export class TempoEngine {
     const meanOffset = offsets.reduce((sum, value) => sum + value, 0) / offsets.length
     // A chord is on time only if every note of it is: one late finger is late.
     const worst = offsets.reduce((far, value) => (Math.abs(value) > Math.abs(far) ? value : far), 0)
-    const result = classifyOffset(Math.abs(worst) > ON_TIME_WINDOW_MS ? worst : meanOffset)
+    const { onTimeMs } = this.windows
+    const result = classifyOffset(Math.abs(worst) > onTimeMs ? worst : meanOffset, onTimeMs)
     state.settled = { index: state.input.index, result, offsetMs: Math.round(meanOffset) }
     this.skipSettled()
     return state.settled

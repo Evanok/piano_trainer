@@ -34,7 +34,7 @@ export const METER_CHOICES: readonly MeterChoice[] = ['2/4', '3/4', '4/4', '6/8'
 
 /** The shares of the score's tempo offered as a starting speed. */
 export const SCORE_TEMPO_PERCENTS: readonly number[] = [50, 60, 70, 80, 90, 100]
-export const DEFAULT_SCORE_TEMPO_PERCENT = 70
+export const DEFAULT_SCORE_TEMPO_PERCENT = 100
 
 export interface MetronomeSettings {
   bpm: number
@@ -43,7 +43,7 @@ export interface MetronomeSettings {
   volume: number
   /**
    * The share of the score's own tempo a piece starts at, when it states one.
-   * Working a piece is done below its written speed, so 100 is not the default.
+   * Kept per device, so a player who works below tempo picks it once.
    */
   scorePercent: number
 }
