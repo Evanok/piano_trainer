@@ -47,7 +47,7 @@ A piano practice web app ("Wait Mode", Simply-Piano-style): load a MusicXML/`.mx
 
 ## Tech Stack
 
-_Versions verified against `package.json` on 2026-08-18._
+_Versions verified against `package.json` on 2026-08-18 (OSMD on 2026-11-16)._
 
 **Language & runtime**
 - TypeScript ~6.0, React 19.2, Node (pure ESM -- `"type": "module"`), npm
@@ -58,7 +58,7 @@ _Versions verified against `package.json` on 2026-08-18._
 - No component library, no state-management library -- plain `useState`/hooks
 
 **Score rendering & parsing**
-- `opensheetmusicdisplay` 2.1 (OSMD) -- MusicXML engraving, cursor, and the note data the pipeline reads
+- `opensheetmusicdisplay` 2.3 (OSMD) -- MusicXML engraving, cursor, and the note data the pipeline reads
 - `jszip` 3.10 -- unzip compressed `.mxl` containers into raw MusicXML
 - Exercises are **generated MusicXML strings** in-app (`engine/*Generator.ts`), no external music-theory lib
 
@@ -185,7 +185,7 @@ One of the two server-side parts of the app (the other is the stats sync, furthe
 
 3. **`PianoScore`** (imperative handle via `forwardRef`) owns the live `OpenSheetMusicDisplay` instance and all note-coloring. The sheet only ever shows two colors: yellow (`#eab308`, not yet held) and green (`#22c55e`, correct -- persists permanently once completed, `next()` never resets it). There is no "wrong note" color on the sheet itself -- `syncNotes(heldPitches: number[])` just recomputes green/yellow from the engine's actual held pitches every time; a wrong keypress is shown precisely on the `VirtualKeyboard` instead (below), not by reddening other expected notes vaguely. Coloring is done directly on SVG elements (`colorNotes`/`tryColorNoteFast`), not by calling `osmd.render()` per keystroke -- a full render() took ~370ms on a large real-world score. Three non-obvious things this depends on:
    - a chord's notes share one VexFlow SVG group; `vfnoteIndex` picks the correct notehead within it
-   - the notehead's own child `<path>` carries its own explicit `fill` that overrides the parent group's -- both must be set
+   - up to OSMD 2.1 the notehead was a `g.vf-notehead` whose child `<path>` carried its own explicit `fill`, overriding the group's, so both had to be set. Since 2.3 the notehead is a single `path.vf-notehead`; the code still sets both, which covers either structure (a regression check counting green elements sees half as many since the upgrade, and that is why)
    - some notes (seen on complex real scores) have no resolvable graphical reference via the fast path. `colorNotes` sets their `note.NoteheadColor` so a later render (zoom, section crop) can pick it up, but **deliberately does not call `render()` to force the color through**. That fallback used to be there and made things strictly worse on a real 216-measure score whose measures make OSMD log `SkyBottomLineCalculator: width not > 0`: one hand-mode switch ran several full renders of the whole piece (~30s frozen tab, console flooded with that warning), and OSMD's `NoteheadColor`-during-render didn't apply the color anyway, so the yellow "cursor" disappeared entirely. An unreachable note now just stays uncolored until the next render that happens for another reason.
    - `noteColorsRef` is kept as exactly "the notes currently colored away from default" (a `DEFAULT_COLOR` assignment deletes its entry), which is also the set `goToEventIndex` clears. That jump used to walk the cursor over the whole piece collecting every note in it -- O(all notes) instead of O(colored notes), and it fed thousands of never-colored notes through `colorNotes` on every jump.
 

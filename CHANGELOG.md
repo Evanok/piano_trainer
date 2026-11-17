@@ -6,6 +6,15 @@ from `git log` (one line per change; the commits have the details).
 
 Add new entries at the top: `## <Title> (YYYY-MM-DD)`.
 
+## OSMD 2.3.1 (2026-11-16)
+
+- `opensheetmusicdisplay` 2.1.0 to 2.3.1: rendering fixes (overlaps, barlines, dynamics, single horizontal
+  staffline), and its optional native `gl` dependency is gone (60 fewer packages, no node-gyp build).
+- No code change needed. Checked in headless Chromium against 2.1.0 on two catalog scores: full playthroughs
+  (both hands, each hand), loop with jumps inside and outside it, back to start, sudden death and retry, Page
+  free, all identical, with no console warning. The notehead is now a single SVG path instead of a group
+  around one, which the coloring already handled. The score tempo reading still matches all 287 local files.
+
 ## Auto-scroll fixes and tempo from the score (2026-11-16)
 
 - The playhead passes over every note exactly at its time. It moved at a constant speed per measure, which put it
