@@ -52,6 +52,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useBackingTrack } from '../hooks/useBackingTrack'
 import { useWakeLock } from '../hooks/useWakeLock'
 import type { ExpectedEvent } from '../types/score'
+import { attachDevNoteKeys } from '../engine/devNoteKeys'
 import type { MidiNoteEvent } from '../types/midi'
 import type {
   HandMode,
@@ -1144,49 +1145,24 @@ export function Practice({
       setHeldPitches(engine.currentHeldPitches)
     }
     const unsubscribe = onNoteEvent(handleNoteEvent)
-    if (!import.meta.env.DEV) {
-      return unsubscribe
-    }
-    // Development only (import.meta.env.DEV, compiled away in production):
-    // plays without a MIDI keyboard by feeding the same handler a real note
-    // would reach.
-    // `o` plays every expected note not already held (a whole chord at once,
-    // within the chord tolerance), `k` plays one note that is not expected.
-    const handleDebugKey = (keyEvent: KeyboardEvent) => {
-      const target = keyEvent.target as HTMLElement | null
-      if (
-        keyEvent.repeat ||
-        keyEvent.ctrlKey ||
-        keyEvent.metaKey ||
-        keyEvent.altKey ||
-        (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
-      ) {
-        return
-      }
-      const key = keyEvent.key.toLowerCase()
-      if (key !== 'o' && key !== 'k') {
-        return
-      }
-      const engine = waitEngineRef.current
-      const expected = engine?.currentExpectedPitches ?? []
-      const held = engine?.currentHeldPitches ?? []
-      let pitches: number[]
-      if (key === 'o') {
-        pitches = expected.filter((pitch) => !held.includes(pitch))
-      } else {
-        let wrong = (expected[0] ?? 60) + 1
-        while (expected.includes(wrong)) {
-          wrong += 1
+    // Development only: `o` plays the expected notes, `k` a wrong one (see
+    // devNoteKeys). A tempo run is judged by TempoEngine, whose current event
+    // is the first one not settled yet -- the WaitEngine stays on an event
+    // after it has been played, so reading it there would strike it twice.
+    const detachDevKeys = attachDevNoteKeys(
+      () => {
+        const run = tempoRunRef.current
+        if (run) {
+          return { expected: run.engine.currentPitches, held: run.engine.currentPlayedPitches }
         }
-        pitches = [wrong]
-      }
-      const timestamp = performance.now()
-      pitches.forEach((pitch) => handleNoteEvent({ pitch, velocity: 100, timestamp, type: 'noteon' }))
-    }
-    window.addEventListener('keydown', handleDebugKey)
+        const engine = waitEngineRef.current
+        return { expected: engine?.currentExpectedPitches ?? [], held: engine?.currentHeldPitches ?? [] }
+      },
+      (pitch, timestamp) => handleNoteEvent({ pitch, velocity: 100, timestamp, type: 'noteon' }),
+    )
     return () => {
       unsubscribe()
-      window.removeEventListener('keydown', handleDebugKey)
+      detachDevKeys()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNoteEvent, onComplete])

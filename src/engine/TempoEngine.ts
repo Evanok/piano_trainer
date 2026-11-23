@@ -119,6 +119,12 @@ export class TempoEngine {
     return this.states[this.firstOpen]?.input.pitches ?? []
   }
 
+  /** The current event's pitches already struck in this run. */
+  get currentPlayedPitches(): number[] {
+    const state = this.states[this.firstOpen]
+    return state ? state.slots.filter((slot) => slot.offsetMs !== null).map((slot) => slot.pitch) : []
+  }
+
   /**
    * The first unsettled event whose window has opened by `nowMs`, or null
    * while the next one is still ahead: what the keyboard shows, so it lights a

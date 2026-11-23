@@ -37,6 +37,7 @@ import type { ReadingStaffHandle } from '../components/ReadingStaff'
 import { RoundSummary } from '../components/RoundSummary'
 import { VirtualKeyboard } from '../components/VirtualKeyboard'
 import { ChordQuizEngine } from '../engine/ChordQuizEngine'
+import { attachDevNoteKeys } from '../engine/devNoteKeys'
 import type { QuizAnswerResult } from '../engine/ChordQuizEngine'
 import {
   chordInversionLabel,
@@ -282,7 +283,7 @@ function ChordQuizRound({
   // One listener for the whole screen, registered once: it reads the engine
   // through its ref, so it never closes over a stale question or a stale step.
   useEffect(() => {
-    return onNoteEvent((event) => {
+    const handleNoteEvent = (event: MidiNoteEvent) => {
       if (event.type !== 'noteon') {
         return
       }
@@ -302,7 +303,22 @@ function ChordQuizRound({
           current.includes(event.pitch) ? current : [...current, event.pitch],
         ),
       )
-    })
+    }
+    const unsubscribe = onNoteEvent(handleNoteEvent)
+    // Development only: `o` plays the chord, `k` a wrong key (see devNoteKeys).
+    const detachDevKeys = attachDevNoteKeys(
+      () => {
+        const engine = engineRef.current
+        return engine.currentStep === 'play'
+          ? { expected: engine.expectedPlayPitches, held: engine.heldPlayPitches }
+          : { expected: [], held: [] }
+      },
+      (pitch, timestamp) => handleNoteEvent({ pitch, velocity: 100, timestamp, type: 'noteon' }),
+    )
+    return () => {
+      unsubscribe()
+      detachDevKeys()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNoteEvent, persistSession])
 
